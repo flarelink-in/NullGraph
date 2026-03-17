@@ -37,6 +37,13 @@ When building massive, chunk-streaming open worlds, this OOP overhead causes:
   No mid-game shader compilation stutters.
 
 ---
+## Prototype / Test Engine
+
+You can explore a working prototype of NullGraph here:  
+https://github.com/Vikas593-cloud/NullGraph-Test-Engine.git
+
+This repository demonstrates the rendering pipeline, ECS buffer layout, and real-time WebGPU integration in action.
+
 
 ## Installation
 
@@ -54,7 +61,6 @@ You define the **Stride** (how many floats per entity) and the **Offsets** (wher
 ---
 
 ## Quick Start
-
 ### TypeScript
 
 ```ts
