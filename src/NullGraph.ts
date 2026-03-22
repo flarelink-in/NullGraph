@@ -1,16 +1,26 @@
+// src/NullGraph.ts
 import { Camera } from './Camera';
+
+export interface PipelineConfig {
+    shaderCode: string;
+    strideFloats: number;
+    maxInstances: number;
+    topology?: GPUPrimitiveTopology;
+}
 
 export class NullGraph {
     private device!: GPUDevice;
     private context!: GPUCanvasContext;
+    private format!: GPUTextureFormat;
+
+    // We now store pipeline data dynamically
     private pipeline!: GPURenderPipeline;
-    private entityStorageBuffer!: GPUBuffer;
+    private storageBuffer!: GPUBuffer;
     private cameraUniformBuffer!: GPUBuffer;
     private bindGroup!: GPUBindGroup;
 
-    // 56 bytes per entity = 14 floats
-    private readonly STRIDE_FLOATS = 14;
-    private currentEntityCount = 0;
+    private currentStride = 0;
+    private currentInstanceCount = 0;
 
     public async init(canvas: HTMLCanvasElement) {
         const adapter = await navigator.gpu?.requestAdapter();
@@ -18,93 +28,42 @@ export class NullGraph {
         this.device = await adapter.requestDevice();
         this.context = canvas.getContext('webgpu') as GPUCanvasContext;
 
-        const format = navigator.gpu.getPreferredCanvasFormat();
-        this.context.configure({ device: this.device, format });
+        this.format = navigator.gpu.getPreferredCanvasFormat();
+        this.context.configure({ device: this.device, format: this.format });
 
-        // 1. Create Shader (Notice the Camera Uniform is added)
+        // Setup Camera Uniform (This is universal, so we keep it here)
+        this.cameraUniformBuffer = this.device.createBuffer({
+            size: 16 * 4,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+    }
+
+    // NEW: The user tells the engine how to render their data
+    public createPipeline(config: PipelineConfig) {
+        this.currentStride = config.strideFloats;
+
         const shaderModule = this.device.createShaderModule({
-            code: `
-                struct CameraUniform {
-                    viewProj: mat4x4<f32>,
-                };
-                @group(0) @binding(0) var<uniform> camera: CameraUniform;
-                @group(0) @binding(1) var<storage, read> ecsData: array<f32>;
-
-                struct VertexOutput {
-                    @builtin(position) position: vec4<f32>,
-                    @location(0) color: vec3<f32>,
-                };
-
-                // Simple Triangle
-                var<private> triVerts: array<vec3<f32>, 3> = array<vec3<f32>, 3>(
-                    vec3<f32>(-0.5, -0.5, 0.0),
-                    vec3<f32>( 0.5, -0.5, 0.0),
-                    vec3<f32>( 0.0,  0.5, 0.0)
-                );
-
-                @vertex
-                fn vs_main(@builtin(vertex_index) vIdx: u32, @builtin(instance_index) iIdx: u32) -> VertexOutput {
-                    var out: VertexOutput;
-                    let baseIndex = iIdx * 14u; // Stride
-
-                    let posX = ecsData[baseIndex + 1u];
-                    let posY = ecsData[baseIndex + 2u];
-                    let posZ = ecsData[baseIndex + 3u];
-                    
-                    let scaleX = ecsData[baseIndex + 8u];
-                    let scaleY = ecsData[baseIndex + 9u];
-                    let scaleZ = ecsData[baseIndex + 10u];
-
-                    let r = ecsData[baseIndex + 11u];
-                    let g = ecsData[baseIndex + 12u];
-                    let b = ecsData[baseIndex + 13u];
-
-                    let vert = triVerts[vIdx];
-                    let worldPos = vec3<f32>(
-                        (vert.x * scaleX) + posX,
-                        (vert.y * scaleY) + posY,
-                        (vert.z * scaleZ) + posZ
-                    );
-
-                    // Apply Camera ViewProjection
-                    out.position = camera.viewProj * vec4<f32>(worldPos, 1.0);
-                    out.color = vec3<f32>(r, g, b);
-                    return out;
-                }
-
-                @fragment
-                fn fs_main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
-                    return vec4<f32>(color, 1.0);
-                }
-            `
+            code: config.shaderCode
         });
 
-        // 2. Create Render Pipeline
         this.pipeline = this.device.createRenderPipeline({
             layout: 'auto',
             vertex: { module: shaderModule, entryPoint: 'vs_main' },
-            fragment: { module: shaderModule, entryPoint: 'fs_main', targets: [{ format }] },
-            primitive: { topology: 'triangle-list' }
+            fragment: { module: shaderModule, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+            primitive: { topology: config.topology || 'triangle-list' }
         });
 
-        // 3. Create GPU Buffers
-        const maxEntities = 50000;
-        this.entityStorageBuffer = this.device.createBuffer({
-            size: maxEntities * this.STRIDE_FLOATS * 4,
+        // Create the storage buffer based on user's max instances
+        this.storageBuffer = this.device.createBuffer({
+            size: config.maxInstances * config.strideFloats * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
-        this.cameraUniformBuffer = this.device.createBuffer({
-            size: 16 * 4, // 16 floats for mat4
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-
-        // 4. Create Bind Group
         this.bindGroup = this.device.createBindGroup({
             layout: this.pipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: this.cameraUniformBuffer } },
-                { binding: 1, resource: { buffer: this.entityStorageBuffer } }
+                { binding: 1, resource: { buffer: this.storageBuffer } }
             ]
         });
     }
@@ -113,25 +72,26 @@ export class NullGraph {
         this.device.queue.writeBuffer(
             this.cameraUniformBuffer,
             0,
-            camera.bufferData.buffer, // <-- .buffer extracts the raw ArrayBuffer
+            camera.bufferData.buffer,
             camera.bufferData.byteOffset,
-            16 * 4 // Size in bytes
+            16 * 4
         );
     }
 
-    public updateEntities(rawECSBuffer: Float32Array, entityCount: number) {
-        this.currentEntityCount = entityCount;
+    // NEW: Renamed to generic "Data" instead of "Entities"
+    public updateData(rawData: Float32Array, instanceCount: number) {
+        this.currentInstanceCount = instanceCount;
         this.device.queue.writeBuffer(
-            this.entityStorageBuffer,
+            this.storageBuffer,
             0,
-            rawECSBuffer.buffer, // <-- .buffer extracts the raw ArrayBuffer
-            rawECSBuffer.byteOffset,
-            entityCount * this.STRIDE_FLOATS * 4 // Size in bytes
+            rawData.buffer,
+            rawData.byteOffset,
+            instanceCount * this.currentStride * 4
         );
     }
 
     public render() {
-        if (this.currentEntityCount === 0) return;
+        if (this.currentInstanceCount === 0 || !this.pipeline) return;
 
         const commandEncoder = this.device.createCommandEncoder();
         const passEncoder = commandEncoder.beginRenderPass({
@@ -145,7 +105,8 @@ export class NullGraph {
 
         passEncoder.setPipeline(this.pipeline);
         passEncoder.setBindGroup(0, this.bindGroup);
-        passEncoder.draw(3, this.currentEntityCount, 0, 0);
+        // Draw 3 vertices per instance
+        passEncoder.draw(3, this.currentInstanceCount, 0, 0);
         passEncoder.end();
 
         this.device.queue.submit([commandEncoder.finish()]);
