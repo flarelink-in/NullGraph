@@ -4,3 +4,4 @@ test
 dist
 .idea
 test
+.env
