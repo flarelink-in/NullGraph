@@ -1,4 +1,4 @@
-# NullGraph
+# NullGraph Engine
 
 **Zero scene graph. Zero copy. Infinite scale.**
 > A Data-Oriented WebGPU rendering framework for massive web worlds.
@@ -10,73 +10,41 @@ It completely abandons the traditional Object-Oriented *Scene Graph* (`Root -> N
 If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph ensures your main thread stays at a flat **0ms overhead**.
 
 ---
-![img.png](img.png)
-## Why NullGraph?
 
-Traditional WebGL frameworks (like Three.js or Babylon.js) are built for ease of use, heavily relying on:
-- `new` keyword allocations
-- Dynamic memory
-- Garbage Collection (GC)
+## ⚡ Why NullGraph?
 
-When building massive, chunk-streaming open worlds, this OOP overhead causes:
-- Main-thread stuttering
-- Shader compilation lag
+Traditional WebGL frameworks (like Three.js or Babylon.js) are built for ease of use, heavily relying on the `new` keyword, dynamic memory, and Garbage Collection. When scaling up to massive open worlds, this OOP overhead causes main-thread stuttering and shader compilation lag.
 
-### NullGraph solves this by doing less:
-
-- **Zero Scene Graph**  
-  No `.traverse()`, no `.updateMatrixWorld()`. The GPU reads your flat array.
-
-- **Zero-Copy Streaming**  
-  Calculate your ECS layout in a Web Worker, pass the `ArrayBuffer` to the main thread, and upload directly to VRAM.
-
-- **No GC Spikes**  
-  Memory is pre-allocated. No runtime object creation or destruction.
-
-- **Predictable WebGPU Pipelines**  
-  No mid-game shader compilation stutters.
+**NullGraph solves this by doing less:**
+- **Zero Scene Graph:** No `.traverse()`, no `.updateMatrixWorld()`. The GPU reads your flat array directly.
+- **Zero-Copy Streaming:** Calculate your ECS layout in a Web Worker, pass the `Float32Array` to the main thread, and blast it straight to VRAM.
+- **Render Queues (Batches):** Render thousands of unique object types simultaneously with minimal GPU state changes.
+- **No GC Spikes:** Memory is pre-allocated. No runtime object creation or destruction.
 
 ---
-## Prototype / Test Engine
-
-You can explore a working prototype of NullGraph here:  
-https://github.com/Vikas593-cloud/NullGraph-Test-Engine.git
-
-This repository demonstrates the rendering pipeline, ECS buffer layout, and real-time WebGPU integration in action.
-
-
-## Installation
-
-> ⚠️ Currently in pre-release development
-
-```bash
-npm install null-graph gl-matrix
-```
-# NullGraph Engine
-
-NullGraph is a high-performance, Data-Oriented WebGPU rendering engine designed for the Axion Engine.
-
-It bypasses traditional object-oriented overhead by assuming a tight Entity Component System (ECS) architecture. Entity data is packed directly into flat `Float32Arrays` (or passed directly from a Rust/C++ WebAssembly module) and blasted straight to VRAM.
 
 ##  The Architecture Demo Suite
 
-NullGraph now includes a built-in interactive dashboard to test and benchmark different memory layouts and compute paradigms in real-time.
+**Play the Live Demo:** [null-graph.web.app](https://null-graph.web.app/)
 
-**Play the Live Demo:**[null-graph.web.app](https://null-graph.web.app/)
+NullGraph includes an interactive dashboard to test and benchmark different memory layouts and compute paradigms in real-time. Explore the following patterns:
 
-Launch the UI to explore the following architectural patterns:
+### Memory Layout Benchmarks
+* **AoS (Array of Structs):** The standard DOD baseline.
+* **SoA (Struct of Arrays):** Cache-friendly contiguous memory maximizing CPU cache hits.
+* **AoSoA (Chunked SoA):** The AAA industry standard aligning with CPU L1 cache lines for SIMD auto-vectorization.
+* **OOP Scene Graph:** A purposeful stress-test demonstrating the CPU bottleneck of traditional pointer-chasing and recursive math.
 
-* **AoS (Array of Structs):** The standard DOD baseline. Data is packed as `[PosX, PosY, PosZ, ScaleX..., ColorR...]` per entity.
-* **SoA (Struct of Arrays):** Cache-friendly contiguous memory. Arrays are separated by component type `[Pos1, Pos2...]`, `[Scale1, Scale2...]`, maximizing CPU cache hits.
-* **AoSoA (Chunked SoA):** The AAA industry standard. Memory is chunked into blocks of 16 entities (64 bytes), perfectly aligning with CPU L1 cache lines and enabling SIMD auto-vectorization.
-* **OOP Scene Graph:** A traditional hierarchical tree `Node -> Children`. Included specifically to benchmark and demonstrate the CPU bottleneck of pointer-chasing and recursive matrix math.
-* **GPU Compute Animation:** Offloads simulation entirely to the GPU via Uniform buffers. The CPU handles zero per-frame math, achieving massive instance counts with almost no CPU time.
+### Advanced Rendering Demos
+* **3D Lighting & Depth:** Demonstrates Z-Buffer occlusion and Dot-Product normal lighting entirely within the shader.
+* **Space Fleet (Multi-Batch):** Showcases the Render Queue architecture, Object Pooling, and rendering distinct geometries (Ships, Asteroids, Lasers) in a single pass.
+* **Voxel Fireworks (DOD Physics):** Simulates 15,000+ physics-driven particles by separating CPU-side physics state arrays from GPU-side render buffers.
 
 ---
 
-##  Quick Start (AoS Implementation)
+##  Quick Start (Batch Rendering)
 
-Define your **Stride** (floats per entity) and **Offsets** (where position, scale, and color live). The WebGPU WGSL shader reads this storage buffer directly to instance your geometry.
+NullGraph uses a **Render Batch** architecture. You define the 3D geometry once, set up your WGSL shader pipeline, and then blast your ECS array to the GPU every frame.
 
 ```ts
 import { NullGraph, Camera } from 'null-graph';
@@ -88,34 +56,46 @@ async function init() {
     const engine = new NullGraph();
     await engine.init(canvas);
 
-    // 2. Setup Camera (Powered by gl-matrix)
     const camera = new Camera(75, canvas.width / canvas.height, 0.1, 1000.0);
     camera.updateView([0, 20, 80], [0, 0, 0]);
     engine.updateCamera(camera);
 
-    // 3. Generate DOD ArrayBuffer
-    const entityCount = 10000;
-    const strideFloats = 14; 
-    const ecsBuffer = new Float32Array(entityCount * strideFloats);
+    // 2. Upload Static Geometry via BufferManager
+    const vertices = new Float32Array([...]); // [X,Y,Z, NormalX,NormalY,NormalZ...]
+    const indices = new Uint16Array([...]);
+    
+    const vbo = engine.bufferManager.createVertexBuffer(vertices);
+    const ibo = engine.bufferManager.createIndexBuffer(indices);
 
-    // Populate buffer (In production, this comes from your ECS or WASM Worker)
-    for (let i = 0; i < entityCount; i++) {
-        const base = i * strideFloats;
-        ecsBuffer[base + 1] = (Math.random() - 0.5) * 100; // X
-        ecsBuffer[base + 2] = (Math.random() - 0.5) * 100; // Y
-        ecsBuffer[base + 3] = (Math.random() - 0.5) * 100; // Z
-        
-        ecsBuffer[base + 8] = 1.0;  // Scale X
-        ecsBuffer[base + 9] = 1.0;  // Scale Y
-        ecsBuffer[base + 10] = 1.0; // Scale Z
-    }
+    // 3. Create a Render Batch
+    const myBatch = engine.createBatch({
+        shaderCode: `/* Your WGSL Code Here */`,
+        strideFloats: 14,
+        maxInstances: 10000,
+        vertexLayouts: [{
+            arrayStride: 24, // 6 floats * 4 bytes
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: 'float32x3' },  // Position
+                { shaderLocation: 1, offset: 12, format: 'float32x3' }  // Normal
+            ]
+        }]
+    });
+    
+    // Attach geometry to the batch
+    engine.setBatchGeometry(myBatch, vbo, ibo, indices.length);
 
-    // 4. Blast directly to VRAM
-    engine.updateData(ecsBuffer, entityCount);
+    // 4. Generate DOD ArrayBuffer (From your ECS)
+    const MAX_INSTANCES = 10000;
+    const ecsBuffer = new Float32Array(MAX_INSTANCES * 14);
+    // ... Populate buffer with [PosX, PosY, PosZ, ...Scale, ...Color] ...
 
     // 5. Render Loop
     function frame() {
-        engine.render();
+        // Update the specific batch with new data
+        engine.updateBatchData(myBatch, ecsBuffer, MAX_INSTANCES);
+        
+        // Let NullGraph iterate the render queue
+        engine.render(); 
         requestAnimationFrame(frame);
     }
 
@@ -124,16 +104,21 @@ async function init() {
 
 init();
 ```
-### Roadmap
-#### NullGraph is currently in active development. Upcoming features include:
+## Roadmap
+NullGraph is in active development for the Axion Engine.
 
--[ ] Depth / Z-Buffer Integration (Proper 3D occlusion)
+-[x] Multi-Object Render Queue / Batching
 
--[ ] Custom WGSL Material Injection (Passing Material IDs via the ECS buffer)
+-[x] Depth / Z-Buffer Integration (Proper 3D occlusion)
 
--[ ] Raw GLTF Buffer Parsing (Extracting static vertex arrays from models)
+-[x] VBO/IBO Geometry Buffer Manager
 
--[ ] Directional Shadows
-## License
+-[ ] PBR Textures & Material ID Injection
+-[ ] Raw GLTF Mesh Parsing
 
+-[ ] Directional Shadows / Cascaded Shadow Maps
+
+-[ ] GPU Compute Frustum Culling
+
+### License
 NullGraph is released under the MIT License.

@@ -1,6 +1,6 @@
 {
   "name": "null-graph",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
