@@ -52,16 +52,31 @@ This repository demonstrates the rendering pipeline, ECS buffer layout, and real
 ```bash
 npm install null-graph gl-matrix
 ```
-# NullGraph Architecture
+# NullGraph Engine
 
-NullGraph assumes you are running a tight ECS where entity data is packed into a flat `Float32Array` (or passed directly from a Rust/C++ WebAssembly module).
+NullGraph is a high-performance, Data-Oriented WebGPU rendering engine designed for the Axion Engine.
 
-You define the **Stride** (how many floats per entity) and the **Offsets** (where position, scale, and color live). The WebGPU WGSL shader reads this storage buffer directly to instance your geometry.
+It bypasses traditional object-oriented overhead by assuming a tight Entity Component System (ECS) architecture. Entity data is packed directly into flat `Float32Arrays` (or passed directly from a Rust/C++ WebAssembly module) and blasted straight to VRAM.
+
+##  The Architecture Demo Suite
+
+NullGraph now includes a built-in interactive dashboard to test and benchmark different memory layouts and compute paradigms in real-time.
+
+**Play the Live Demo:**[null-graph.web.app](https://null-graph.web.app/)
+
+Launch the UI to explore the following architectural patterns:
+
+* **AoS (Array of Structs):** The standard DOD baseline. Data is packed as `[PosX, PosY, PosZ, ScaleX..., ColorR...]` per entity.
+* **SoA (Struct of Arrays):** Cache-friendly contiguous memory. Arrays are separated by component type `[Pos1, Pos2...]`, `[Scale1, Scale2...]`, maximizing CPU cache hits.
+* **AoSoA (Chunked SoA):** The AAA industry standard. Memory is chunked into blocks of 16 entities (64 bytes), perfectly aligning with CPU L1 cache lines and enabling SIMD auto-vectorization.
+* **OOP Scene Graph:** A traditional hierarchical tree `Node -> Children`. Included specifically to benchmark and demonstrate the CPU bottleneck of pointer-chasing and recursive matrix math.
+* **GPU Compute Animation:** Offloads simulation entirely to the GPU via Uniform buffers. The CPU handles zero per-frame math, achieving massive instance counts with almost no CPU time.
 
 ---
 
-## Quick Start
-### TypeScript
+##  Quick Start (AoS Implementation)
+
+Define your **Stride** (floats per entity) and **Offsets** (where position, scale, and color live). The WebGPU WGSL shader reads this storage buffer directly to instance your geometry.
 
 ```ts
 import { NullGraph, Camera } from 'null-graph';
@@ -78,27 +93,27 @@ async function init() {
     camera.updateView([0, 20, 80], [0, 0, 0]);
     engine.updateCamera(camera);
 
-    // 3. Generate or Receive DOD ArrayBuffer (e.g., from a Web Worker)
+    // 3. Generate DOD ArrayBuffer
     const entityCount = 10000;
     const strideFloats = 14; 
     const ecsBuffer = new Float32Array(entityCount * strideFloats);
 
-    // Example: Populate buffer (In production, this comes from your ECS Worker)
+    // Populate buffer (In production, this comes from your ECS or WASM Worker)
     for (let i = 0; i < entityCount; i++) {
         const base = i * strideFloats;
         ecsBuffer[base + 1] = (Math.random() - 0.5) * 100; // X
         ecsBuffer[base + 2] = (Math.random() - 0.5) * 100; // Y
         ecsBuffer[base + 3] = (Math.random() - 0.5) * 100; // Z
         
-        ecsBuffer[base + 8] = 1.0; // Scale X
-        ecsBuffer[base + 9] = 1.0; // Scale Y
+        ecsBuffer[base + 8] = 1.0;  // Scale X
+        ecsBuffer[base + 9] = 1.0;  // Scale Y
         ecsBuffer[base + 10] = 1.0; // Scale Z
     }
 
     // 4. Blast directly to VRAM
-    engine.updateEntities(ecsBuffer, entityCount);
+    engine.updateData(ecsBuffer, entityCount);
 
-    // 5. Render Loop (Zero CPU overhead)
+    // 5. Render Loop
     function frame() {
         engine.render();
         requestAnimationFrame(frame);
@@ -109,17 +124,16 @@ async function init() {
 
 init();
 ```
-## Roadmap
+### Roadmap
+#### NullGraph is currently in active development. Upcoming features include:
 
-NullGraph is currently in active development for the Axion Engine. Upcoming features include:
+-[ ] Depth / Z-Buffer Integration (Proper 3D occlusion)
 
-- [ ] Depth / Z-Buffer Integration (Proper 3D occlusion)
-- [ ] Custom WGSL Material Injection (Passing Material IDs via the ECS buffer)
-- [ ] Raw GLTF Buffer Parsing (Extracting static vertex arrays from models)
-- [ ] Directional Shadows
+-[ ] Custom WGSL Material Injection (Passing Material IDs via the ECS buffer)
 
----
+-[ ] Raw GLTF Buffer Parsing (Extracting static vertex arrays from models)
 
+-[ ] Directional Shadows
 ## License
 
 NullGraph is released under the MIT License.
