@@ -1,20 +1,24 @@
 {
   "name": "null-graph",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
   "license": "ISC",
   "main": "dist/index.js",
   "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "dist/core/index.d.ts",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/core/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./geometry": {
+      "types": "./dist/extras/geometry/index.d.ts",
+      "import": "./dist/geometry.js"
     }
   },
   "scripts": {
@@ -27,9 +31,8 @@
     "build:test": "npm run clean && npm run build:lib:prod && npm run bundle:test-ui && npm run postbuild:test",
     "dev:serve": "node dev-server.js",
     "dev:serve:nosab": "node dev-server.js --no-sab",
-    "watch:lib": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=browser --format=esm --sourcemap --watch",
+    "watch:lib": "node build.js && tsc --watch",
     "watch:test-ui": "esbuild test/javascript/index.js --bundle --outfile=dist-web-test/index.js --platform=browser --format=esm --sourcemap --watch",
-
     "dev": "concurrently \"npm run watch:lib\" \"npm run watch:test-ui\" \"npm run dev:serve\"",
     "preview": "npx serve dist-web-test"
   },
