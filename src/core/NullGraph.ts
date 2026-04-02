@@ -10,11 +10,13 @@ export interface PipelineConfig {
     vertexLayouts?: GPUVertexBufferLayout[];
     topology?: GPUPrimitiveTopology;
 
-    // NEW: Optional properties for GPU-driven rendering
+    // Optional properties for GPU-driven rendering
     isIndirect?: boolean;
     computeShaderCode?: string;
     sharedSourceBuffer?: GPUBuffer;
     extraBindGroup?: GPUBindGroup;
+
+    targetFormat?: GPUTextureFormat;
 }
 
 export class RenderBatch {
@@ -135,7 +137,7 @@ export class NullGraph {
         // In the future, you should add `colorFormat?: GPUTextureFormat` to RenderPassConfig
         // so offscreen passes can explicitly declare what format they are drawing to.
         // For now, we safely default to the canvas format.
-        let targetFormat = pass.colorAttachments?.[0]?.view ? this.format : this.format;
+        let targetFormat = config.targetFormat || this.format;
         // If it's an offscreen pass with custom color attachments, use the first attachment's format
         if (!pass.isMainScreenPass && pass.colorAttachments.length > 0 && pass.colorAttachments[0].view) {
             // Note: In a robust engine, you'd pass the specific target format in PipelineConfig.
