@@ -384,9 +384,287 @@ export class Primitives {
 
         return new Geometry(layout, vertices, indices);
     }
+    public static createIcosahedron(layout: VertexLayout, radius: number): Geometry {
+        // Golden ratio
+        const t = (1 + Math.sqrt(5)) / 2;
 
-    // // Generates a sphere with dynamic resolution
-    // public static createSphere(layout: VertexLayout, radius: number, widthSegments: number, heightSegments: number): Geometry {
-    //     // Trigonometry logic to generate rings of vertices
-    // }
+        // Normalize helper
+        const normalize = (v: number[]) => {
+            const len = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+            return [v[0]/len * radius, v[1]/len * radius, v[2]/len * radius];
+        };
+
+        // 12 vertices of an icosahedron
+        const rawVerts = [
+            [-1,  t,  0], [ 1,  t,  0], [-1, -t,  0], [ 1, -t,  0],
+            [ 0, -1,  t], [ 0,  1,  t], [ 0, -1, -t], [ 0,  1, -t],
+            [ t,  0, -1], [ t,  0,  1], [-t,  0, -1], [-t,  0,  1]
+        ].map(normalize);
+
+        // 20 triangular faces (indices into rawVerts)
+        const faces = [
+            [0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],
+            [1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
+            [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],
+            [4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]
+        ];
+
+        // Normal calculation
+        const calcNormal = (v0: number[], v1: number[], v2: number[]) => {
+            const dx1 = v1[0] - v0[0], dy1 = v1[1] - v0[1], dz1 = v1[2] - v0[2];
+            const dx2 = v2[0] - v0[0], dy2 = v2[1] - v0[1], dz2 = v2[2] - v0[2];
+
+            const nx = dy1 * dz2 - dz1 * dy2;
+            const ny = dz1 * dx2 - dx1 * dz2;
+            const nz = dx1 * dy2 - dy1 * dx2;
+
+            const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+            return [nx/len, ny/len, nz/len];
+        };
+
+        // 20 faces × 3 vertices
+        const numVertices = 60;
+        const vertices = new Float32Array(numVertices * layout.strideFloats);
+        let vIdx = 0;
+
+        // Simple triangle UVs
+        const uvs = [[0, 0], [1, 0], [0.5, 1]];
+
+        for (let f = 0; f < faces.length; f++) {
+            const [i0, i1, i2] = faces[f];
+
+            const v0 = rawVerts[i0];
+            const v1 = rawVerts[i1];
+            const v2 = rawVerts[i2];
+
+            const normal = calcNormal(v0, v1, v2);
+
+            const tri = [v0, v1, v2];
+
+            for (let v = 0; v < 3; v++) {
+                const pos = tri[v];
+                const uv = uvs[v];
+
+                for (const attr of layout.attributes) {
+                    switch (attr) {
+                        case VertexAttribute.Position:
+                            vertices[vIdx++] = pos[0];
+                            vertices[vIdx++] = pos[1];
+                            vertices[vIdx++] = pos[2];
+                            break;
+                        case VertexAttribute.Normal:
+                            vertices[vIdx++] = normal[0];
+                            vertices[vIdx++] = normal[1];
+                            vertices[vIdx++] = normal[2];
+                            break;
+                        case VertexAttribute.UV:
+                            vertices[vIdx++] = uv[0];
+                            vertices[vIdx++] = uv[1];
+                            break;
+                        case VertexAttribute.Color:
+                            vertices[vIdx++] = 1.0;
+                            vertices[vIdx++] = 1.0;
+                            vertices[vIdx++] = 1.0;
+                            vertices[vIdx++] = 1.0;
+                            break;
+                    }
+                }
+            }
+        }
+
+        // Indices (no sharing → flat shading)
+        const indices = new Uint16Array(60);
+        for (let i = 0; i < 60; i++) {
+            indices[i] = i;
+        }
+
+        return new Geometry(layout, vertices, indices);
+    }
+
+    public static createSphere(
+        layout: VertexLayout,
+        radius: number,
+        widthSegments: number,
+        heightSegments: number
+    ): Geometry {
+
+        widthSegments = Math.max(3, Math.floor(widthSegments));
+        heightSegments = Math.max(2, Math.floor(heightSegments));
+
+        const vertices: number[] = [];
+        const indices: number[] = [];
+
+        const grid: number[][] = [];
+
+        let index = 0;
+
+        // Generate vertices
+        for (let y = 0; y <= heightSegments; y++) {
+            const v = y / heightSegments;
+            const theta = v * Math.PI;
+
+            const row: number[] = [];
+
+            for (let x = 0; x <= widthSegments; x++) {
+                const u = x / widthSegments;
+                const phi = u * Math.PI * 2;
+
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+                const sinPhi = Math.sin(phi);
+                const cosPhi = Math.cos(phi);
+
+                const px = radius * sinTheta * cosPhi;
+                const py = radius * cosTheta;
+                const pz = radius * sinTheta * sinPhi;
+
+                const nx = sinTheta * cosPhi;
+                const ny = cosTheta;
+                const nz = sinTheta * sinPhi;
+
+                // Write attributes based on layout
+                for (const attr of layout.attributes) {
+                    switch (attr) {
+                        case VertexAttribute.Position:
+                            vertices.push(px, py, pz);
+                            break;
+                        case VertexAttribute.Normal:
+                            vertices.push(nx, ny, nz);
+                            break;
+                        case VertexAttribute.UV:
+                            vertices.push(u, 1 - v);
+                            break;
+                        case VertexAttribute.Color:
+                            vertices.push(1, 1, 1, 1);
+                            break;
+                    }
+                }
+
+                row.push(index++);
+            }
+
+            grid.push(row);
+        }
+
+        // Generate indices
+        for (let y = 0; y < heightSegments; y++) {
+            for (let x = 0; x < widthSegments; x++) {
+
+                const a = grid[y][x + 1];
+                const b = grid[y][x];
+                const c = grid[y + 1][x];
+                const d = grid[y + 1][x + 1];
+
+                // Two triangles per quad
+                if (y !== 0) {
+                    indices.push(a, b, d);
+                }
+
+                if (y !== heightSegments - 1) {
+                    indices.push(b, c, d);
+                }
+            }
+        }
+
+        return new Geometry(
+            layout,
+            new Float32Array(vertices),
+            new Uint16Array(indices)
+        );
+    }
+
+    public static createTorus(
+        layout: VertexLayout,
+        radius: number,
+        tubeRadius: number,
+        radialSegments: number,
+        tubularSegments: number
+    ): Geometry {
+        // Enforce minimum segment counts to form a complete shape
+        radialSegments = Math.max(3, Math.floor(radialSegments));
+        tubularSegments = Math.max(3, Math.floor(tubularSegments));
+
+        const vertices: number[] = [];
+        const indices: number[] = [];
+        const grid: number[][] = [];
+
+        let index = 0;
+
+        // 1. Generate vertices
+        // j loops around the cross-section of the tube (radial)
+        for (let j = 0; j <= radialSegments; j++) {
+            const v = j / radialSegments;
+            const phi = v * Math.PI * 2; // Angle around the tube
+
+            const cosPhi = Math.cos(phi);
+            const sinPhi = Math.sin(phi);
+
+            const row: number[] = [];
+
+            // i loops around the main ring of the torus (tubular)
+            for (let i = 0; i <= tubularSegments; i++) {
+                const u = i / tubularSegments;
+                const theta = u * Math.PI * 2; // Angle around the center hole
+
+                const cosTheta = Math.cos(theta);
+                const sinTheta = Math.sin(theta);
+
+                // Calculate Position
+                // (radius + tubeRadius * cosPhi) dictates the distance from the Y-axis center
+                const px = (radius + tubeRadius * cosPhi) * cosTheta;
+                const py = tubeRadius * sinPhi;
+                const pz = (radius + tubeRadius * cosPhi) * sinTheta;
+
+                // Calculate Normal
+                // The normal is the normalized vector pointing from the tube's center to the surface
+                const nx = cosPhi * cosTheta;
+                const ny = sinPhi;
+                const nz = cosPhi * sinTheta;
+
+                // THE MAGIC: Write attributes based on layout dynamically
+                for (const attr of layout.attributes) {
+                    switch (attr) {
+                        case VertexAttribute.Position:
+                            vertices.push(px, py, pz);
+                            break;
+                        case VertexAttribute.Normal:
+                            vertices.push(nx, ny, nz);
+                            break;
+                        case VertexAttribute.UV:
+                            vertices.push(u, 1 - v); // 1-v matches typical Y-down UV mapping
+                            break;
+                        case VertexAttribute.Color:
+                            // Default to white if a color attribute is requested
+                            vertices.push(1.0, 1.0, 1.0, 1.0);
+                            break;
+                    }
+                }
+
+                row.push(index++);
+            }
+
+            grid.push(row);
+        }
+
+        // 2. Generate indices
+        for (let j = 0; j < radialSegments; j++) {
+            for (let i = 0; i < tubularSegments; i++) {
+                // Grab the 4 corners of the current quad from the grid
+                const a = grid[j][i + 1];
+                const b = grid[j][i];
+                const c = grid[j + 1][i];
+                const d = grid[j + 1][i + 1];
+
+                // Connect the 4 vertices into 2 triangles using Counter-Clockwise (CCW) winding
+                indices.push(a, b, d);
+                indices.push(b, c, d);
+            }
+        }
+
+        return new Geometry(
+            layout,
+            new Float32Array(vertices),
+            new Uint32Array(indices)
+        );
+    }
 }

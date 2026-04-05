@@ -1,4 +1,5 @@
-import {RenderBatch} from "./NullGraph";
+import {RenderBatch} from "./types";
+
 
 export interface RenderPassConfig {
     name: string;

@@ -12,7 +12,7 @@ export class Geometry {
     public vertexBuffer: GPUBuffer | null = null;
     public indexBuffer: GPUBuffer | null = null;
 
-    constructor(layout: VertexLayout, vertices: Float32Array, indices: Uint16Array) {
+    constructor(layout: VertexLayout, vertices: Float32Array, indices: Uint16Array | Uint32Array) {
         this.layout = layout;
         this.vertices = vertices;
         this.indices = indices;
