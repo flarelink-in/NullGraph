@@ -23,4 +23,15 @@ export class Geometry {
         this.vertexBuffer = engine.bufferManager.createVertexBuffer(this.vertices);
         this.indexBuffer = engine.bufferManager.createIndexBuffer(this.indices);
     }
+    public destroy() {
+        if (this.vertexBuffer) {
+            this.vertexBuffer.destroy();
+            this.vertexBuffer = null; // Prevent accidental reuse
+        }
+
+        if (this.indexBuffer) {
+            this.indexBuffer.destroy();
+            this.indexBuffer = null; // Prevent accidental reuse
+        }
+    }
 }

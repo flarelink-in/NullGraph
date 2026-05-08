@@ -12,7 +12,11 @@ async function build() {
             // NEW: Define multiple entry points!
             entryPoints: {
                 'index': 'src/core/index.ts',
-                'geometry': 'src/extras/geometry/index.ts'
+                'geometry': 'src/extras/geometry/index.ts',
+                'loaders': 'src/extras/loaders/index.ts',
+                'materials':'src/extras/materials/index.ts',
+                'profiler':'src/extras/profiler/index.ts',
+                'debug-ui':'src/extras/debug-ui/index.ts'
             },
             outdir: 'dist', // NEW: Outputs to dist/index.js and dist/geometry.js
             format: 'esm',
@@ -24,7 +28,7 @@ async function build() {
             external: ['gl-matrix'],
         });
 
-        console.log(` NullGraph (Core + Geometry): ${isProd ? 'Production' : 'Development'} build complete.`);
+        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI): ${isProd ? 'Production' : 'Development'} build complete.`);
     } catch (error) {
         console.error(' Build failed:', error);
         process.exit(1);

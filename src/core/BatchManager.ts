@@ -1,6 +1,6 @@
-import { RenderPassNode } from "./RenderPass";
-import { PipelineConfig, RenderBatch } from "./types";
-import { WebGPUContext } from "./WebGPUContext";
+import {RenderPassNode} from "./RenderPass";
+import {Material, PipelineConfig, RenderBatch} from "./types";
+import {WebGPUContext} from "./WebGPUContext";
 
 export class BatchManager {
     constructor(private ctx: WebGPUContext) {}
@@ -9,7 +9,6 @@ export class BatchManager {
         const batch = new RenderBatch();
         batch.stride = config.strideFloats;
         batch.isIndirect = config.isIndirect || false;
-        batch.extraBindGroup = config.extraBindGroup;
 
         const shaderModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
 
@@ -91,9 +90,40 @@ export class BatchManager {
             ]
         });
         batch.maxInstanceCount=config.maxInstances
+        if (config.material) {
+            batch.customBindGroups[1] = config.material.applyToBatch(batch);
+        }
 
         pass.addBatch(batch);
         return batch;
+    }
+
+    /**
+     * Removes a batch from a render pass and frees its dedicated GPU resources.
+     */
+    public clearBatch(pass: RenderPassNode, batch: RenderBatch): void {
+        // 1. Remove the batch from the RenderPassNode
+        if (typeof (pass as any).removeBatch === 'function') {
+            (pass as any).removeBatch(batch);
+        } else if (pass.batches) {
+            // Fallback: manually splice it out if removeBatch doesn't exist
+            const index = pass.batches.indexOf(batch);
+            if (index !== -1) {
+                pass.batches.splice(index, 1);
+            }
+        }
+
+        // 2. Destroy dedicated GPU Buffers to free VRAM
+        if (batch.storageBuffer) {
+            batch.storageBuffer.destroy();
+        }
+        if (batch.indirectBuffer) {
+            batch.indirectBuffer.destroy();
+        }
+
+        // Note: We deliberately DO NOT destroy batch.sourceStorageBuffer here
+        // because it might be a shared buffer (config.sharedSourceBuffer).
+        // If it was shared, destroying it would break other batches using it.
     }
 
     public setBatchGeometry(batch: RenderBatch, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number, format: GPUIndexFormat = 'uint16') {
@@ -114,36 +144,72 @@ export class BatchManager {
         );
     }
 
-    public attachTextureMaterial(batch: RenderBatch, textureView: GPUTextureView | GPUTextureView[], sampler: GPUSampler): GPUBindGroup {
-        // --- MRT UPDATE: Allow array of textures for Deferred bind groups ---
+    // Inside your NullGraph core (or Context/Device manager)
+    public attachTextureMaterial(
+        batch: RenderBatch,
+        textureView: GPUTextureView | GPUTextureView[],
+        sampler: GPUSampler,
+        extraEntries: GPUBindGroupEntry[] = [], // NEW: Allow appending buffers!
+        groupIndex: number = 1
+    ): GPUBindGroup {
         const views = Array.isArray(textureView) ? textureView : [textureView];
 
-        const entries: GPUBindGroupEntry[] = views.map((view, i) => ({
-            binding: i,
-            resource: view
-        }));
+        // 1. Sampler is ALWAYS binding 0
+        const entries: GPUBindGroupEntry[] = [
+            { binding: 0, resource: sampler }
+        ];
 
-        // Add the sampler as the last binding
-        entries.push({
-            binding: views.length,
-            resource: sampler
+        // 2. Textures are 1, 2, 3...
+        views.forEach((view, i) => {
+            entries.push({ binding: i + 1, resource: view });
         });
 
+        // 3. Append anything else (like Material Uniforms!)
+        if (extraEntries.length > 0) {
+            entries.push(...extraEntries);
+        }
+
         const bindGroup = this.ctx.device.createBindGroup({
-            layout: batch.pipeline.getBindGroupLayout(1),
+            layout: batch.pipeline.getBindGroupLayout(groupIndex),
             entries: entries
         });
 
-        batch.extraBindGroup = bindGroup;
+        batch.customBindGroups[groupIndex] = bindGroup;
         return bindGroup;
     }
+    public attachCustomBindGroup(
+        batch: RenderBatch,
+        entries: GPUBindGroupEntry[],
+        groupIndex: number = 1,
+        target: 'render' | 'compute' | 'both' = 'render' // NEW: Explicit targeting!
+    ): void {
 
-    public attachCustomBindGroup(batch: RenderBatch, entries: GPUBindGroupEntry[]): GPUBindGroup {
-        const bindGroup = this.ctx.device.createBindGroup({
-            layout: batch.pipeline.getBindGroupLayout(1),
-            entries: entries
-        });
-        batch.extraBindGroup = bindGroup;
+        // 1. Attach to Render Pipeline (if requested)
+        if ((target === 'render' || target === 'both') && batch.pipeline) {
+            batch.customBindGroups[groupIndex] = this.ctx.device.createBindGroup({
+                layout: batch.pipeline.getBindGroupLayout(groupIndex),
+                entries: entries
+            });
+        }
+
+        // 2. Attach to Compute Pipeline (if requested)
+        if ((target === 'compute' || target === 'both') && batch.computePipeline) {
+            if (!batch.computeCustomBindGroups) batch.computeCustomBindGroups = {};
+
+            batch.computeCustomBindGroups[groupIndex] = this.ctx.device.createBindGroup({
+                layout: batch.computePipeline.getBindGroupLayout(groupIndex),
+                entries: entries
+            });
+        }
+    }
+    /**
+     * Attaches a generic Material (like StandardPBRMaterial) to a batch.
+     */
+    public attachMaterial(batch: RenderBatch, material: Material, groupIndex: number = 1): GPUBindGroup {
+        // We pass the batch's compiled pipeline to the material so it can
+        // dynamically match the WebGPU layout!
+        const bindGroup = material.applyToBatch(batch);
+        batch.customBindGroups[groupIndex] = bindGroup;
         return bindGroup;
     }
 }

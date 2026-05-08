@@ -1,3 +1,8 @@
+export interface Material {
+    applyToBatch(batch: RenderBatch, groupIndex?: number): GPUBindGroup;
+    destroy(): void;
+}
+
 export interface PipelineConfig {
     shaderCode: string;
     strideFloats: number;
@@ -5,6 +10,7 @@ export interface PipelineConfig {
     vertexLayouts?: GPUVertexBufferLayout[];
     topology?: GPUPrimitiveTopology;
     targetFormats?: GPUTextureFormat[];
+    material?:Material;
 
     // Optional properties for GPU-driven rendering
     isIndirect?: boolean;
@@ -38,7 +44,14 @@ export class RenderBatch {
     public sourceStorageBuffer?: GPUBuffer;
     public computePipeline?: GPUComputePipeline;
     public computeBindGroup?: GPUBindGroup;
-    public extraBindGroup?: GPUBindGroup;
+    public customBindGroups: { [groupIndex: number]: GPUBindGroup } = {};
+    public computeCustomBindGroups: Record<number, GPUBindGroup> = {};
 
 
+}
+
+export interface EngineInitResult {
+    success: boolean;
+    enabledFeatures: ReadonlySet<string>;
+    error?: string;
 }

@@ -1,6 +1,6 @@
 // src/DynamicGeometryManager.ts
 
-// Represents a chunk of free space in our giant buffer
+
 import {MeshOffset} from "./MegaBufferBuilder";
 
 interface MemoryBlock {

@@ -29,4 +29,11 @@ export class RenderPassNode {
     public addBatch(batch: RenderBatch) {
         this.batches.push(batch);
     }
+
+    public removeBatch(batch: RenderBatch): void {
+        const index = this.batches.indexOf(batch);
+        if (index !== -1) {
+            this.batches.splice(index, 1);
+        }
+    }
 }

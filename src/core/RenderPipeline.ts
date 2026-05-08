@@ -26,6 +26,12 @@ export class RenderPipeline {
                         computePass.setPipeline(batch.computePipeline);
                         computePass.setBindGroup(0, batch.computeBindGroup);
                         let workgroupCount=0;
+                        if (batch.computeCustomBindGroups) {
+                            for (const groupIndexStr in batch.computeCustomBindGroups) {
+                                const index = parseInt(groupIndexStr, 10);
+                                computePass.setBindGroup(index, batch.computeCustomBindGroups[index]);
+                            }
+                        }
 
                             workgroupCount = Math.ceil(batch.currentInstanceCount / 64);
 
@@ -60,8 +66,11 @@ export class RenderPipeline {
 
                 passEncoder.setPipeline(batch.pipeline);
                 passEncoder.setBindGroup(0, batch.bindGroup);
-                if (batch.extraBindGroup) {
-                    passEncoder.setBindGroup(1, batch.extraBindGroup);
+                if (batch.customBindGroups) {
+                    for (const groupIndexStr in batch.customBindGroups) {
+                        const index = parseInt(groupIndexStr, 10);
+                        passEncoder.setBindGroup(index, batch.customBindGroups[index]);
+                    }
                 }
 
                 if (batch.vertexBuffer) passEncoder.setVertexBuffer(0, batch.vertexBuffer);
