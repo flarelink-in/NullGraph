@@ -29,7 +29,7 @@ export class NullGraph {
     ): Promise<EngineInitResult> {
         try {
             // 1. Pass the desired features to the context
-         //   const initInfo = await this.gpuCtx.init(canvas, options.desiredFeatures || []);
+            const initInfo = await this.gpuCtx.init(canvas, options.desiredFeatures || []);
 
             // 2. Setup the public device and managers
             this.device = this.gpuCtx.device;
