@@ -403,7 +403,7 @@ NullGraph is released under the MIT License.
 ### Architecture Demos
 |                         AoS                         |                         SoA                         |                         AoSoA                         |
 |:---------------------------------------------------:|:---------------------------------------------------:|:-----------------------------------------------------:|
-| <img src="./showcases-images/AoS.png" width="350"/> | <img src="./showcases-images/soa.png" width="350"/> | <img src="./showcases-images/aosoa.png" width="350"/> |
+| <img src="./showcases-images/AoS.png" width="350"/> | <img src="./showcases-images/SoA.png" width="350"/> | <img src="./showcases-images/AoSoA.png" width="350"/> |
 
 ### GPU Compute & Post-Processing
 |                        GPU Culling                         |                        Space Fleet                         | CRT Effect |
