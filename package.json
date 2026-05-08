@@ -1,6 +1,6 @@
 {
   "name": "null-graph",
-  "version": "0.0.7",
+  "version": "1.0.0",
   "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
@@ -19,6 +19,22 @@
     "./geometry": {
       "types": "./dist/extras/geometry/index.d.ts",
       "import": "./dist/geometry.js"
+    },
+    "./loaders": {
+      "types": "./dist/extras/loaders/index.d.ts",
+      "import": "./dist/loaders.js"
+    },
+    "./materials": {
+      "types": "./dist/extras/materials/index.d.ts",
+      "import": "./dist/materials.js"
+    },
+    "./profiler": {
+      "types": "./dist/extras/profiler/index.d.ts",
+      "import": "./dist/profiler.js"
+    },
+    "./debug-ui": {
+      "types": "./dist/extras/debug-ui/index.d.ts",
+      "import": "./dist/debug-ui.js"
     }
   },
   "scripts": {

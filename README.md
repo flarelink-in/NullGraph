@@ -1,34 +1,42 @@
 # NullGraph Engine
 
-**Zero scene graph. Zero copy. Infinite scale.**
-> A Data-Oriented WebGPU rendering framework for massive web worlds.
+> Zero scene graph. Zero copy. Infinite scale.
 
-NullGraph is a brutalist, high-performance rendering library designed specifically for **Web Workers** and **Data-Oriented Design (DOD)**.
+A Data-Oriented WebGPU rendering framework for massive web worlds.
 
-It completely abandons the traditional Object-Oriented *Scene Graph* (`Root -> Node -> Mesh -> Geometry`) in favor of mapping raw, contiguous `ArrayBuffers` directly to **WebGPU Storage Buffers**.
+NullGraph is a brutalist, high-performance rendering library designed specifically for Web Workers and Data-Oriented Design (DOD).
 
-If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph ensures your main thread stays at a flat **0ms overhead**.
+It completely abandons the traditional Object-Oriented Scene Graph (`Root -> Node -> Mesh -> Geometry`) in favor of mapping raw, contiguous `ArrayBuffers` directly to WebGPU Storage Buffers.
+
+If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph ensures your main thread stays at a flat `0ms` overhead.
 
 ---
 
-## ⚡ Why NullGraph?
+# Why NullGraph?
 
 Traditional WebGL frameworks (like Three.js or Babylon.js) are built for ease of use, heavily relying on the `new` keyword, dynamic memory, and Garbage Collection. When scaling up to massive open worlds, this OOP overhead causes main-thread stuttering and shader compilation lag.
 
-**NullGraph solves this by doing less:**
+NullGraph solves this by doing less:
+
 - **Zero Scene Graph:** No `.traverse()`, no `.updateMatrixWorld()`. The GPU reads your flat array directly.
+
 - **Zero-Copy Streaming:** Calculate your ECS layout in a Web Worker, pass the `Float32Array` to the main thread, and blast it straight to VRAM.
+
 - **Render Queues (Batches):** Render thousands of unique object types simultaneously with minimal GPU state changes.
+
 - **No GC Spikes:** Memory is pre-allocated. No runtime object creation or destruction.
-- **Compute-Driven Indirect Drawing:** Offload culling entirely to the GPU. NullGraph supports WebGPU Compute Shaders that dynamically build IndirectDrawArgs, resulting in zero CPU overhead for visibility checks.
+
+- **Compute-Driven Indirect Drawing:** Offload culling entirely to the GPU. NullGraph supports WebGPU Compute Shaders that dynamically build `IndirectDrawArgs`, resulting in zero CPU overhead for visibility checks.
+
 - **Multi-Pass Architecture:** Seamlessly chain offscreen render passes into screen-space post-processing pipelines (Bloom, CRT, HUD effects) by attaching textures directly to subsequent batches.
 
 ---
-## Installation & Setup
+
+# Installation and Setup
 
 NullGraph is distributed as a modular ESM package. To maintain its "Zero-Copy" philosophy, it requires `gl-matrix` as a peer dependency to ensure your application and the engine share the same math structures.
 
-### 1. Install via NPM
+## 1. Install via NPM
 
 ```bash
 # Install the core engine
@@ -40,33 +48,37 @@ npm install gl-matrix
 # Recommended: Install WebGPU types for IDE autocomplete
 npm install @webgpu/types --save-dev
 ```
-### 2. Module Architecture
+
+---
+
+## 2. Module Architecture
 
 NullGraph uses Subpath Exports to keep your production bundles lean. You only pay for the features you import.
 
-* `null-graph`
+### `null-graph`
 The Core Engine. Handles WebGPU device initialization, Pass management, and Buffer streaming.
-* `null-graph/geometry`
-The Math & Primitive Toolbox. Contains dynamic generators for Cubes, Spheres, and custom Vertex Layouts.
+
+### `null-graph/geometry`
+The Math and Primitive Toolbox. Contains dynamic generators for Cubes, Spheres, and custom Vertex Layouts.
+
+### `null-graph/loaders`
+High-performance GLBParser, Animator, and SkeletonManager for hardware-accelerated skinning.
+
+### `null-graph/materials`
+StandardPBRMaterial and dynamic WGSL shader builders.
+
+### `null-graph/debug-ui & null-graph/profiler`
+Real-time performance telemetry and UI widgets.
+
 ---
-##  The Architecture Demo Suite
 
-**Play the Live Demo:** [null-graph.web.app](https://null-graph.web.app/)
+# The Architecture Demo Suite
 
-**Github Source code:** [NullGraph-Test-Engine.git](https://github.com/Vikas593-cloud/NullGraph-Test-Engine.git)
+## Play the Live Demo
+`null-graph.web.app`
 
-NullGraph includes an interactive dashboard to test and benchmark different memory layouts and compute paradigms in real-time. Explore the following patterns:
-
-### Memory Layout Benchmarks
-* **AoS (Array of Structs):** The standard DOD baseline.
-* **SoA (Struct of Arrays):** Cache-friendly contiguous memory maximizing CPU cache hits.
-* **AoSoA (Chunked SoA):** The AAA industry standard aligning with CPU L1 cache lines for SIMD auto-vectorization.
-* **OOP Scene Graph:** A purposeful stress-test demonstrating the CPU bottleneck of traditional pointer-chasing and recursive math.
-
-### Advanced Rendering Demos
-* **3D Lighting & Depth:** Demonstrates Z-Buffer occlusion and Dot-Product normal lighting entirely within the shader.
-* **Space Fleet (Compute & Multi-Pass):** Showcases the engine's advanced pipelines. Thousands of asteroids and ships are culled via Compute Shaders using `Indirect Drawing`, rendered to an offscreen buffer, and then fed through a tactical HUD `Post-Processing Pass` (chromatic aberration, scanlines, and noise)
-* **Voxel Fireworks (DOD Physics):** Simulates 15,000+ physics-driven particles by separating CPU-side physics state arrays from GPU-side render buffers.
+## Github Source code
+`NullGraph-Test-Engine.git`
 
 ---
 #  Advanced Capabilities
@@ -116,108 +128,263 @@ maxInstances: 5000,
 vertexLayouts: geometry.layout.getWebGPUDescriptor()
 });
 ```
-## Quick Start (Basic Batch Rendering)
+# Advanced Alpha Blending
 
-NullGraph uses a Render Batch architecture. Define the 3D geometry once, set up your WGSL shader pipeline, and blast your ECS array to the GPU every frame.
-```ts 
-import { NullGraph, Camera } from 'null-graph';
-
-async function init() {
-const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
-const engine = new NullGraph();
-await engine.init(canvas);
-
-    // 1. Upload Static Geometry via BufferManager
-    const vbo = engine.bufferManager.createVertexBuffer(vertices);
-    const ibo = engine.bufferManager.createIndexBuffer(indices);
-
-    // 2. Create a Render Batch (Default Pass)
-    const myBatch = engine.createBatch({
-        shaderCode: `/* Your WGSL Code Here */`,
-        strideFloats: 14,
-        maxInstances: 10000,
-        vertexLayouts: [ /* WebGPU layout descriptor */ ]
-    });
-    
-    engine.setBatchGeometry(myBatch, vbo, ibo, indices.length);
-
-    // 3. Generate DOD ArrayBuffer (From your ECS)
-    const MAX_INSTANCES = 10000;
-    const ecsBuffer = new Float32Array(MAX_INSTANCES * 14);
-
-    // 4. Render Loop
-    function frame() {
-        engine.updateBatchData(myBatch, ecsBuffer, MAX_INSTANCES);
-        engine.render(); 
-        requestAnimationFrame(frame);
-    }
-
-    frame();
-}
-```
-#### Notes:
-* You have to manually define vertex buffers ,index buffers & indices buffers
-* Refer to test-engine src/data/[Direct Git Link](https://github.com/Vikas593-cloud/NullGraph-Test-Engine/blob/main/src/data.ts) file for refrence of the above steps
-## Option 2: Using Null-Graph Geometry (Recommended)
-
-Instead of manually defining buffers, you can use the built-in Geometry Builder utilities for faster prototyping and cleaner code.
+Whether you need standard transparency or intense additive glowing effects, NullGraph exposes WebGPU's blend states directly at the batch level.
 
 ```ts
-import { NullGraph, Camera } from 'null-graph';
-import { Primitives, StandardLayout } from "null-graph/geometry";
+// Example: Additive Blending for a particle system (Quantum Nebula)
+const physicsBatch = engine.createBatch(scenePass, {
+    // ... shaders and layout configs
+    
+    // ADDITIVE BLENDING: Colors sum together, creating intense glowing cores
+    blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+    },
+    depthWriteEnabled: false,
+    depthCompare: 'less'
+});
+```
+
+---
+
+# First-Class GLTF / GLB Parsing
+
+NullGraph includes a native `GLBParser` to effortlessly ingest 3D assets. It automatically unpacks vertex layouts, indices, materials, and skeletal data into engine-ready formats.
+
+```ts
+import { GLBParser } from 'null-graph/loaders';
+
+// Parse a GLB file directly into memory
+const glbData = await GLBParser.load('./3dAssets/character.glb');
+
+if (!glbData.meshes) throw new Error("No meshes found!");
+
+// Easily map parsed mesh data to engine buffers
+const vertexBuffer = engine.bufferManager.createVertexBuffer(glbData.meshes[0].vertices);
+const indexBuffer = engine.bufferManager.createIndexBuffer(glbData.meshes[0].indices);
+```
+
+---
+
+# Physically Based Rendering (Cook-Torrance PBR)
+
+Achieve photorealistic lighting with NullGraph's `StandardPBRMaterial`. Built on the Cook-Torrance BRDF, it supports Albedo, Normal, and packed ARM (Ambient Occlusion, Roughness, Metallic) maps out of the box.
+
+```ts
+import { buildPBRShader, StandardPBRMaterial } from "null-graph/materials";
+
+// 1. Generate a dynamic shader optimized for your mesh needs
+const dynamicShaderCode = buildPBRShader({ useSkinning: true });
+
+const meshBatch = engine.createBatch(mainPass, {
+    shaderCode: dynamicShaderCode,
+    // ... layout configs
+});
+
+// 2. Create the PBR Material with loaded textures
+const pbrMaterial = new StandardPBRMaterial(engine, {
+    albedoMap: albedoView,
+    normalMap: normalView,
+    packedMap: armView,         // AO, Roughness, Metallic
+    packedMapFormat: "ARM",
+    baseColor: [1.0, 1.0, 1.0, 1.0],
+    metallicMultiplier: 1.0,
+    roughnessMultiplier: 1.0
+});
+
+// 3. Apply it to your batch
+pbrMaterial.applyToBatch(meshBatch);
+```
+
+---
+
+# Hardware-Accelerated Skeletal Animations
+
+NullGraph splits the heavy lifting: the CPU evaluates the animation timeline, and the GPU handles the vertex skinning. The `SkeletonManager` bridges the gap, allowing you to animate complex characters efficiently.
+
+```ts
+import { Animator, SkeletonManager } from 'null-graph/loaders';
+
+// 1. Initialize animation systems with parsed GLB data
+const skeletonManager = new SkeletonManager(engine.device, 70); // Max bones
+const animator = new Animator(glbData.skin);
+animator.play(glbData.animations[0]);
+
+// 2. Bind the skeleton buffer to your mesh batch (Group 2)
+engine.attachCustomBindGroup(
+    meshBatch,
+    [{ binding: 0, resource: { buffer: skeletonManager.boneBuffer } }],
+    2
+);
+
+// 3. Update loop
+export function update(deltaTime: number) {
+    // CPU computes the bone transforms ONCE
+    animator.update(deltaTime);
+    
+    // GPU gets the updated bone matrices ONCE
+    skeletonManager.updateFromAnimator(engine.device, animator);
+}
+```
+# Quick Start (Hello, Cube!)
+
+NullGraph uses a heavily optimized Render Batch architecture. To get your first object on screen, we'll create a default pass, generate a primitive cube, apply a PBR material using the engine's fallback textures, and blast it to the GPU.
+
+```ts
+import { NullGraph } from 'null-graph';
+import { Primitives, StandardLayout } from 'null-graph/geometry';
+import { buildPBRShader, StandardPBRMaterial } from 'null-graph/materials';
 
 async function init() {
+    // 1. Initialize Engine
     const canvas = document.getElementById('gpuCanvas') as HTMLCanvasElement;
     const engine = new NullGraph();
     await engine.init(canvas);
 
-    // 1. Create Geometry using Primitives
-    const cubeGeom = Primitives.createCube(StandardLayout, 1.0, 1.0, 1.0);
+    // 2. Create the Main Render Pass
+    const mainPass = engine.createPass({
+        name: 'Main Pass',
+        isMainScreenPass: true
+    });
 
-    // Uploads geometry to the engine's BufferManager
+    // 3. Generate & Upload Geometry
+    // We use the built-in primitive generator to create a 2x2x2 cube
+    const cubeGeom = Primitives.createCube(StandardLayout, 2, 2, 2);
     cubeGeom.upload(engine);
 
-    // 2. Create a Render Batch
-    const myBatch = engine.createBatch({
-        shaderCode: `/* Your WGSL Code Here */`,
-        strideFloats: 14,
-        maxInstances: 10000,
-        vertexLayouts: cubeGeom.layout.getWebGPUDescriptor()
+    // 4. Setup PBR Material
+    // Using the engine's built-in 1x1 fallback textures so we don't need to load external images
+    const material = new StandardPBRMaterial(engine, {
+        albedoMap: engine.textureManager.fallbackWhite,
+        normalMap: engine.textureManager.fallbackNormal,
+        packedMap: engine.textureManager.fallbackWhite, // ARM fallback
+        packedMapFormat: "ARM",
+        baseColor: [0.1, 0.5, 0.9, 1.0], // A nice NullGraph Blue
+        metallicMultiplier: 0.2,
+        roughnessMultiplier: 0.5
     });
-    
+
+    // 5. Create the Render Batch
+    const cubeBatch = engine.createBatch(mainPass, {
+        shaderCode: buildPBRShader({ useSkinning: false }),
+        strideFloats: 14,
+        maxInstances: 1,
+        vertexLayouts: cubeGeom.layout.getWebGPUDescriptor(),
+        depthWriteEnabled: true
+    });
+
+    // Bind material and geometry to the batch
+    material.applyToBatch(cubeBatch);
     engine.setBatchGeometry(
-        myBatch,
+        cubeBatch,
         cubeGeom.vertexBuffer!,
         cubeGeom.indexBuffer!,
         cubeGeom.indices.length
     );
 
-    // 3. Generate ECS Data Buffer
-    const MAX_INSTANCES = 10000;
-    const ecsBuffer = new Float32Array(MAX_INSTANCES * 14);
+    // 6. Setup Instance Data (Position, Rotation, Scale)
+    const STRIDE = 14;
+    const initialData = new Float32Array(STRIDE);
+    
+    initialData[1] = 0.0;
+    initialData[2] = 0.0;
+    initialData[3] = -8.0; // XYZ Position
 
-    // 4. Render Loop
-    function frame() {
-        engine.updateBatchData(myBatch, ecsBuffer, MAX_INSTANCES);
-        engine.render(); 
+    initialData[7] = 1.0; // Rotation W (Identity quaternion)
+
+    initialData[8] = 1.0;
+    initialData[9] = 1.0;
+    initialData[10] = 1.0; // XYZ Scale
+
+    initialData[11] = 1.0;
+    initialData[12] = 1.0;
+    initialData[13] = 1.0; // RGB Multiplier
+
+    engine.updateBatchData(cubeBatch, initialData, 1);
+
+    // 7. Render Loop
+    function frame(time: number) {
+        // Optional: Slowly rotate the cube here by updating the quaternion in `initialData`
+        // and calling engine.updateBatchData(cubeBatch, initialData, 1);
+
+        engine.render();
         requestAnimationFrame(frame);
     }
 
-    frame();
+    frame(0);
 }
+
+init();
 ```
 ## Roadmap
-NullGraph is in active development for the Axion Engine.
 
--[x] Multi-Object Render Queue / Batching
--[x] Depth / Z-Buffer Integration (Proper 3D occlusion)
--[x] VBO/IBO Geometry Buffer Manager
--[x] Multi-Pass Rendering & Texture Attachments
--[x] GPU Compute Frustum Culling & Indirect Drawing
--[x] Geometry Builder And Intiation of `extras` library to improve DX experience
--[ ] PBR Textures & Material ID Injection
--[ ] Raw GLTF Mesh Parsing
--[ ] Directional Shadows / Cascaded Shadow Maps
+NullGraph is the high-performance rendering backbone for the Axion Engine.
 
+---
+
+### Core Architecture
+
+- [x] Multi-Object Render Queue / Batching
+
+- [x] Depth / Z-Buffer Integration (Proper 3D occlusion)
+
+- [x] VBO/IBO Geometry Buffer Manager
+
+- [x] Multi-Pass Rendering & Texture Attachments
+
+- [x] GPU Compute Frustum Culling & Indirect Drawing
+
+- [x] Geometry Builder & `null-graph/geometry` extras
+
+---
+
+### Materials & Assets
+
+- [x] Physically Based Rendering (Cook-Torrance BRDF)
+
+- [x] Integrated PBR Material System (Albedo, Normal, ARM maps)
+
+- [x] Native GLB/GLTF Parsing & Resource Unpacking
+
+- [x] Alpha Blending & Additive Transparency States
+
+---
+
+### Animation & Logic
+
+- [x] Hardware-Accelerated Skeletal Animation (GPU Skinning)
+
+- [x] Animation Timeline & Keyframe Interpolation (Animator)
+
+- [ ] Morph Targets / Shape Keys
+
+- [ ] GPU-Driven Particle Systems (Compute-based)
+
+---
+
+### Lighting & Post-Processing
+
+- [ ] Directional Shadows / Cascaded Shadow Maps (CSM)
+
+- [ ] Image-Based Lighting (IBL) & Environment Mapping
+
+- [ ] Post-Processing Pipeline (Bloom, Chromatic Aberration, SSAO)
+
+- [ ] Real-time Point Light Culling (Forward+ Rendering)
+---
+
+# Tech Stack: The Lean Machine
+
+NullGraph is built with a "Zero-Bloat" philosophy. We rely on the bare essentials to stay close to the metal and ensure maximum execution speed.
+
+- **Language:** TypeScript / JavaScript (Strictly typed for engine safety).
+
+- **API:** Native WebGPU (No WebGL legacy overhead).
+
+- **Math:** `gl-matrix` (High-performance vector and matrix operations).
+
+- **Dependencies:** `0` (We don't believe in heavy framework dependencies).
 ### License
 NullGraph is released under the MIT License.

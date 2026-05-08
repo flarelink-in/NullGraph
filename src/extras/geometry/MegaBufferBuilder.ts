@@ -5,6 +5,7 @@ export interface MeshOffset {
     firstIndex: number;
     baseVertex: number;
     meshID: number;
+    vertexCount?:number;
 }
 
 export class MegabufferBuilder {
