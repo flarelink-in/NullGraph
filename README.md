@@ -1,6 +1,16 @@
-# NullGraph Engine
+# NullGraph
 
 > Zero scene graph. Zero copy. Infinite scale.
+
+<div align="center">
+
+[![npm version](https://img.shields.io/npm/v/null-graph?style=for-the-badge&color=33e6cc&labelColor=0a0a0a)](https://www.npmjs.com/package/null-graph)
+[![npm downloads](https://img.shields.io/npm/dm/null-graph?style=for-the-badge&color=ff6b6b&labelColor=0a0a0a)](https://www.npmjs.com/package/null-graph)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/null-graph?style=for-the-badge&color=fcc419&labelColor=0a0a0a)](https://bundlephobia.com/package/null-graph)
+[![license](https://img.shields.io/github/license/Vikas593-cloud/NullGraph-Test-Engine?style=for-the-badge&color=51cf66&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph-Test-Engine/blob/main/LICENSE)
+[![stars](https://img.shields.io/github/stars/Vikas593-cloud/NullGraph-Test-Engine?style=for-the-badge&color=ff922b&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph-Test-Engine/stargazers)
+
+</div>
 
 A Data-Oriented WebGPU rendering framework for massive web worlds.
 
@@ -11,6 +21,7 @@ It completely abandons the traditional Object-Oriented Scene Graph (`Root -> Nod
 If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph ensures your main thread stays at a flat `0ms` overhead.
 
 ---
+
 
 # Why NullGraph?
 
@@ -382,3 +393,54 @@ NullGraph is built with a "Zero-Bloat" philosophy. We rely on the bare essential
 - **Dependencies:** `0` (We don't believe in heavy framework dependencies).
 ### License
 NullGraph is released under the MIT License.
+
+---
+
+## Showcase
+
+<div align="center">
+
+### Architecture Demos
+|                         AoS                         |                         SoA                         |                         AoSoA                         |
+|:---------------------------------------------------:|:---------------------------------------------------:|:-----------------------------------------------------:|
+| <img src="./showcases-images/AoS.png" width="350"/> | <img src="./showcases-images/soa.png" width="350"/> | <img src="./showcases-images/aosoa.png" width="350"/> |
+
+### GPU Compute & Post-Processing
+|                        GPU Culling                         |                        Space Fleet                         | CRT Effect |
+|:----------------------------------------------------------:|:----------------------------------------------------------:|:----------:|
+| <img src="./showcases-images/GPUCulling.png" width="350"/> | <img src="./showcases-images/SpaceFleet.png" width="350"/> |<img src="./showcases-images/crt.png" width="350"/>
+
+### PBR Materials & Animation
+|                         Rusty Metal                         |                            Skeletal Animation                             |                         Morphogenesis                         |
+|:-----------------------------------------------------------:|:-------------------------------------------------------------------------:|:-------------------------------------------------------------:|
+| <img src="./showcases-images/rusty_metal.png" width="350"/> | <img src="./showcases-images/animation-post-processing.png" width="350"/> | <img src="./showcases-images/morphogenesis.png" width="350"/> |
+
+</div>
+
+---
+
+## 📦 Package Stats
+
+<div align="center">
+
+| Metric | Value |
+|--------|-------|
+| **Weekly Downloads** | ![npm](https://img.shields.io/npm/dm/null-graph?style=flat-square&color=33e6cc) |
+| **Version** | ![npm](https://img.shields.io/npm/v/null-graph?style=flat-square&color=ff6b6b) |
+| **License** | ![license](https://img.shields.io/npm/l/null-graph?style=flat-square&color=51cf66) |
+| **Minified + GZip** | ![size](https://img.shields.io/bundlephobia/minzip/null-graph?style=flat-square&color=fcc419) |
+
+</div>
+
+---
+
+## 🔗 Related Repositories
+
+| Repository                                                                           | Description |
+|--------------------------------------------------------------------------------------|-------------|
+| [**NullGraph Test Engine**](https://github.com/Vikas593-cloud/NullGraph-Test-Engine) | Interactive demo suite & documentation hub |
+| [**Axion Engine**](https://axion-engine.web.app)                                     | Full game engine built on NullGraph |
+
+<p align="center">
+  <sub>Built with 🔥 by the NullGraph</sub>
+</p>
