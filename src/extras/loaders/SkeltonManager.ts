@@ -21,7 +21,7 @@ export class SkeletonManager {
     resetToBindPose(device: GPUDevice) {
         const identityBones = new Float32Array(this.maxBones * 16);
         for (let i = 0; i < this.maxBones; i++) {
-            identityBones[i * 16 + 0] = 1;
+            identityBones[i * 16] = 1;
             identityBones[i * 16 + 5] = 1;
             identityBones[i * 16 + 10] = 1;
             identityBones[i * 16 + 15] = 1;

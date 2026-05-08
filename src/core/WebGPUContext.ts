@@ -7,6 +7,7 @@ export class WebGPUContext {
 
     /**
      * Initializes the WebGPU context with fallback-safe feature negotiation.
+     * @param canvas
      * @param desiredFeatures - Features you'd like (e.g., ['timestamp-query'])
      */
     public async init(canvas: HTMLCanvasElement, desiredFeatures: GPUFeatureName[] = []): Promise<void> {

@@ -65,7 +65,7 @@ export const MathUtils = {
         ];
     },
     lerp: (a: number[], b: number[], t: number, out: Float32Array, offset: number) => {
-        out[offset + 0] = a[0] + t * (b[0] - a[0]);
+        out[offset] = a[0] + t * (b[0] - a[0]);
         out[offset + 1] = a[1] + t * (b[1] - a[1]);
         out[offset + 2] = a[2] + t * (b[2] - a[2]);
     },
@@ -81,21 +81,21 @@ export const MathUtils = {
         }
 
         if (Math.abs(cosHalfTheta) >= 1.0) {
-            out[offset+0] = a[0]; out[offset+1] = a[1]; out[offset+2] = a[2]; out[offset+3] = a[3]; return;
+            out[offset] = a[0]; out[offset+1] = a[1]; out[offset+2] = a[2]; out[offset+3] = a[3]; return;
         }
 
         const halfTheta = Math.acos(cosHalfTheta);
         const sinHalfTheta = Math.sqrt(1.0 - cosHalfTheta * cosHalfTheta);
 
         if (Math.abs(sinHalfTheta) < 0.001) {
-            out[offset+0] = (a[0] * 0.5 + bX * 0.5); out[offset+1] = (a[1] * 0.5 + bY * 0.5);
+            out[offset] = (a[0] * 0.5 + bX * 0.5); out[offset+1] = (a[1] * 0.5 + bY * 0.5);
             out[offset+2] = (a[2] * 0.5 + bZ * 0.5); out[offset+3] = (a[3] * 0.5 + bW * 0.5); return;
         }
 
         const ratioA = Math.sin((1 - t) * halfTheta) / sinHalfTheta;
         const ratioB = Math.sin(t * halfTheta) / sinHalfTheta;
 
-        out[offset+0] = (a[0] * ratioA + bX * ratioB); out[offset+1] = (a[1] * ratioA + bY * ratioB);
+        out[offset] = (a[0] * ratioA + bX * ratioB); out[offset+1] = (a[1] * ratioA + bY * ratioB);
         out[offset+2] = (a[2] * ratioA + bZ * ratioB); out[offset+3] = (a[3] * ratioA + bW * ratioB);
     }
 };

@@ -94,13 +94,13 @@ export class GLBParser {
         const stride = 8;
         for (let i = 0; i < geom.vertexCount; i++) {
             const base = i * stride;
-            const px = geom.vertices[base + 0], py = geom.vertices[base + 1], pz = geom.vertices[base + 2];
+            const px = geom.vertices[base], py = geom.vertices[base + 1], pz = geom.vertices[base + 2];
             const nx = geom.vertices[base + 3], ny = geom.vertices[base + 4], nz = geom.vertices[base + 5];
 
             const newPos = MathUtils.transformPos([px, py, pz], matrix);
             const newNorm = MathUtils.transformNorm([nx, ny, nz], matrix);
 
-            geom.vertices[base + 0] = newPos[0]; geom.vertices[base + 1] = newPos[1]; geom.vertices[base + 2] = newPos[2];
+            geom.vertices[base] = newPos[0]; geom.vertices[base + 1] = newPos[1]; geom.vertices[base + 2] = newPos[2];
             geom.vertices[base + 3] = newNorm[0]; geom.vertices[base + 4] = newNorm[1]; geom.vertices[base + 5] = newNorm[2];
         }
     }
