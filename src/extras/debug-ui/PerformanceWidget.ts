@@ -28,7 +28,7 @@ export class PerformanceWidget {
             <div class="ng-metrics-grid">
                 <div class="ng-metric">
                     <span class="ng-label">NET FPS</span>
-                    <span id="ng-fps" class="ng-val" style="color: #fff;">60</span>
+                    <span id="ng-fps" class="ng-val" style="color: #fff;">---</span>
                 </div>
                 <div class="ng-metric">
                     <span class="ng-label">CPU</span>
@@ -57,6 +57,7 @@ export class PerformanceWidget {
     // --- PUBLIC API ---
 
     /** Call this synchronously every frame to calculate Net FPS */
+    /** Call this synchronously every frame to calculate Net FPS */
     public tick() {
         this.frameCount++;
         const now = performance.now();
@@ -64,7 +65,10 @@ export class PerformanceWidget {
 
         if (elapsed >= 1000) {
             const trueFps = Math.round((this.frameCount * 1000) / elapsed);
-            this.elFps.innerText = Math.min(trueFps, 144).toString();
+
+            // Remove the Math.min cap so it shows the true uncapped FPS
+            this.elFps.innerText = trueFps.toString();
+
             this.frameCount = 0;
             this.lastUpdate += 1000;
         }
@@ -178,18 +182,56 @@ export class PerformanceWidget {
         style.id = 'ng-perf-style';
         style.textContent = `
             #ng-perf-widget {
-                position: fixed; top: 20px; right: 20px; width: 220px;
-                background: rgba(10, 10, 12, 0.85); backdrop-filter: blur(10px);
-                border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px;
-                z-index: 9999; cursor: grab; font-family: monospace; user-select: none;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                position: fixed; top: 20px; right: 20px; width: 240px;
+                /* Sleek frosted glass background */
+                background: linear-gradient(135deg, rgba(15, 15, 20, 0.85), rgba(25, 25, 30, 0.75));
+                backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-top: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 12px; padding: 14px;
+                z-index: 9999; cursor: grab; user-select: none;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.1);
+                transition: border-color 0.2s ease;
+                color: #fff;
             }
+            #ng-perf-widget:hover { border-color: rgba(255, 255, 255, 0.2); }
             #ng-perf-widget:active { cursor: grabbing; }
-            .ng-metrics-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; }
-            .ng-metric { display: flex; flex-direction: column; }
-            .ng-label { color: #888; font-size: 10px; font-weight: bold; }
-            .ng-val { font-size: 14px; font-weight: bold; text-shadow: 0 0 5px currentColor; }
-            #ng-perf-canvas { width: 100%; height: 60px; background: rgba(0,0,0,0.4); border-radius: 4px; pointer-events: none; }
+
+            /* Little drag handle at the top */
+            #ng-perf-widget::before {
+                content: ''; display: block; width: 36px; height: 4px;
+                background: rgba(255, 255, 255, 0.15); border-radius: 2px;
+                margin: 0 auto 12px auto;
+            }
+
+            /* Better spacing and individual boxes for metrics */
+            .ng-metrics-grid { 
+                display: flex; justify-content: space-between; gap: 8px; margin-bottom: 12px; 
+            }
+            .ng-metric { 
+                display: flex; flex-direction: column; flex: 1;
+                background: rgba(0, 0, 0, 0.4); border-radius: 6px;
+                padding: 6px 8px; border: 1px solid rgba(255,255,255,0.05);
+            }
+            
+            .ng-label { 
+                color: #9ca3af; font-size: 10px; font-weight: 600; 
+                letter-spacing: 0.5px; margin-bottom: 4px; 
+            }
+            .ng-val { 
+                /* Monospace keeps numbers from shifting horizontally */
+                font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+                font-size: 14px; font-weight: 700; 
+                text-shadow: 0 0 10px currentColor; 
+            }
+
+            #ng-perf-canvas { 
+                width: 100%; height: 60px; 
+                background: rgba(0,0,0,0.5); border-radius: 6px; 
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                pointer-events: none; 
+            }
         `;
         document.head.appendChild(style);
     }
