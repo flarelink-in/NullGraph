@@ -8,7 +8,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/null-graph?style=for-the-badge&color=ff6b6b&labelColor=0a0a0a)](https://www.npmjs.com/package/null-graph)
 [![bundle size](https://img.shields.io/bundlephobia/minzip/null-graph?style=for-the-badge&color=fcc419&labelColor=0a0a0a)](https://bundlephobia.com/package/null-graph)
 [![license](https://img.shields.io/github/license/Vikas593-cloud/NullGraph-Test-Engine?style=for-the-badge&color=51cf66&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph-Test-Engine/blob/main/LICENSE)
-[![stars](https://img.shields.io/github/stars/Vikas593-cloud/NullGraph-Test-Engine?style=for-the-badge&color=ff922b&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph-Test-Engine/stargazers)
+[![stars](https://img.shields.io/github/stars/Vikas593-cloud/NullGraph?style=for-the-badge&color=ff922b&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph/stargazers)
 
 </div>
 
@@ -82,14 +82,13 @@ StandardPBRMaterial and dynamic WGSL shader builders.
 Real-time performance telemetry and UI widgets.
 
 ---
-
 # The Architecture Demo Suite
 
 ## Play the Live Demo
-`null-graph.web.app`
+[null-graph.web.app](https://null-graph.web.app/)
 
-## Github Source code
-`NullGraph-Test-Engine.git`
+## Github Source Code
+[NullGraph-Test-Engine](https://github.com/Vikas593-cloud/NullGraph-Test-Engine)
 
 ---
 #  Advanced Capabilities
