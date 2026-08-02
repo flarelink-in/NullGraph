@@ -5,3 +5,8 @@ dist
 .idea
 test
 .env
+venv
+git_commit.sh
+git-commit.py
+docs/post-presets.md
+firebase.json
