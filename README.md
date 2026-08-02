@@ -116,7 +116,7 @@ For comprehensive guides and API references, please check our documentation:
 - [Cameras (`null-graph/cameras`)](./docs/api/cameras.md)
 - [Debug UI (`null-graph/debug-ui`)](./docs/api/debug-ui.md)
 - [Geometry (`null-graph/geometry`)](./docs/api/geometry.md)
-- [Lights (`null-graph/lights`)](./docs/api/lights.md)
+- [Lights (`null-graph/lights`)](./docs/api/lights.md) · [Shader & Compute Reference](./docs/api/lights-shader-reference.md)
 - [Loaders (`null-graph/loaders`)](./docs/api/loaders.md)
 - [Materials (`null-graph/materials`)](./docs/api/materials.md)
 - [Post-Processing (`null-graph/post`)](./docs/api/post.md)

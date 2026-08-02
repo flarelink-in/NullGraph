@@ -16,10 +16,17 @@ Supported techniques (`LightSystemConfig.technique`):
 
 | Technique | Meaning |
 |---|---|
-| `'none'` | Lighting disabled. |
+| `'none'` | Lighting disabled (`getShaderLayout()` returns `undefined`). |
 | `'standard'` | Every fragment loops over every light. Simple; best for small light counts. |
-| `'tiled-forward'` | Screen-space tile culling (Forward+). |
 | `'clustered-forward'` | Volumetric cluster culling via a compute stage — scales to thousands of lights. |
+
+Both lit techniques expose the **same** WGSL contract, so switching between `standard` and
+`clustered-forward` requires no shader changes — only the config.
+
+> **Going lower level?** For the exact light memory layout, the injected WGSL structs/functions, how
+> to consume the lighting layout in a fully custom fragment shader, and how to build your **own**
+> compute stage over the light buffers, see the
+> [Lights Shader & Compute Reference](./lights-shader-reference.md).
 
 ---
 
@@ -31,15 +38,25 @@ const lights = new LightSystem(engine, {
     technique: 'clustered-forward',
     clusterConfig: {
         grid: [16, 9, 24],       // volumetric tiles (X, Y, depth slices)
-        maxLightsPerTile: 100,
+        maxLightsPerTile: 100,   // hard cap on lights binned per cluster
     },
-    // For 'tiled-forward' instead:
-    // tiledConfig: { tileSize: [16, 16], maxLightsPerTile: 64 },
+});
+```
+
+For `'standard'`, omit `clusterConfig` entirely — only the core light buffer is allocated:
+
+```ts
+const lights = new LightSystem(engine, {
+    capacity: { point: 32, directional: 2, spot: 8 },
+    technique: 'standard',
 });
 ```
 
 Each light occupies `LightSystem.FLOATS_PER_LIGHT` (16) floats, laid out as four `vec4`s:
-`pos_type`, `col_int`, `dir_rad`, `spot_params`.
+`pos_type`, `col_int`, `dir_rad`, `spot_params`. The `capacity` fields only *size* the buffer
+(`total = point + directional + spot`); you assign indices yourself. See the
+[shader reference](./lights-shader-reference.md#1-light-memory-layout-16-floats--64-bytes) for the
+exact per-float layout.
 
 ## 2. Write light data with proxies
 
@@ -133,6 +150,11 @@ function frame() {
 
 The stage resets its atomic counter via `preClearBuffers` before each dispatch, so binning starts
 clean every frame. Call `lights.destroy()` to release all GPU buffers when tearing down.
+
+Need custom culling math or an extra pre-pass? The `LightSystem` exposes its raw buffers
+(`lightStorageBuffer`, `clusterGridBuffer`, `lightIndexBuffer`, `globalCounterBuffer`) so you can
+build your own `ComputeStageNode` against them — see
+[Rolling your own compute stage](./lights-shader-reference.md#4-rolling-your-own-compute-stage-over-the-light-buffers).
 
 | Method | Description |
 |---|---|
