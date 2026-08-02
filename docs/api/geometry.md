@@ -43,13 +43,13 @@ layout.getWebGPUDescriptor();       // GPUVertexBufferLayout[] for createBatch({
 layout so the output matches the vertex format your shader expects.
 
 ```ts
-const cube        = Primitives.createCube(StandardLayout, 2, 2, 2);
-const plane       = Primitives.createPlane(StandardLayout, 10, 10);
-const sphere      = Primitives.createSphere(StandardLayout, /* radius, segments... */);
-const torus       = Primitives.createTorus(StandardLayout, /* radius, tube... */);
-const pyramid     = Primitives.createPyramid(StandardLayout, 2, 2, 2);
-const octahedron  = Primitives.createOctahedron(StandardLayout, 2, 2, 2);
-const icosahedron = Primitives.createIcosahedron(StandardLayout, 1);
+const cube        = Primitives.createCube(StandardLayout, 2, 2, 2);  // 2x2x2 cube
+const plane       = Primitives.createPlane(StandardLayout, 10, 10); // 10x10 plane
+const sphere      = Primitives.createSphere(StandardLayout, 30,10,10); // radius,widthSegments,heightSegments
+const torus       = Primitives.createTorus(StandardLayout, 20,10,20,30); // radius,tubeRadius,radialSegments,tubularSegments
+const pyramid     = Primitives.createPyramid(StandardLayout, 2, 2, 2); //width,height,depth
+const octahedron  = Primitives.createOctahedron(StandardLayout, 2, 2, 2); //width,height,depth
+const icosahedron = Primitives.createIcosahedron(StandardLayout, 1); //radius
 ```
 
 Available factories: `createCube`, `createPlane`, `createPyramid`, `createOctahedron`,
