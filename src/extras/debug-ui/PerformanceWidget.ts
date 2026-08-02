@@ -14,7 +14,15 @@ export class PerformanceWidget {
     private frameCount = 0;
     private lastUpdate = performance.now();
 
-    constructor() {
+    // Added opacity and blur to the options
+    constructor(options: { draggable?: boolean; opacity?: number; blur?: number } = {}) {
+        const isDraggable = options.draggable !== false;
+
+        // Defaults: 0.85 opacity, 12px blur
+        const bgOpacity1 = options.opacity !== undefined ? options.opacity : 0.85;
+        const bgOpacity2 = Math.max(0, bgOpacity1 - 0.1); // Make the bottom gradient slightly more transparent
+        const blurAmt = options.blur !== undefined ? options.blur : 12;
+
         this.cpuHistory = new Array(this.HISTORY_SIZE).fill(0);
         this.gpuHistory = new Array(this.HISTORY_SIZE).fill(0);
 
@@ -24,6 +32,17 @@ export class PerformanceWidget {
         // 2. Inject HTML
         this.container = document.createElement('div');
         this.container.id = 'ng-perf-widget';
+
+        // Apply custom glassmorphism styles inline
+        this.container.style.background = `linear-gradient(135deg, rgba(15, 15, 20, ${bgOpacity1}), rgba(25, 25, 30, ${bgOpacity2}))`;
+        this.container.style.backdropFilter = `blur(${blurAmt}px)`;
+        this.container.style.setProperty('-webkit-backdrop-filter', `blur(${blurAmt}px)`); // Safari support
+
+        // Add class if draggable so CSS can show the grab handle
+        if (isDraggable) {
+            this.container.classList.add('ng-draggable');
+        }
+
         this.container.innerHTML = `
             <div class="ng-metrics-grid">
                 <div class="ng-metric">
@@ -50,14 +69,14 @@ export class PerformanceWidget {
         this.elCpu = document.getElementById('ng-cpu') as HTMLElement;
         this.elGpu = document.getElementById('ng-gpu') as HTMLElement;
 
-        // 4. Initialize Dragging
-        this.makeDraggable(this.container);
+        // 4. Initialize Dragging conditionally
+        if (isDraggable) {
+            this.makeDraggable(this.container);
+        }
     }
 
     // --- PUBLIC API ---
 
-    /** Call this synchronously every frame to calculate Net FPS */
-    /** Call this synchronously every frame to calculate Net FPS */
     public tick() {
         this.frameCount++;
         const now = performance.now();
@@ -65,21 +84,18 @@ export class PerformanceWidget {
 
         if (elapsed >= 1000) {
             const trueFps = Math.round((this.frameCount * 1000) / elapsed);
-
-            // Remove the Math.min cap so it shows the true uncapped FPS
             this.elFps.innerText = trueFps.toString();
-
             this.frameCount = 0;
             this.lastUpdate += 1000;
         }
     }
 
-    /** Call this asynchronously when the GPU profiler returns data */
-    public updateMetrics(cpuMs: number, gpuMs: number) {
+    public updateMetrics(cpuMs: number, gpuMs: number, fps?: number) {
         this.cpuHistory.push(cpuMs); this.cpuHistory.shift();
         this.gpuHistory.push(gpuMs); this.gpuHistory.shift();
 
         this.elCpu.innerText = `${cpuMs.toFixed(1)}ms`;
+
         if (gpuMs === 0) {
             this.elGpu.innerText = `N/A`;
             this.elGpu.style.color = '#555';
@@ -88,13 +104,41 @@ export class PerformanceWidget {
             this.elGpu.style.color = '#00ffcc';
         }
 
+        // Add this block to override the internal tick FPS
+        if (fps !== undefined) {
+            this.elFps.innerText = Math.round(fps).toString();
+        }
+
         this.drawGraph();
+    }
+
+    public bindWorker(worker: Worker) {
+        worker.addEventListener('message', (event: MessageEvent) => {
+            // 1. Check if the message is our specific Float32Array buffer
+            if (event.data instanceof Float32Array) {
+                const buffer = event.data;
+                const opcode = buffer[0];
+
+                // 2. If it's the metrics opcode, extract the data
+                if (opcode === 1) {
+                    const cpu = buffer[1];
+                    const gpu = buffer[2];
+                    const fps = buffer[3]; // The real WebGPU FPS we added earlier
+
+                    // 3. Update the UI
+                    this.updateMetrics(cpu, gpu, fps);
+
+                    // 4. Instantly return the buffer to the worker so it can be reused
+                    worker.postMessage(buffer, [buffer.buffer]);
+                }
+            }
+        });
     }
 
     // --- INTERNAL LOGIC ---
 
     private drawGraph() {
-        const ctx = this.ctx; // <-- Grab a local reference
+        const ctx = this.ctx;
         if (!ctx) return;
 
         const dpr = window.devicePixelRatio || 1;
@@ -122,7 +166,7 @@ export class PerformanceWidget {
     }
 
     private drawPath(data: number[], color: string, step: number, height: number) {
-        const ctx = this.ctx; // <-- Grab a local reference
+        const ctx = this.ctx;
         if (!ctx) return;
 
         ctx.beginPath();
@@ -132,12 +176,12 @@ export class PerformanceWidget {
         data.forEach((ms, i) => {
             const x = i * step;
             const y = height - (Math.min(ms, 32) / 32) * height;
-            // TypeScript now trusts 'ctx' completely inside this arrow function!
             i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         });
 
         ctx.stroke();
     }
+
     private makeDraggable(el: HTMLElement) {
         let isDragging = false;
         let startX = 0, startY = 0, initialX = 0, initialY = 0;
@@ -145,10 +189,13 @@ export class PerformanceWidget {
         const start = (e: MouseEvent | TouchEvent) => {
             isDragging = true;
             document.body.style.userSelect = 'none';
-            const rect = el.getBoundingClientRect();
-            initialX = rect.left; initialY = rect.top;
+
+            initialX = el.offsetLeft;
+            initialY = el.offsetTop;
+
             el.style.right = 'auto';
-            el.style.left = `${initialX}px`; el.style.top = `${initialY}px`;
+            el.style.left = `${initialX}px`;
+            el.style.top = `${initialY}px`;
 
             if (e.type === 'touchstart') {
                 startX = (e as TouchEvent).touches[0].clientX; startY = (e as TouchEvent).touches[0].clientY;
@@ -183,29 +230,32 @@ export class PerformanceWidget {
         style.textContent = `
             #ng-perf-widget {
                 position: fixed; top: 20px; right: 20px; width: 240px;
-                /* Sleek frosted glass background */
-                background: linear-gradient(135deg, rgba(15, 15, 20, 0.85), rgba(25, 25, 30, 0.75));
-                backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+                /* Background and Blur are now handled via inline styles for customizability */
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-top: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 12px; padding: 14px;
-                z-index: 9999; cursor: grab; user-select: none;
+                z-index: 9999; 
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.1);
                 transition: border-color 0.2s ease;
                 color: #fff;
             }
+            
+            #ng-perf-widget.ng-draggable {
+                cursor: grab;
+                user-select: none;
+            }
+            #ng-perf-widget.ng-draggable:active { 
+                cursor: grabbing; 
+            }
             #ng-perf-widget:hover { border-color: rgba(255, 255, 255, 0.2); }
-            #ng-perf-widget:active { cursor: grabbing; }
 
-            /* Little drag handle at the top */
-            #ng-perf-widget::before {
+            #ng-perf-widget.ng-draggable::before {
                 content: ''; display: block; width: 36px; height: 4px;
                 background: rgba(255, 255, 255, 0.15); border-radius: 2px;
                 margin: 0 auto 12px auto;
             }
 
-            /* Better spacing and individual boxes for metrics */
             .ng-metrics-grid { 
                 display: flex; justify-content: space-between; gap: 8px; margin-bottom: 12px; 
             }
@@ -220,7 +270,6 @@ export class PerformanceWidget {
                 letter-spacing: 0.5px; margin-bottom: 4px; 
             }
             .ng-val { 
-                /* Monospace keeps numbers from shifting horizontally */
                 font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
                 font-size: 14px; font-weight: 700; 
                 text-shadow: 0 0 10px currentColor; 

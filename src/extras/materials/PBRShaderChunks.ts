@@ -5,11 +5,23 @@ export const PBRChunks = {
     CommonBindings: `
         const PI: f32 = 3.14159265359;
 
-        struct Camera { 
-            viewProj: mat4x4<f32>, 
-            eyePos: vec3<f32>, 
-            simTime: f32 
-        };
+        struct Camera {
+    viewProj: mat4x4<f32>,      
+    view: mat4x4<f32>,          
+    proj: mat4x4<f32>,          
+    invViewProj: mat4x4<f32>,   
+    invView: mat4x4<f32>,       
+    invProj: mat4x4<f32>,       
+    
+    eyePos: vec3<f32>,     
+    simTime: f32,               
+    
+    zNear: f32,                 
+    zFar: f32,                  
+    fovRads: f32,               
+    aspect: f32,                
+    _padEnd: vec4<f32>          
+};
 
         struct MaterialParams {
             baseColor: vec4<f32>,

@@ -1,93 +1,130 @@
+import { ComputeStageNode } from "./types";
 import { RenderPassNode } from "./RenderPass";
 import { WebGPUContext } from "./WebGPUContext";
 
 export class RenderPipeline {
     constructor(private ctx: WebGPUContext) {}
 
-    public render(passes: RenderPassNode[]) {
-        if (passes.length === 0) return;
+    /**
+     * Executes a clean sequence of compute stages and render passes linearly.
+     */
+    public render(pipelineSequence: (ComputeStageNode | RenderPassNode)[]) {
+        if (pipelineSequence.length === 0) return;
 
         const commandEncoder = this.ctx.device.createCommandEncoder();
-        const zeroArray = new Uint32Array([0]);
+        let activeComputePass: GPUComputePassEncoder | null = null;
 
-        for (const pass of passes) {
-            let hasCompute = false;
-            for (const batch of pass.batches) {
-                if (batch.isIndirect && batch.indirectBuffer) {
-                    this.ctx.device.queue.writeBuffer(batch.indirectBuffer, 4, zeroArray);
-                    hasCompute = true;
+        for (const node of pipelineSequence) {
+
+
+
+            // =========================================================
+            // 1. PROCESS STANDALONE COMPUTE STAGE
+            // =========================================================
+            if (node instanceof ComputeStageNode) {
+
+                if (node.preClearBuffers.length > 0) {
+                    // If a compute pass is already open, we MUST close it to issue a queue command
+                    if (activeComputePass) {
+                        activeComputePass.end();
+                        activeComputePass = null;
+                    }
+
+                    for (const clear of node.preClearBuffers) {
+                        this.ctx.device.queue.writeBuffer(
+                            clear.buffer,
+                            clear.offset,
+                            clear.data as BufferSource
+                        );
+                    }
                 }
+                // Batch multiple consecutive compute stages into one WebGPU pass
+                if (!activeComputePass) {
+                    activeComputePass = commandEncoder.beginComputePass();
+                }
+
+                activeComputePass.setPipeline(node.computePipeline);
+
+                // Bind all custom data groups mapped to this compute shader
+                for (const groupIndexStr in node.customBindGroups) {
+                    const index = parseInt(groupIndexStr, 10);
+                    activeComputePass.setBindGroup(index, node.customBindGroups[index]);
+                }
+
+                const counts = node.dispatchCount;
+                activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
             }
 
-            if (hasCompute) {
-                const computePass = commandEncoder.beginComputePass();
-                for (const batch of pass.batches) {
-                    if (batch.isIndirect && batch.computePipeline && batch.computeBindGroup) {
-                        computePass.setPipeline(batch.computePipeline);
-                        computePass.setBindGroup(0, batch.computeBindGroup);
-                        let workgroupCount=0;
-                        if (batch.computeCustomBindGroups) {
-                            for (const groupIndexStr in batch.computeCustomBindGroups) {
-                                const index = parseInt(groupIndexStr, 10);
-                                computePass.setBindGroup(index, batch.computeCustomBindGroups[index]);
-                            }
+                // =========================================================
+                // 2. PROCESS RENDER PASS NODE (Offscreen or Onscreen)
+            // =========================================================
+            else if (node instanceof RenderPassNode) {
+                // If a compute pass was active before this render pass, close it out
+                if (activeComputePass) {
+                    activeComputePass.end();
+                    activeComputePass = null;
+                }
+
+                let colorAttachments = node.colorAttachments;
+                let depthStencilAttachment = node.depthStencilAttachment;
+
+                // Handle the main presentation swapchain fallback
+                if (node.isMainScreenPass) {
+                    colorAttachments = [{
+                        view: this.ctx.context.getCurrentTexture().createView(),
+                        clearValue: { r: 0.05, g: 0.05, b: 0.05, a: 1.0 },
+                        loadOp: 'clear', storeOp: 'store',
+                    }];
+                    depthStencilAttachment = {
+                        view: this.ctx.depthTexture.createView(),
+                        depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store',
+                    };
+                }
+
+                const passEncoder = commandEncoder.beginRenderPass({
+                    colorAttachments: colorAttachments,
+                    ...(depthStencilAttachment ? { depthStencilAttachment } : {})
+                });
+
+                // Iterate through the geometric render batches assigned to this pass
+                for (const batch of node.batches) {
+                    // If it's not indirect and has no instances, bypass it entirely
+                    if (!batch.isIndirect && batch.currentInstanceCount === 0) continue;
+
+                    passEncoder.setPipeline(batch.pipeline);
+                    passEncoder.setBindGroup(0, batch.bindGroup);
+
+                    if (batch.customBindGroups) {
+                        for (const groupIndexStr in batch.customBindGroups) {
+                            const index = parseInt(groupIndexStr, 10);
+                            passEncoder.setBindGroup(index, batch.customBindGroups[index]);
                         }
-
-                            workgroupCount = Math.ceil(batch.currentInstanceCount / 64);
-
-                        if (workgroupCount > 0) computePass.dispatchWorkgroups(workgroupCount);
                     }
-                }
-                computePass.end();
-            }
 
-            let colorAttachments = pass.colorAttachments;
-            let depthStencilAttachment = pass.depthStencilAttachment;
+                    if (batch.vertexBuffer) passEncoder.setVertexBuffer(0, batch.vertexBuffer);
+                    if (batch.indexBuffer) passEncoder.setIndexBuffer(batch.indexBuffer, batch.indexFormat);
 
-            if (pass.isMainScreenPass) {
-                colorAttachments = [{
-                    view: this.ctx.context.getCurrentTexture().createView(),
-                    clearValue: { r: 0.05, g: 0.05, b: 0.05, a: 1.0 },
-                    loadOp: 'clear', storeOp: 'store',
-                }];
-                depthStencilAttachment = {
-                    view: this.ctx.depthTexture.createView(),
-                    depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store',
-                };
-            }
-
-            const passEncoder = commandEncoder.beginRenderPass({
-                colorAttachments: colorAttachments,
-                ...(depthStencilAttachment ? { depthStencilAttachment } : {})
-            });
-
-            for (const batch of pass.batches) {
-                if (!batch.isIndirect && batch.currentInstanceCount === 0) continue;
-
-                passEncoder.setPipeline(batch.pipeline);
-                passEncoder.setBindGroup(0, batch.bindGroup);
-                if (batch.customBindGroups) {
-                    for (const groupIndexStr in batch.customBindGroups) {
-                        const index = parseInt(groupIndexStr, 10);
-                        passEncoder.setBindGroup(index, batch.customBindGroups[index]);
+                    if (batch.isIndirect && batch.indirectBuffer) {
+                        // The pipeline blindly trusts that a prior ComputeStageNode in the sequence array
+                        // filled this indirectBuffer with data.
+                        passEncoder.drawIndexedIndirect(batch.indirectBuffer, 0);
+                    } else if (batch.vertexBuffer && batch.indexBuffer) {
+                        passEncoder.drawIndexed(batch.indexCount, batch.currentInstanceCount, 0, 0, 0);
+                    } else {
+                        passEncoder.draw(3, batch.currentInstanceCount, 0, 0);
                     }
                 }
 
-                if (batch.vertexBuffer) passEncoder.setVertexBuffer(0, batch.vertexBuffer);
-                if (batch.indexBuffer) passEncoder.setIndexBuffer(batch.indexBuffer, batch.indexFormat);
-
-                if (batch.isIndirect && batch.indirectBuffer) {
-                    passEncoder.drawIndexedIndirect(batch.indirectBuffer, 0);
-                } else if (batch.vertexBuffer && batch.indexBuffer) {
-                    passEncoder.drawIndexed(batch.indexCount, batch.currentInstanceCount, 0, 0, 0);
-                } else {
-                    passEncoder.draw(3, batch.currentInstanceCount, 0, 0);
-                }
+                passEncoder.end();
             }
-
-            passEncoder.end();
         }
 
+        // Close out any lingering compute encoder allocations
+        if (activeComputePass) {
+            activeComputePass.end();
+        }
+
+        // Submit everything to the GPU queue in a single command buffer submission
         this.ctx.device.queue.submit([commandEncoder.finish()]);
     }
 }
