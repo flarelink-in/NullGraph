@@ -1,0 +1,164 @@
+# Core API Usage
+
+The `null-graph` core package owns the WebGPU device, render passes, compute stages, batches, and
+buffer streaming. This page covers the main `NullGraph` engine surface; see
+[Deprecated API](../deprecated-api.md) if you are migrating from an older version.
+
+## Engine Initialization
+
+```ts
+import { NullGraph, Camera } from 'null-graph';
+
+const engine = new NullGraph();
+const result = await engine.init(canvas, {
+    desiredFeatures: ['timestamp-query'],   // optional features, negotiated against the adapter
+    powerPreference: 'high-performance',    // 'high-performance' (default) | 'low-power'
+    // width / height override — useful with an OffscreenCanvas
+});
+
+if (!result.success) throw new Error(result.error);
+```
+
+`canvas` may be an `HTMLCanvasElement` **or** an `OffscreenCanvas`, so the whole engine can run in a
+Web Worker. After init you can read `engine.width` / `engine.height`, reach shared GPU resources via
+`engine.ctx` (e.g. `engine.ctx.cameraUniformBuffer`), and access `engine.device`,
+`engine.bufferManager`, and `engine.textureManager`.
+
+## Render Passes
+NullGraph isolates rendering logic into distinct passes. You can render pristine 3D scenes offscreen and pipe them into post-processing passes.
+
+```ts
+// 1. Create an offscreen pass
+const scenePass = engine.createPass({
+    name: 'Offscreen Pass',
+    isMainScreenPass: false,
+    colorAttachments: [{
+        view: offscreenTexture.createView(),
+        clearValue: { r: 0.0, g: 0.01, b: 0.03, a: 1.0 },
+        loadOp: 'clear', storeOp: 'store'
+    }],
+    // ... depth attachments
+});
+
+// 2. Create the final Post-Processing pass
+const hudPass = engine.createPass({
+    name: 'HUD Post Process',
+    isMainScreenPass: true
+});
+
+// 3. Bind the offscreen texture to your post-process batch
+const hudBatch = engine.createBatch(hudPass, { /* shader args */ });
+engine.createTextureBindGroup(hudBatch, offscreenTexture.createView(), sampler);
+```
+
+## Indirect Drawing (GPU Compute Culling)
+Stop relying on the CPU to figure out what to render. A **compute stage** evaluates thousands of
+instances, writes an `IndirectDrawArgs` buffer, and commands the vertex shader without the CPU ever
+knowing what happened.
+
+> **Changed:** compute is no longer embedded in a batch via `computeShaderCode`. Create a standalone
+> `ComputeStageNode` with `engine.createComputeStage(...)` and sequence it explicitly in `render()`.
+> See [Deprecated API §2](../deprecated-api.md) for the migration.
+
+```ts
+// 1. An indirect batch allocates its indirect + source buffers (no pipeline)
+const batch = engine.createBatch(scenePass, {
+    isIndirect: true,
+    shaderCode: renderShaderCode,
+    strideFloats: 14,
+    maxInstances: 5000,
+    vertexLayouts: geometry.layout.getWebGPUDescriptor(),
+});
+
+// 2. A separate compute stage does the culling and writes drawArgs
+const cull = engine.createComputeStage({
+    name: 'Frustum Cull',
+    shaderCode: cullWGSL, // atomicAdd(&drawArgs.instanceCount, 1u); ... cull & pack
+    dispatchCount: [Math.ceil(5000 / 64), 1, 1],
+    preClearBuffers: [
+        { buffer: batch.indirectBuffer!, offset: 4, data: new Uint32Array([0]) },
+    ],
+});
+
+engine.setComputePassBindGroup(cull, [
+    { binding: 0, resource: { buffer: engine.ctx.cameraUniformBuffer } },
+    { binding: 1, resource: { buffer: batch.sourceStorageBuffer! } },
+    { binding: 2, resource: { buffer: batch.storageBuffer } },
+    { binding: 3, resource: { buffer: batch.indirectBuffer! } },
+], 0);
+
+// 3. Execute compute first, then the draw pass
+engine.render([cull, scenePass]);
+```
+
+## Advanced Alpha Blending
+Whether you need standard transparency or intense additive glowing effects, NullGraph exposes WebGPU's blend states directly at the batch level.
+
+```ts
+// Example: Additive Blending for a particle system (Quantum Nebula)
+const physicsBatch = engine.createBatch(scenePass, {
+    // ... shaders and layout configs
+    
+    // ADDITIVE BLENDING: Colors sum together, creating intense glowing cores
+    blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+    },
+    depthWriteEnabled: false,
+    depthCompare: 'less'
+});
+```
+
+## Streaming Instance Data (Zero-Copy)
+Batches are backed by a pre-allocated storage buffer. Blast a flat `Float32Array` — computed on the
+main thread or in a Web Worker — straight into it. The default instance stride is 14 floats
+(index/pad, position xyz, rotation quat xyzw, scale xyz, color rgb).
+
+```ts
+engine.setBatchGeometry(batch, geom.vertexBuffer!, geom.indexBuffer!, geom.indices.length);
+
+const data = new Float32Array(instanceCount * 14);
+// ... fill per-instance transforms ...
+engine.updateBatchData(batch, data, instanceCount);
+```
+
+## Custom Bind Groups
+Attach arbitrary resources to a batch's render pipeline (materials, skeletons, light buffers). For
+compute stages, use the compute variant.
+
+```ts
+// Render pipeline (default group index 1)
+engine.setRenderPassBindGroup(batch, [
+    { binding: 0, resource: { buffer: skeletonManager.boneBuffer } },
+], 2);
+
+// Compute stage (default group index 0)
+engine.setComputePassBindGroup(computeStage, entries, 0);
+```
+
+## Execution
+`render()` accepts an explicit, ordered sequence of compute stages and render passes — the modern,
+Data-Oriented path. Called with no arguments it replays every tracked pass in creation order.
+
+```ts
+engine.updateCamera(camera);            // upload camera uniforms (432-byte block)
+engine.render([cullStage, scenePass, postPass]); // explicit order
+// engine.render();                     // legacy: replays all createPass() nodes
+```
+
+## Cheat sheet
+
+| Method | Purpose |
+|---|---|
+| `init(canvas, options)` | Boot WebGPU; returns `{ success, enabledFeatures, error? }`. |
+| `resize(w, h)` | Reallocate the depth texture for a new size. |
+| `createPass(config)` | Create a render pass (screen or offscreen). |
+| `createBatch(pass, config)` | Create a render batch (pipeline + storage buffer). |
+| `createComputeStage(config)` | Create a standalone GPU compute stage. |
+| `setBatchGeometry(batch, vb, ib, count, format?)` | Bind vertex/index buffers to a batch. |
+| `updateBatchData(batch, data, count)` | Stream instance data into a batch (Zero-Copy). |
+| `createTextureBindGroup(batch, views, sampler, extra?, group?)` | Build/cache a texture bind group. |
+| `setRenderPassBindGroup(batch, entries, group?)` | Bind custom resources to a batch. |
+| `setComputePassBindGroup(stage, entries, group?)` | Bind custom resources to a compute stage. |
+| `updateCamera(camera)` | Upload the camera uniform block. |
+| `render(sequence?)` | Execute the pipeline. |
