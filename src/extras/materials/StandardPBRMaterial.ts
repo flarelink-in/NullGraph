@@ -62,7 +62,7 @@ export class StandardPBRMaterial {
         ];
 
         // Call the core function!
-        this.bindGroup = this.engine.attachTextureMaterial(
+        this.bindGroup = this.engine.createTextureBindGroup(
             batch,
             [this.albedoMap, this.normalMap, this.packedMap],
             this.engine.textureManager.defaultSampler,

@@ -5,29 +5,77 @@ export class WebGPUContext {
     public depthTexture!: GPUTexture;
     public cameraUniformBuffer!: GPUBuffer;
 
+    public width: number = 1;
+    public height: number = 1;
+
     /**
      * Initializes the WebGPU context with fallback-safe feature negotiation.
      * @param canvas
-     * @param desiredFeatures - Features you'd like (e.g., ['timestamp-query'])
+     * @param options
      */
-    public async init(canvas: HTMLCanvasElement, desiredFeatures: GPUFeatureName[] = []): Promise<void> {
+    public async init(
+        canvas: HTMLCanvasElement | OffscreenCanvas,
+        options: {
+            desiredFeatures?: GPUFeatureName[],
+            powerPreference?: 'low-power' | 'high-performance',
+            width?: number,
+            height?: number
+        } = {}
+    ): Promise<void> {
         if (!navigator.gpu) {
             throw new Error("WebGPU is not supported on this browser.");
         }
 
-        const adapter = await navigator.gpu.requestAdapter();
+        // --- ADAPTER REQUEST WITH POWER PREFERENCE ---
+        // Try high-performance first, fall back gracefully
+        let adapter: GPUAdapter | null = null;
+        const powerPref = options.powerPreference ?? 'high-performance';
+
+        try {
+            // Request with power preference hint
+            adapter = await navigator.gpu.requestAdapter({
+                powerPreference: powerPref
+            });
+
+            // If no adapter with preference, try any adapter
+            if (!adapter) {
+                console.warn(
+                    `NullGraph: No adapter found with powerPreference "${powerPref}". ` +
+                    `Falling back to default.`
+                );
+                adapter = await navigator.gpu.requestAdapter();
+            }
+        } catch (e) {
+            // If requestAdapter itself throws, try without options
+            console.warn(
+                `NullGraph: Adapter request failed with powerPreference. ` +
+                `Falling back to default. Error:`, e
+            );
+            adapter = await navigator.gpu.requestAdapter();
+        }
+
         if (!adapter) {
             throw new Error("No appropriate GPU adapter found.");
         }
 
+        // Log which GPU we got for debugging
+        const adapterInfo = adapter.info;
+        console.log(
+            `NullGraph: Using GPU - ${adapterInfo} `
+        );
+
         // --- FEATURE NEGOTIATION ---
         // Only request features that the physical hardware actually supports.
         const featuresToEnable: GPUFeatureName[] = [];
-        for (const feature of desiredFeatures) {
-            if (adapter.features.has(feature)) {
-                featuresToEnable.push(feature);
-            } else {
-                console.warn(`NullGraph: Optional feature "${feature}" is not supported by this device.`);
+        if (options.desiredFeatures !== undefined) {
+            for (const feature of options.desiredFeatures) {
+                if (adapter.features.has(feature)) {
+                    featuresToEnable.push(feature);
+                } else {
+                    console.warn(
+                        `NullGraph: Optional feature "${feature}" is not supported by this device.`
+                    );
+                }
             }
         }
 
@@ -41,13 +89,17 @@ export class WebGPUContext {
         this.context.configure({
             device: this.device,
             format: this.format,
-            alphaMode: 'premultiplied' // Good practice for blending with UI overlays
+            alphaMode: 'premultiplied'
         });
 
         this.cameraUniformBuffer = this.device.createBuffer({
-            size: 20 * 4,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            label: 'Global Camera Uniform',
+            size: 432,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
+
+        this.width = options.width ?? canvas.width ?? 1;
+        this.height = options.height ?? canvas.height ?? 1;
 
         this.setupDepthTexture(canvas.width, canvas.height);
     }
@@ -55,6 +107,8 @@ export class WebGPUContext {
     public resize(width: number, height: number): void {
         // Only resize if the device exists (avoids errors during early resize events)
         if (this.device) {
+            this.width = width;
+            this.height = height;
             this.setupDepthTexture(width, height);
         }
     }

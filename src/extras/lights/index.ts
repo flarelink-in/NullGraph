@@ -1,0 +1,6 @@
+export * from './LightSystem'
+export * from './types'
+export * from './DirectionalLightProxy'
+export * from './PointLightProxy'
+export * from './light-proxies'
+export * from './SpotLightProxy'
