@@ -98,6 +98,7 @@ export interface TargetInfo {
     height: number;
     format: GPUTextureFormat;
     usage: GPUTextureUsageFlags;
+    history: 1 | 2;
 }
 
 export class TransientPool {
@@ -344,7 +345,7 @@ export class TransientPool {
     /** Dimensions/format of a logical target. Legal in either phase. */
     public info(h: TargetHandle): TargetInfo {
         const t = this.getTarget(h);
-        return { width: t.width, height: t.height, format: t.format, usage: t.usage };
+        return { width: t.width, height: t.height, format: t.format, usage: t.usage, history: t.history };
     }
 
     public report(): PoolReport {
