@@ -68,6 +68,9 @@ export class PostChain {
 
     private logicalPasses: LogicalPass[] = [];
     private compiledPasses: CompiledPass[] = [];
+    /** Passes touching a history:2 target. Their views flip parity every
+     *  advanceFrame(), so upload() re-points them each frame. */
+    private historyPassIndices: number[] = [];
     /** Single stable array instance — repopulated in place so a captured
      *  reference stays valid across debugView() toggles. */
     private readonly sequence: RenderPassNode[] = [];
@@ -194,11 +197,20 @@ export class PostChain {
         return this.sequence;
     }
 
-    /** Once per frame. One writeBuffer for the whole arena. */
+    /** Once per frame. One writeBuffer for the whole arena, plus re-pointing
+     *  any history-target passes at the sides advanceFrame() just flipped to. */
     public upload(): void {
         if (!this.compiled) throw new Error('PostChain: upload() called before setChain().');
         this.arena!.upload(this.device.queue);
         this.pool!.advanceFrame();
+        for (const i of this.historyPassIndices) {
+            const lp = this.logicalPasses[i];
+            const cp = this.compiledPasses[i];
+            if (cp.attachment && lp.output !== SCREEN && this.pool!.info(lp.output).history === 2) {
+                cp.attachment.view = this.pool!.view(lp.output);
+            }
+            this.bindPassResources(lp, cp);
+        }
     }
 
     /** Adopt a worker-computed arena by reference. Length must equal paramFloatCount. */
@@ -479,6 +491,14 @@ export class PostChain {
             this.compiledPasses.push(cp);
         }
 
+        this.historyPassIndices = [];
+        this.logicalPasses.forEach((lp, i) => {
+            const touchesHistory =
+                (lp.output !== SCREEN && pool.info(lp.output).history === 2) ||
+                lp.inputs.some(h => pool.info(h).history === 2);
+            if (touchesHistory) this.historyPassIndices.push(i);
+        });
+
         this.createDebugBlit();
     }
 
@@ -501,8 +521,15 @@ export class PostChain {
                     return { binding: b.binding, resource: this.linearSampler! };
                 case 'nearest-sampler':
                     return { binding: b.binding, resource: this.nearestSampler! };
-                case 'texture':
-                    return { binding: b.binding, resource: pool.view(lp.inputs[b.inputIndex!]) };
+                case 'texture': {
+                    // A history target read by the pass that also WRITES it gets
+                    // last frame's side; read anywhere else it is this frame's
+                    // side (written earlier in the same frame).
+                    const h = lp.inputs[b.inputIndex!];
+                    const readsOwnHistory = pool.info(h).history === 2
+                        && lp.output !== SCREEN && (lp.output as TargetHandle).id === h.id;
+                    return { binding: b.binding, resource: readsOwnHistory ? pool.historyView(h) : pool.view(h) };
+                }
             }
         });
         this.engine.setRenderPassBindGroup(cp.batch, entries, 1);
