@@ -1,5 +1,10 @@
 # Post-Processing Presets
 
+> **Status: implemented** in `src/extras/post/presets.ts` and exported from
+> `null-graph/post` (`TonemapPresets`, `BloomPresets`, `SSAOPresets`, `ChainPresets`,
+> `forSceneScale`). Written when the library was three effects; §2 and §6 have been
+> updated for the full effect set.
+
 ---
 
 ## 1. The constraint that shapes the API
@@ -32,16 +37,28 @@ Object.assign(bloom, BloomPresets.dreamy.runtime);
 
 ## 2. Ordering is part of the preset
 
-Every chain preset is `[SSAO?, Bloom?, Tonemap]` in that order. This is not stylistic:
+The original rule was `[SSAO?, Bloom?, Tonemap]` with Tonemap last, always. With the full
+library that generalizes to a canonical stage order — Tonemap is no longer last, but it is
+still the boundary that splits the chain in two:
 
-- **SSAO before Bloom.** SSAO darkens ambient light. If it ran after, bloom would have
-  already decided what counts as "bright" using un-occluded values, and creases would glow.
-- **Tonemap last, always.** Everything upstream operates on linear HDR. Put Tonemap first and
-  Bloom's `threshold` is comparing against display-referred values where nothing exceeds 1.0 —
-  bloom silently does nothing.
+```
+SSAO -> AutoExposure -> Bokeh -> Bloom / Halation / LensFlare -> ColorGrade
+  -> Tonemap ->
+CelShade -> Kuwahara -> Outline -> FXAA -> ChromaticAberration -> Vignette -> FilmGrain
+```
 
-Enforce it. A chain where `Tonemap` is not the last enabled effect should throw at compile,
-not render something subtly wrong.
+- **Before Tonemap: everything that reasons about light.** SSAO before Bloom (occluded
+  creases must not glow), AutoExposure before Bloom (so the threshold sees normalized
+  luminance), scatter effects (Bloom/Halation/LensFlare) and ColorGrade on linear HDR.
+- **After Tonemap: everything that reasons about the image.** CelShade bands display-referred
+  values (banding HDR crushes everything into the bottom band), FXAA's luma estimate assumes
+  display range, and grain/vignette/CA are lens- and film-artifacts of the final picture.
+- **FXAA after Outline**, so ink edges get anti-aliased; **FilmGrain last**, so nothing
+  smooths it away.
+
+The old "throw if Tonemap is not last" enforcement idea is obsolete — post-Tonemap effects
+are legitimate. The ordering above ships as documentation and as the order every
+`ChainPresets.*` factory uses.
 
 ---
 
@@ -154,9 +171,23 @@ since `PostChain` rejects the same instance twice and each holds a live arena su
 | `synthwave` | Bloom`neon` → Tonemap`filmic` @1.2 | Emissive-heavy, dark backgrounds, neon. |
 | `performance` | SSAO`performance` → Bloom`subtle`(mips 4) → Tonemap`neutral` | Mobile / integrated. |
 
-Nine chain presets, five per effect. That is a large enough menu to cover real use and small
-enough that each one is visibly distinct — which is the actual test. If two presets produce
-frames a user cannot tell apart, one of them is noise.
+### Style chains added with the expanded library
+
+| Preset | Chain | Intent |
+|---|---|---|
+| `anime` | Bloom`natural` → Tonemap`filmic` → CelShade(5 bands) → Outline → FXAA | Toon shading with ink silhouettes. Best with `gbuffer.depth`. |
+| `comic` | Tonemap`filmic` → CelShade(3 bands) → Outline(thick) → FXAA → Vignette | Harder bands, thicker ink, punchier color. |
+| `painterly` | Bloom`subtle` → Tonemap`natural` → Kuwahara(r5) → Vignette | Brushwork surfaces, crisp edges. |
+| `analog` | Halation → Bloom`subtle` → Tonemap`neutral` → FXAA → CA → Vignette → FilmGrain | 35mm print look. |
+| `noir` | ColorGrade(desat, high contrast) → Tonemap`filmic` → Vignette(heavy) → FilmGrain(mono) | Near-monochrome drama. |
+
+Thirteen chain presets, five per effect. That is a large enough menu to cover real use and
+small enough that each one is visibly distinct — which is the actual test. If two presets
+produce frames a user cannot tell apart, one of them is noise.
+
+Chains using SSAO require the chain to be built with `gbuffer.depth` (SSAO throws without
+it); `Outline` degrades to luma-only edges, losing silhouettes against similar-luminance
+backgrounds.
 
 ---
 

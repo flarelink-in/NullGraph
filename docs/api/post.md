@@ -21,6 +21,41 @@ import { PostChain, Bloom, SSAO, Tonemap, CustomEffect } from 'null-graph/post';
 > [`transient-pool.md`](../transient-pool.md), and [`post-presets.md`](../post-presets.md). This page
 > is the practical API reference.
 
+### The effect catalog at a glance
+
+Fifteen stock effects, plus `CustomEffect` for your own WGSL. "Depth" means the effect needs the
+chain built with `gbuffer: { depth: 'depth24plus' }`; SSAO throws without it, the others degrade.
+"Stage" is the effect's slot in the canonical pipeline order (see [Ordering](#ordering-rules)).
+
+| Effect | Passes | Depth | Stage | One-liner |
+|---|---|---|---|---|
+| `SSAO` | 3 | **required** | pre-tonemap | Screen-space ambient occlusion. |
+| `AutoExposure` | 5 | — | pre-tonemap | Auto eye-adaptation via a luminance histogram pyramid (temporal). |
+| `Bokeh` | 3 | optional | pre-tonemap | Depth-of-field; uniform blur without depth. |
+| `Bloom` | `2×mips` | — | pre-tonemap | Energy-conserving dual-filter glow. |
+| `Halation` | 5 | — | pre-tonemap | Warm highlight bleed (film emulsion look). |
+| `LensFlare` | 5 | — | pre-tonemap | Ghosts + halo from bright regions. |
+| `ColorGrade` | 1 | — | pre-tonemap | Exposure/contrast/saturation/temperature/lift-gamma-gain. |
+| `Tonemap` | 1 | — | **boundary** | Linear HDR → display range. |
+| `CelShade` | 1 | — | post-tonemap | Toon luminance banding. |
+| `Kuwahara` | 1 | — | post-tonemap | Edge-preserving painterly flattening. |
+| `Outline` | 1 | optional | post-tonemap | Ink lines from depth + luma edges. |
+| `FXAA` | 1 | — | post-tonemap | Fast edge anti-aliasing. |
+| `ChromaticAberration` | 1 | — | post-tonemap | Radial RGB fringing. |
+| `Vignette` | 1 | — | post-tonemap | Corner darkening / tint. |
+| `FilmGrain` | 1 | — | post-tonemap | Animated film grain. |
+
+Most people never touch individual effects — reach for a **preset** first:
+
+```ts
+import { PostChain, ChainPresets } from 'null-graph/post';
+
+const post = new PostChain(engine, { gbuffer: { depth: 'depth24plus' } });
+post.setChain(ChainPresets.cinematic());   // one line, correctly ordered
+```
+
+See [Presets](#presets) below and [`post-presets.md`](../post-presets.md) for all thirteen chains.
+
 ---
 
 ## Quick start
@@ -181,17 +216,251 @@ const ssao = new SSAO({ radius: 0.6, bias: 0.02, intensity: 0.9, samples: 16 });
 
 All SSAO params are runtime; `ssao.samples = 24` is clamped to `[1, 32]`.
 
+### `AutoExposure`
+
+Eye adaptation. Meters scene luminance through a log-average pyramid, then eases a 1×1
+double-buffered exposure value toward `key / avgLuminance` and multiplies the image by it. Five
+passes; uses a `history: 2` target for temporal smoothing. Place **before** Tonemap.
+
+```ts
+const ae = new AutoExposure({ key: 0.18, smoothing: 0.95, minExposure: 0.1, maxExposure: 8 });
+```
+
+| Option | Default | Tier | Notes |
+|---|---|---|---|
+| `key` | `0.18` | runtime | Target mid-grey the average maps to. |
+| `smoothing` | `0.95` | runtime | Per-frame retention of the previous exposure (frame-rate dependent by design). |
+| `minExposure` / `maxExposure` | `0.1` / `8.0` | runtime | Clamp so night scenes aren't pulled to daylight. |
+
+### `Bokeh`
+
+Depth-of-field. Half-res circle-of-confusion from view-space distance to the focus plane, a
+48-tap golden-angle disc gather, then a full-res composite (3 passes). With `gbuffer.depth` it
+focuses by distance; **without depth it degrades to a uniform full-screen blur** rather than
+throwing.
+
+```ts
+const dof = new Bokeh({ focusDistance: 10, focusRange: 6, maxRadius: 12, highlight: 1 });
+```
+
+| Option | Default | Tier | Notes |
+|---|---|---|---|
+| `focusDistance` | `10` | runtime | World-space distance to the sharp plane. |
+| `focusRange` | `6` | runtime | Distance from focus at which blur maxes out. |
+| `maxRadius` | `12` | runtime | Max blur radius in half-res pixels. |
+| `highlight` | `1` | runtime | Extra weight for HDR highlights → visible bokeh discs. |
+
+### `Halation`
+
+Warm highlight bleed — bright light scattering through film emulsion. Soft-knee highlight
+extract, a downsample, separable gaussian, additive tinted composite (5 passes). Place before
+Tonemap (operates on linear HDR).
+
+```ts
+const hal = new Halation({ threshold: 1.0, intensity: 0.6, radius: 1.5, tint: [1, 0.3, 0.12] });
+```
+
+| Option | Default | Tier | Notes |
+|---|---|---|---|
+| `threshold` / `knee` | `1.0` / `0.5` | runtime | Same soft-knee shape as Bloom. |
+| `intensity` | `0.6` | runtime | Glow strength. |
+| `radius` | `1.5` | runtime | Blur spread multiplier. |
+| `tint` | `[1, 0.3, 0.12]` | runtime¹ | Scatter color; set via `hal.setTint([r,g,b])`. |
+
+### `LensFlare`
+
+Screen-space pseudo flares: threshold extract, ghosts marching through screen center plus a
+circular halo, blur, additive composite (5 passes). `ghosts` is constructor-only (loop bound).
+
+```ts
+const flare = new LensFlare({ threshold: 1.2, ghosts: 4, ghostDispersal: 0.3, intensity: 0.15 });
+```
+
+| Option | Default | Tier | Notes |
+|---|---|---|---|
+| `threshold` | `1.2` | runtime | Luminance that contributes to flares. |
+| `ghostDispersal` / `haloWidth` / `chromaShift` | `0.3` / `0.25` / `0.01` | runtime | Ghost spacing, halo radius, per-sample fringing. |
+| `intensity` | `0.15` | runtime | Flare strength. |
+| `ghosts` | `4` | **constructor** | Ghost count (1–8). |
+
+### `ColorGrade`
+
+Parametric grade (no LUT — pass inputs can't bind an external texture). Order inside the pass:
+exposure → white balance → log contrast → hue → saturation → lift/gamma/gain. One pass, all
+runtime. Operates in linear; typically before Tonemap.
+
+```ts
+const grade = new ColorGrade({ exposure: 1, contrast: 1.1, saturation: 1.1, temperature: 0.2 });
+grade.setLift([0.02, 0, 0]); grade.setGamma([1, 1, 1.1]); grade.setGain([1.05, 1, 1]);
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `exposure` / `contrast` / `saturation` | `1` / `1` / `1` | Scalars; contrast pivots at mid-grey. |
+| `temperature` / `tint` | `0` / `0` | Warm↔cool and green↔magenta. |
+| `hueShift` | `0` | Radians around the grey axis. |
+| `lift` / `gamma` / `gain` | `[0,0,0]` / `[1,1,1]` / `[1,1,1]` | ASC-CDL; set via `setLift/setGamma/setGain`. |
+
+### `CelShade`
+
+Toon shading: quantizes luminance into flat bands while keeping hue, then boosts saturation. One
+pass. Place **after** Tonemap — banding linear HDR crushes everything into the bottom band.
+Pairs with `Outline`.
+
+```ts
+const cel = new CelShade({ bands: 4, softness: 0.08, saturation: 1.2 });
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `bands` | `4` | Band count; 3–4 comic, 5–6 anime. |
+| `softness` | `0.08` | Transition width; `0` = hard posterize. |
+| `saturation` | `1.2` | Post-band saturation. |
+
+### `Outline`
+
+Ink lines from a Sobel over linearized depth (silhouettes, distance-normalized) plus luma
+(interior detail). One pass. **Without `gbuffer.depth` it falls back to luma-only edges** —
+silhouettes against same-luminance backgrounds won't draw. Place after Tonemap/CelShade, before
+FXAA (so lines get smoothed).
+
+```ts
+const ink = new Outline({ thickness: 1.5, depthSensitivity: 8, lumaSensitivity: 0.6, strength: 1 });
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `thickness` | `1.5` | Line width in pixels. |
+| `depthSensitivity` / `lumaSensitivity` | `8` / `0.6` | Silhouette vs. interior-line response. |
+| `strength` | `1` | Ink opacity. |
+| `color` | `[0,0,0]` | Ink color; set via `ink.setColor([r,g,b])`. |
+
+### `Kuwahara`
+
+Edge-preserving painterly flattening: each pixel becomes the mean of whichever of four quadrant
+windows has the lowest variance, so surfaces flatten into strokes while edges stay crisp. One
+pass. `radius` is runtime but clamped to a compile-time max of 8.
+
+```ts
+const paint = new Kuwahara({ radius: 4 });   // paint.radius = 6 → clamped to [1, 8]
+```
+
+### `Vignette`
+
+Radial blend toward a corner color, with the mask dithered to avoid 8-bit banding. One pass.
+
+```ts
+const vig = new Vignette({ radius: 0.75, softness: 0.45, intensity: 0.5, roundness: 1 });
+vig.setColor([0, 0, 0]);   // corner tint (linear)
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `radius` / `softness` | `0.75` / `0.45` | Where darkening starts / falloff width. |
+| `intensity` | `0.5` | Blend toward `color` at the corners. |
+| `roundness` | `1` | `1` = circular, `0` = aspect-corrected ellipse. |
+| `color` | `[0,0,0]` | Corner color; set via `setColor`. |
+
+### `ChromaticAberration`
+
+Spectral radial fringing: 12 taps along the dispersion axis weighted by a wavelength ramp, so
+strong settings smear into a continuous rainbow rather than three ghosts. One pass.
+
+```ts
+const ca = new ChromaticAberration({ strength: 0.006, falloff: 2 });
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `strength` | `0.006` | Max channel offset at the screen edge (UV units). |
+| `falloff` | `2` | Radial exponent; higher keeps the center clean. |
+
+### `FilmGrain`
+
+Integer-hashed, triangular-distributed grain, animated from `camera.time` (no per-frame work). One
+pass. Place after Tonemap.
+
+```ts
+const grain = new FilmGrain({ intensity: 0.06, size: 1.5, colorAmount: 0.25 });
+```
+
+| Option | Default | Notes |
+|---|---|---|
+| `intensity` | `0.06` | Grain amplitude. |
+| `size` | `1.0` | Cell size in px; `>1` = coarser stock. |
+| `colorAmount` | `0.25` | `0` = mono, `1` = independent RGB. |
+| `luminanceResponse` | `0.7` | Fade on bright pixels. |
+| `seed` | `0.0` | Extra offset to decorrelate two chains. |
+
+### `FXAA`
+
+Full FXAA 3.11 quality preset (12-step edge walk). One pass. Place **after** Tonemap — its luma
+estimate assumes display-referred values.
+
+```ts
+const aa = new FXAA({ edgeThreshold: 0.125, edgeThresholdMin: 0.0312, subpixel: 0.75 });
+```
+
+> **All params above are runtime unless a row says otherwise.** The only constructor-tier options in
+> the whole library are `Bloom.mips`, `Tonemap.curve`, and `LensFlare.ghosts` — changing those means
+> constructing a new effect and calling `setChain()` again (see the next section).
+
+¹ `vec3f` params (`tint`, `color`, `lift`/`gamma`/`gain`) are set through a named method rather than a
+scalar property, because the arena stores three floats.
+
+---
+
+## Presets
+
+`null-graph/post` ships tuned option bundles so you rarely hand-pick numbers. Two tiers, named so a
+recompile never surprises you mid-frame:
+
+- **`*Presets.<name>`** — a full **constructor options** object. Pass it to the effect; full range,
+  needs a rebuild.
+- **`*Presets.<name>.runtime`** — the runtime-only subset, safe to `Object.assign` every frame.
+
+```ts
+import { Bloom, BloomPresets, ChainPresets, SSAOPresets, forSceneScale } from 'null-graph/post';
+
+const bloom = new Bloom(BloomPresets.cinematic);          // build time — full preset
+Object.assign(bloom, BloomPresets.dreamy.runtime);        // runtime — no recompile
+
+post.setChain(ChainPresets.cinematic());                  // a whole correctly-ordered look
+```
+
+| Bundle | Names |
+|---|---|
+| `TonemapPresets` | `neutral`, `filmic`, `natural`, `soft`, `faithful` |
+| `BloomPresets` | `subtle`, `natural`, `cinematic`, `dreamy`, `neon` |
+| `SSAOPresets` | `performance`, `balanced`, `quality`, `contact`, `ambient` |
+| `ChainPresets` | `faithful`, `neutral`, `product`, `archviz`, `cinematic`, `ethereal`, `synthwave`, `performance`, `anime`, `comic`, `painterly`, `analog`, `noir` |
+
+Each `ChainPresets.*` is a **factory returning fresh effect instances** — call it, never store and
+reuse the array (`PostChain` rejects the same instance twice, and each holds a live arena slice).
+
+`SSAOPresets` values assume a ~1-unit-per-meter scene, because `radius`/`bias` are view-space world
+units. For other conventions, scale them:
+
+```ts
+new SSAO(forSceneScale(SSAOPresets.balanced, 100));   // centimeter scene
+```
+
+Full tables, per-value rationale, and the resolution caveats live in
+[`post-presets.md`](../post-presets.md).
+
 ---
 
 ## Updating parameters at runtime
 
 Params split into two tiers:
 
-- **Runtime** — plain properties. The setter writes **straight into the effect's arena slice** (a
-  `Float32Array` subview). No allocation, no dirty flag, no bind-group rebuild. Change them every
-  frame if you like; the next `upload()` flushes the whole arena in one `writeBuffer`.
-- **Constructor** — `mips` (Bloom) and `curve` (Tonemap). These change the *shape* of the compiled
-  shader/passes, so changing them means constructing a new effect and calling `setChain()` again.
+- **Runtime** — plain properties (or a `setX()` method for `vec3f` fields). The setter writes
+  **straight into the effect's arena slice** (a `Float32Array` subview). No allocation, no dirty
+  flag, no bind-group rebuild. Change them every frame if you like; the next `upload()` flushes the
+  whole arena in one `writeBuffer`.
+- **Constructor** — only `Bloom.mips`, `Tonemap.curve`, and `LensFlare.ghosts`. These change the
+  *shape* of the compiled shader/passes, so changing them means constructing a new effect and
+  calling `setChain()` again. Everything else is runtime.
 
 ```ts
 function frame(t) {
@@ -335,20 +604,52 @@ bind, so adoption can't stomp worker-written data.
 
 ## Ordering rules
 
-The **recommended** chain order is `[SSAO?, Bloom?, Tonemap]`:
+Order matters because `Tonemap` is the boundary between two color spaces. Everything **before** it
+operates on linear HDR; everything **after** on the display-referred image. Put an effect on the
+wrong side and it silently misbehaves — Bloom after Tonemap sees nothing above 1.0, CelShade before
+Tonemap crushes into the bottom band.
 
-- **SSAO before Bloom** — SSAO darkens ambient light; running it after would let Bloom decide what's
-  "bright" from un-occluded values.
-- **Tonemap last** — everything upstream is linear HDR. If Tonemap ran first, Bloom's `threshold`
-  would compare against display-referred values and effectively do nothing.
+The **canonical order** (exported as `EFFECT_ORDER`) is:
 
-What the compiler actually **enforces**:
+```
+SSAO → AutoExposure → Bokeh → Bloom → Halation → LensFlare → ColorGrade
+  → Tonemap →
+CelShade → Kuwahara → Outline → FXAA → ChromaticAberration → Vignette → FilmGrain
+```
+
+Key adjacencies: SSAO before Bloom (occluded creases must not glow); AutoExposure before Bloom (so
+the threshold sees normalized luminance); FXAA after Outline (so ink edges get anti-aliased);
+FilmGrain last (so nothing smooths the grain). Full reasoning is in
+[`post-presets.md`](../post-presets.md) §2.
+
+### `orderChain()` — sort a chain for you
+
+Don't memorize the table. Build the set in any order and let the helper place the built-ins:
+
+```ts
+import { orderChain, SSAO, Bloom, Tonemap, FilmGrain, Vignette } from 'null-graph/post';
+
+post.setChain(orderChain([
+    new FilmGrain(), new Tonemap(), new Bloom(), new Vignette(), new SSAO(),
+]));
+// → SSAO, Bloom, Tonemap, Vignette, FilmGrain
+```
+
+It's stable and non-mutating (returns a new array; never clones effects). **Unrecognized effects —
+including every `CustomEffect` — are treated as unranked and kept, in their original relative order,
+at the end.** If a custom effect belongs mid-chain, position it yourself instead of relying on the
+helper. `orderChain` is a convenience, not a validator: it does not enforce the rules below.
+
+### What the compiler actually enforces
 
 - The chain must contain at least one enabled effect.
 - No effect **instance** may appear twice (each instance is one slot; construct two if you need two).
 - With `outputToScreen: true`, the **final pass must write to `'chain'`** — every stock effect's
   terminal pass does. (If you build a chain whose last effect writes to a private target, compile
   throws.)
+- Any effect that reads `'depth'` (`SSAO` always; `Bokeh`/`Outline` when depth is present) requires
+  the chain built with `gbuffer: { depth: 'depth24plus' }`. SSAO throws without it; Bokeh and Outline
+  fall back to a no-depth path.
 
 See [`post-presets.md`](../post-presets.md) for ready-made, correctly-ordered option bundles.
 
