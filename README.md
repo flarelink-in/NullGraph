@@ -18,7 +18,7 @@ NullGraph is a brutalist, high-performance rendering library designed specifical
 
 It completely abandons the traditional Object-Oriented Scene Graph (`Root -> Node -> Mesh -> Geometry`) in favor of mapping raw, contiguous `ArrayBuffers` directly to WebGPU Storage Buffers.
 
-If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph ensures your main thread stays at a flat `0ms` overhead.
+If you are building an MMO, a voxel engine, or a multiverse with tens of thousands of dynamic entities, NullGraph keeps rendering off your main thread and out of the garbage collector.
 
 ---
 
@@ -112,7 +112,7 @@ For comprehensive guides and API references, please check our documentation:
 - [Deprecated & Breaking API Changes](./docs/deprecated-api.md) — migration guide
 
 ### API References
-- [Core (`null-graph`)](./docs/api/core.md)
+- [Core (`null-graph`)](./docs/api/core.md) · [Core Reference](./docs/api/core-reference.md)
 - [Cameras (`null-graph/cameras`)](./docs/api/cameras.md)
 - [Debug UI (`null-graph/debug-ui`)](./docs/api/debug-ui.md)
 - [Geometry (`null-graph/geometry`)](./docs/api/geometry.md)
