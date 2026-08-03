@@ -4,6 +4,11 @@ The `null-graph` core package owns the WebGPU device, render passes, compute sta
 buffer streaming. This page covers the main `NullGraph` engine surface; see
 [Deprecated API](../deprecated-api.md) if you are migrating from an older version.
 
+> **Going lower level?** For the bind-group conventions, the instance-data layout, the `Camera`
+> uniform (WGSL struct + offsets), the full `ComputeStageConfig`, and the `BufferManager` /
+> `TextureManager` / `engine.ctx` surfaces, see the
+> [Core Reference](./core-reference.md).
+
 ## Engine Initialization
 
 ```ts
@@ -146,6 +151,29 @@ engine.render([cullStage, scenePass, postPass]); // explicit order
 // engine.render();                     // legacy: replays all createPass() nodes
 ```
 
+## Camera & resource managers
+
+A core `Camera` produces the view/projection matrices the engine uploads; `engine.bufferManager` and
+`engine.textureManager` create geometry buffers and load/generate textures.
+
+```ts
+import { Camera } from 'null-graph';
+
+const camera = new Camera(75, canvas.width / canvas.height, 0.1, 1000);
+camera.updateView([0, 3, 8], [0, 0, 0]); // eye, target
+engine.updateCamera(camera);
+
+// Geometry buffers from raw typed arrays
+const vbo = engine.bufferManager.createVertexBuffer(vertices);
+const ibo = engine.bufferManager.createIndexBuffer(indices);
+
+// Textures (sRGB TRUE for albedo/color, FALSE for normal/data maps)
+const albedo = await engine.textureManager.load('/albedo.png', { sRGB: true });
+```
+
+Full signatures — the `Camera` methods, the WGSL camera struct, and every `BufferManager` /
+`TextureManager` member — are in the [Core Reference](./core-reference.md).
+
 ## Cheat sheet
 
 | Method | Purpose |
@@ -162,3 +190,6 @@ engine.render([cullStage, scenePass, postPass]); // explicit order
 | `setComputePassBindGroup(stage, entries, group?)` | Bind custom resources to a compute stage. |
 | `updateCamera(camera)` | Upload the camera uniform block. |
 | `render(sequence?)` | Execute the pipeline. |
+
+**Engine properties:** `device`, `ctx` (readonly `WebGPUContext`), `bufferManager`, `textureManager`,
+`width`, `height`, `isDestroyed`. See the [Core Reference](./core-reference.md#7-the-shared-context-enginectx).
