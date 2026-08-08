@@ -18,15 +18,15 @@ hand (e.g. in a Worker) you must match this layout byte-for-byte.
 
 | vec4 | Float index | Field (WGSL) | Meaning |
 |---|---|---|---|
-| `pos_type` | 0, 1, 2 | `.xyz` | World position (point / spot) |
-| | 3 | `.w` | **Light type**: `1.0` point, `2.0` directional, `3.0` spot |
+| `pos_type` | 0, 1, 2 | `.xyz` | World position (point / spot / rectArea / torch)<br>Ground color (hemisphere) |
+| | 3 | `.w` | **Light type**: `1.0` point, `2.0` directional, `3.0` spot, `4.0` ambient, `5.0` hemisphere, `6.0` rectArea, `7.0` torch |
 | `col_int` | 4, 5, 6 | `.xyz` | Color RGB (linear) |
 | | 7 | `.w` | Intensity (multiplied into color) |
-| `dir_rad` | 8, 9, 10 | `.xyz` | Direction (directional / spot) |
-| | 11 | `.w` | Radius / range (point / spot) |
-| `spot_params` | 12 | `.x` | `cos(innerConeAngle)` |
-| | 13 | `.y` | `cos(outerConeAngle)` |
-| | 14, 15 | `.zw` | Reserved |
+| `dir_rad` | 8, 9, 10 | `.xyz` | Direction (directional / spot / hemisphere / rectArea / torch) |
+| | 11 | `.w` | Radius / range (point / spot / torch) |
+| `spot_params` | 12 | `.x` | `cos(innerConeAngle)` (spot / torch)<br>`width` (rectArea) |
+| | 13 | `.y` | `cos(outerConeAngle)` (spot / torch)<br>`height` (rectArea) |
+| | 14, 15 | `.zw` | Reserved<br>`flickerIntensity` (`.z`), `flickerSpeed` (`.w`) (torch) |
 
 ```wgsl
 struct Light {
@@ -43,7 +43,7 @@ struct Light {
 
 ### Capacity and index assignment
 
-`capacity: { point, directional, spot }` only sizes the buffer — `totalLights` is their sum. There
+`capacity: { point, directional, spot, ambient, hemisphere, rectArea, torch }` only sizes the buffer — `totalLights` is their sum. There
 is **no enforced partitioning**: proxies `seek(index)` to any slot, and the shaders identify a
 light purely by its `pos_type.w` type flag. You own the index bookkeeping. A common scheme is to
 reserve a fixed range per type (e.g. directional at `[0, 4)`, points after), but any convention
