@@ -222,5 +222,33 @@ their matching material classes.
 
 ---
 
+## 8. Feature negotiation is now automatic (`engine.capabilities`)
+
+`init()` now **opportunistically enables** a curated set of modern WebGPU features when the adapter
+supports them (`subgroups`, `shader-f16`, `bgra8unorm-storage`, `dual-source-blending`), in addition
+to any `desiredFeatures` you pass. This is additive — each candidate is guarded against the adapter's
+support list, so it only ever *enables* an optional feature and can never make init fail.
+
+Two consequences to be aware of:
+
+- `result.enabledFeatures` (and `device.features`) may now list features you did not explicitly
+  request. Opt out with `init(canvas, { autoNegotiate: false })` for the old request-only behavior.
+- The negotiated set is exposed as `engine.capabilities` (a `GPUCapabilities` snapshot). The clustered
+  `LightSystem` reads `capabilities.subgroups` to select a subgroup-accelerated binning kernel; on
+  hardware without the feature it uses the identical-output atomic baseline, so there is **no API or
+  output change** — only a faster path where available.
+
+```ts
+// Opt out of auto-negotiation (request only what you list)
+await engine.init(canvas, { desiredFeatures: ['timestamp-query'], autoNegotiate: false });
+
+// Read what was negotiated
+if (engine.capabilities.subgroups) { /* pick a subgroup code path */ }
+```
+
+No call-site changes are required; existing `init()` calls keep working.
+
+---
+
 *Have a migration that isn't covered here? Open an issue on the
 [NullGraph repository](https://github.com/Vikas593-cloud/NullGraph).*

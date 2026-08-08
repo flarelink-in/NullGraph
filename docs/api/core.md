@@ -16,8 +16,9 @@ import { NullGraph, Camera } from 'null-graph';
 
 const engine = new NullGraph();
 const result = await engine.init(canvas, {
-    desiredFeatures: ['timestamp-query'],   // optional features, negotiated against the adapter
+    desiredFeatures: ['timestamp-query'],   // extra optional features, negotiated against the adapter
     powerPreference: 'high-performance',    // 'high-performance' (default) | 'low-power'
+    autoNegotiate: true,                    // default: opportunistically enable modern features
     // width / height override — useful with an OffscreenCanvas
 });
 
@@ -27,7 +28,36 @@ if (!result.success) throw new Error(result.error);
 `canvas` may be an `HTMLCanvasElement` **or** an `OffscreenCanvas`, so the whole engine can run in a
 Web Worker. After init you can read `engine.width` / `engine.height`, reach shared GPU resources via
 `engine.ctx` (e.g. `engine.ctx.cameraUniformBuffer`), and access `engine.device`,
-`engine.bufferManager`, and `engine.textureManager`.
+`engine.bufferManager`, `engine.textureManager`, and `engine.capabilities`.
+
+## Feature Negotiation & Capabilities
+
+To stay in sync with WebGPU's progression, `init()` **opportunistically enables** a curated set of
+forward-looking features whenever the adapter supports them — currently `subgroups`, `shader-f16`,
+`bgra8unorm-storage`, and `dual-source-blending` (`PROGRESSION_FEATURES`). This is purely additive:
+every candidate is checked against the adapter's support list first, so it can only ever *enable* an
+optional capability, never fail init. Set `autoNegotiate: false` to request only your explicit
+`desiredFeatures`.
+
+The negotiated result is exposed as `engine.capabilities` — a structured, queryable snapshot the
+engine uses internally (e.g. the clustered `LightSystem` switches to a subgroup-accelerated binning
+kernel when `capabilities.subgroups` is set) and that you can read for your own code paths:
+
+```ts
+const caps = engine.capabilities; // GPUCapabilities
+
+caps.subgroups;           // boolean — subgroup ops (enable subgroups;) available
+caps.shaderF16;           // boolean — 16-bit floats (enable f16;) available
+caps.bgra8unormStorage;   // boolean — bgra8unorm usable as a storage texture
+caps.dualSourceBlending;  // boolean — @blend_src(0/1) available
+caps.subgroupMinSize;     // number  — hardware subgroup size range (0 if unsupported)
+caps.subgroupMaxSize;     // number
+caps.has('timestamp-query'); // membership test against the enabled feature set
+caps.features;            // ReadonlySet<GPUFeatureName> — everything the device granted
+```
+
+> The `shaderF16`, `bgra8unormStorage`, and `dualSourceBlending` flags are detected as **groundwork**
+> — they are surfaced now so those features can be adopted later without re-plumbing negotiation.
 
 ## Render Passes
 NullGraph isolates rendering logic into distinct passes. You can render pristine 3D scenes offscreen and pipe them into post-processing passes.
@@ -191,5 +221,6 @@ Full signatures — the `Camera` methods, the WGSL camera struct, and every `Buf
 | `updateCamera(camera)` | Upload the camera uniform block. |
 | `render(sequence?)` | Execute the pipeline. |
 
-**Engine properties:** `device`, `ctx` (readonly `WebGPUContext`), `bufferManager`, `textureManager`,
-`width`, `height`, `isDestroyed`. See the [Core Reference](./core-reference.md#7-the-shared-context-enginectx).
+**Engine properties:** `device`, `ctx` (readonly `WebGPUContext`), `capabilities` (readonly
+`GPUCapabilities`), `bufferManager`, `textureManager`, `width`, `height`, `isDestroyed`. See the
+[Core Reference](./core-reference.md#7-the-shared-context-enginectx).

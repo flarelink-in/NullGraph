@@ -43,17 +43,24 @@ layout.getWebGPUDescriptor();       // GPUVertexBufferLayout[] for createBatch({
 layout so the output matches the vertex format your shader expects.
 
 ```ts
-const cube        = Primitives.createCube(StandardLayout, 2, 2, 2);  // 2x2x2 cube
-const plane       = Primitives.createPlane(StandardLayout, 10, 10); // 10x10 plane
-const sphere      = Primitives.createSphere(StandardLayout, 30,10,10); // radius,widthSegments,heightSegments
-const torus       = Primitives.createTorus(StandardLayout, 20,10,20,30); // radius,tubeRadius,radialSegments,tubularSegments
-const pyramid     = Primitives.createPyramid(StandardLayout, 2, 2, 2); //width,height,depth
-const octahedron  = Primitives.createOctahedron(StandardLayout, 2, 2, 2); //width,height,depth
-const icosahedron = Primitives.createIcosahedron(StandardLayout, 1); //radius
+const cube         = Primitives.createCube(StandardLayout, 2, 2, 2);             // width, height, depth
+const plane        = Primitives.createPlane(StandardLayout, 10, 10);             // width, height
+const pyramid      = Primitives.createPyramid(StandardLayout, 2, 2, 2);          // width, height, depth
+const sphere       = Primitives.createSphere(StandardLayout, 30, 10, 10);        // radius, widthSegments, heightSegments
+const torus        = Primitives.createTorus(StandardLayout, 20, 10, 20, 30);     // radius, tubeRadius, radialSegments, tubularSegments
+const octahedron   = Primitives.createOctahedron(StandardLayout, 2, 2, 2);       // width, height, depth
+const icosahedron  = Primitives.createIcosahedron(StandardLayout, 1);            // radius
+const tetrahedron  = Primitives.createTetrahedron(StandardLayout, 1);            // radius
+const dodecahedron = Primitives.createDodecahedron(StandardLayout, 1);           // radius
+const cylinder     = Primitives.createCylinder(StandardLayout, 5, 5, 10, 16, 1); // radiusTop, radiusBottom, height, radSeg, heightSeg
+const cone         = Primitives.createCone(StandardLayout, 5, 10, 16, 1);        // radius, height, radSeg, heightSeg
+const capsule      = Primitives.createCapsule(StandardLayout, 5, 10, 8, 16);     // radius, length, capSeg, radSeg
+const ring         = Primitives.createRing(StandardLayout, 5, 10, 32);           // innerRadius, outerRadius, thetaSeg
 ```
 
-Available factories: `createCube`, `createPlane`, `createPyramid`, `createOctahedron`,
-`createIcosahedron`, `createSphere`, `createTorus`.
+Available factories: `createCube`, `createPlane`, `createPyramid`, `createOctahedron`, 
+`createIcosahedron`, `createTetrahedron`, `createDodecahedron`, `createSphere`, 
+`createTorus`, `createCylinder`, `createCone`, `createCapsule`, `createRing`.
 
 ## `Geometry`
 

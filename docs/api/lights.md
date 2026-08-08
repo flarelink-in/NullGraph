@@ -9,6 +9,7 @@ are **16-float slices** in one contiguous `Float32Array` that you upload straigh
 import {
     LightSystem,
     PointLightProxy, DirectionalLightProxy, SpotLightProxy,
+    AmbientLightProxy, HemisphereLightProxy, RectAreaLightProxy, TorchLightProxy
 } from 'null-graph/lights';
 ```
 
@@ -18,10 +19,10 @@ Supported techniques (`LightSystemConfig.technique`):
 |---|---|
 | `'none'` | Lighting disabled (`getShaderLayout()` returns `undefined`). |
 | `'standard'` | Every fragment loops over every light. Simple; best for small light counts. |
+| `'tiled-forward'` | Screen-space tile culling via a compute stage. |
 | `'clustered-forward'` | Volumetric cluster culling via a compute stage — scales to thousands of lights. |
 
-Both lit techniques expose the **same** WGSL contract, so switching between `standard` and
-`clustered-forward` requires no shader changes — only the config.
+All lit techniques expose the **same** WGSL contract, so switching between them requires no shader changes — only the config.
 
 > **Going lower level?** For the exact light memory layout, the injected WGSL structs/functions, how
 > to consume the lighting layout in a fully custom fragment shader, and how to build your **own**
@@ -34,7 +35,7 @@ Both lit techniques expose the **same** WGSL contract, so switching between `sta
 
 ```ts
 const lights = new LightSystem(engine, {
-    capacity: { point: 1000, directional: 4, spot: 256 },
+    capacity: { point: 1000, directional: 4, spot: 256, ambient: 1, hemisphere: 1, rectArea: 10, torch: 10 },
     technique: 'clustered-forward',
     clusterConfig: {
         grid: [16, 9, 24],       // volumetric tiles (X, Y, depth slices)
@@ -47,14 +48,14 @@ For `'standard'`, omit `clusterConfig` entirely — only the core light buffer i
 
 ```ts
 const lights = new LightSystem(engine, {
-    capacity: { point: 32, directional: 2, spot: 8 },
+    capacity: { point: 32, directional: 2, spot: 8, ambient: 1, hemisphere: 1 },
     technique: 'standard',
 });
 ```
 
 Each light occupies `LightSystem.FLOATS_PER_LIGHT` (16) floats, laid out as four `vec4`s:
 `pos_type`, `col_int`, `dir_rad`, `spot_params`. The `capacity` fields only *size* the buffer
-(`total = point + directional + spot`); you assign indices yourself. See the
+(`total = point + directional + spot + ...`); you assign indices yourself. See the
 [shader reference](./lights-shader-reference.md#1-light-memory-layout-16-floats--64-bytes) for the
 exact per-float layout.
 
@@ -100,6 +101,10 @@ Proxy fields at a glance:
 | `PointLightProxy` | `position`, `color`, `intensity`, `radius` |
 | `DirectionalLightProxy` | `direction`, `color`, `intensity` |
 | `SpotLightProxy` | `position`, `direction`, `radius`, `innerConeAngle`, `outerConeAngle`, `color`, `intensity` |
+| `AmbientLightProxy` | `color`, `intensity` |
+| `HemisphereLightProxy` | `groundColor`, `direction`, `color`, `intensity` |
+| `RectAreaLightProxy` | `position`, `direction`, `width`, `height`, `color`, `intensity` |
+| `TorchLightProxy` | `position`, `direction`, `radius`, `innerConeAngle`, `outerConeAngle`, `flickerIntensity`, `flickerSpeed`, `color`, `intensity` |
 
 Because the data is just a flat array, you can compute all of it in a Web Worker and hand the
 `Float32Array` to the system with zero copies.
