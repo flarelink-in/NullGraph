@@ -1,7 +1,7 @@
 import { Camera } from './Camera';
 import { BufferManager } from './BufferManager';
 import { RenderPassConfig, RenderPassNode } from "./RenderPass";
-import { EngineInitResult, PipelineConfig, RenderBatch, ComputeStageConfig, ComputeStageNode } from "./types";
+import { EngineInitResult, PipelineConfig, RenderBatch, ComputeStageConfig, ComputeStageNode, GPUCapabilities } from "./types";
 export * from "./types";
 
 // Internal Modules
@@ -80,6 +80,15 @@ export class NullGraph {
 
     public get height(): number {
         return this.ctx.height;
+    }
+
+    /**
+     * The negotiated optional-feature snapshot (subgroups, shader-f16, storage formats,
+     * dual-source blending, subgroup sizes). Valid only after a successful {@link init}.
+     * See {@link GPUCapabilities}.
+     */
+    public get capabilities(): GPUCapabilities {
+        return this.ctx.capabilities;
     }
 
     public clearPasses(): void {

@@ -23,7 +23,7 @@ export class LightSystem {
     public static readonly FLOATS_PER_LIGHT = 16;
 
     constructor(private engine: NullGraph, public config: LightSystemConfig) {
-        this.totalLights = config.capacity.point + config.capacity.directional + config.capacity.spot;
+        this.totalLights = config.capacity.point + config.capacity.directional + config.capacity.spot + (config.capacity.ambient || 0) + (config.capacity.hemisphere || 0) + (config.capacity.rectArea || 0) + (config.capacity.torch || 0);
         this.requiresCompute = config.technique === 'clustered-forward' || config.technique === 'tiled-forward';
 
         this.initBuffers();
@@ -170,6 +170,42 @@ export class LightSystem {
                             atten = spotFactor * (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
                             
                             dir = lightDir;
+                        } else if (lightType == 4.0) {
+                            // AMBIENT LIGHT
+                            dir = vec3<f32>(0.0, 1.0, 0.0);
+                            atten = 1.0;
+                        } else if (lightType == 5.0) {
+                            // HEMISPHERE LIGHT
+                            dir = normalize(-light.dir_rad.xyz);
+                            atten = 1.0;
+                        } else if (lightType == 6.0) {
+                            // RECT AREA LIGHT
+                            let displacement = light.pos_type.xyz - worldPos;
+                            let dist = length(displacement);
+                            let radius = light.dir_rad.w;
+                            
+                            dir = displacement / dist;
+                            
+                            let distanceFalloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+                            atten = (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
+                        } else if (lightType == 7.0) {
+                            // TORCH LIGHT
+                            let lightPos = light.pos_type.xyz;
+                            let spotDir = normalize(light.dir_rad.xyz);
+                            let displacement = lightPos - worldPos;
+                            let dist = length(displacement);
+                            let lightDir = displacement / dist;
+                            
+                            let cosAngle = dot(-lightDir, spotDir);
+                            let innerCos = light.spot_params.x;
+                            let outerCos = light.spot_params.y;
+                            
+                            let spotFactor = smoothstep(outerCos, innerCos, cosAngle);
+                            let radius = light.dir_rad.w;
+                            let distanceFalloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+                            atten = spotFactor * (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
+                            
+                            dir = lightDir;
                         } else { 
                             // POINT LIGHT (type == 1.0)
                             let displacement = light.pos_type.xyz - worldPos;
@@ -285,6 +321,42 @@ export class LightSystem {
                             atten = spotFactor * (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
                             
                             dir = lightDir;
+                        } else if (lightType == 4.0) {
+                            // AMBIENT LIGHT
+                            dir = vec3<f32>(0.0, 1.0, 0.0);
+                            atten = 1.0;
+                        } else if (lightType == 5.0) {
+                            // HEMISPHERE LIGHT
+                            dir = normalize(-light.dir_rad.xyz);
+                            atten = 1.0;
+                        } else if (lightType == 6.0) {
+                            // RECT AREA LIGHT
+                            let displacement = light.pos_type.xyz - worldPos;
+                            let dist = length(displacement);
+                            let radius = light.dir_rad.w;
+                            
+                            dir = displacement / dist;
+                            
+                            let distanceFalloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+                            atten = (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
+                        } else if (lightType == 7.0) {
+                            // TORCH LIGHT
+                            let lightPos = light.pos_type.xyz;
+                            let spotDir = normalize(light.dir_rad.xyz);
+                            let displacement = lightPos - worldPos;
+                            let dist = length(displacement);
+                            let lightDir = displacement / dist;
+                            
+                            let cosAngle = dot(-lightDir, spotDir);
+                            let innerCos = light.spot_params.x;
+                            let outerCos = light.spot_params.y;
+                            
+                            let spotFactor = smoothstep(outerCos, innerCos, cosAngle);
+                            let radius = light.dir_rad.w;
+                            let distanceFalloff = clamp(1.0 - pow(dist / radius, 4.0), 0.0, 1.0);
+                            atten = spotFactor * (distanceFalloff * distanceFalloff) / (dist * dist + 1.0);
+                            
+                            dir = lightDir;
                         } else { 
                             // POINT LIGHT (type == 1.0)
                             let displacement = light.pos_type.xyz - worldPos;
@@ -341,7 +413,10 @@ export class LightSystem {
     }
 
     private getComputeShaderWGSL(): string {
-        return getComputeShaderWGSL(this.config,this.totalLights)
+        // Use the subgroup-coalesced binning kernel when the device negotiated `subgroups`;
+        // otherwise fall back to the atomic baseline, which runs on all hardware.
+        const useSubgroups = this.engine.ctx.capabilities.subgroups;
+        return getComputeShaderWGSL(this.config, this.totalLights, useSubgroups);
     }
 
     public destroy() {

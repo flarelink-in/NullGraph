@@ -6,6 +6,10 @@ export interface LightSystemCapacity {
     point: number;
     directional: number;
     spot: number;
+    ambient?: number;
+    hemisphere?: number;
+    rectArea?: number;
+    torch?: number;
 }
 
 export interface ClusteredConfig {

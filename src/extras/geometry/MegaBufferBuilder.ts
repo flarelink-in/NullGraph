@@ -14,7 +14,9 @@ export class MegabufferBuilder {
     private offsets: Map<string, MeshOffset> = new Map();
 
     private currentMeshID: number = 0;
-    private vertexStrideFloats: number;
+    /** Floats per vertex in the unified pool. Read by MeshletBuilder (design doc §2.1). */
+    public readonly vertexStrideFloats: number;
+
 
     /**
      * @param vertexStrideFloats How many floats make up one vertex?

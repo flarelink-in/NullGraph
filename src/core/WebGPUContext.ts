@@ -1,9 +1,27 @@
+import type { GPUCapabilities } from './types';
+
+/**
+ * The curated set of forward-looking WebGPU features NullGraph opportunistically enables
+ * when `autoNegotiate` is on (the default). Every entry is checked against the adapter's
+ * support list before being requested, so listing one here can never make init fail — it
+ * only ever *enables* an optional capability, surfaced afterward via {@link GPUCapabilities}.
+ */
+export const PROGRESSION_FEATURES: readonly GPUFeatureName[] = [
+    'subgroups',
+    'shader-f16',
+    'bgra8unorm-storage',
+    'dual-source-blending',
+];
+
 export class WebGPUContext {
     public device!: GPUDevice;
     public context!: GPUCanvasContext;
     public format!: GPUTextureFormat;
     public depthTexture!: GPUTexture;
     public cameraUniformBuffer!: GPUBuffer;
+
+    /** Negotiated optional-feature snapshot, populated during {@link init}. */
+    public capabilities!: GPUCapabilities;
 
     public width: number = 1;
     public height: number = 1;
@@ -18,6 +36,8 @@ export class WebGPUContext {
         options: {
             desiredFeatures?: GPUFeatureName[],
             powerPreference?: 'low-power' | 'high-performance',
+            /** Opportunistically enable supported {@link PROGRESSION_FEATURES}. Default `true`. */
+            autoNegotiate?: boolean,
             width?: number,
             height?: number
         } = {}
@@ -58,19 +78,25 @@ export class WebGPUContext {
             throw new Error("No appropriate GPU adapter found.");
         }
 
-        // Log which GPU we got for debugging
-        const adapterInfo = adapter.info;
+        // Log which GPU we got for debugging. adapter.info is a structured object;
+        // interpolating it directly yields "[object Object]", so read its fields.
+        const info = adapter.info;
         console.log(
-            `NullGraph: Using GPU - ${adapterInfo} `
+            `NullGraph: Using GPU — ${[info.vendor, info.architecture, info.description]
+                .filter(Boolean).join(' ') || 'unknown adapter'}`
         );
 
         // --- FEATURE NEGOTIATION ---
-        // Only request features that the physical hardware actually supports.
-        const featuresToEnable: GPUFeatureName[] = [];
-        if (options.desiredFeatures !== undefined) {
+        // Union the caller's explicit desiredFeatures with the modern "progression" set the
+        // adapter actually supports. Every entry is guarded by adapter.features.has(), so
+        // requestDevice() can never fail on a missing feature. Auto-negotiation is purely
+        // additive — it only ever ENABLES optional capabilities, surfaced via `capabilities`.
+        const requested = new Set<GPUFeatureName>();
+
+        if (options.desiredFeatures) {
             for (const feature of options.desiredFeatures) {
                 if (adapter.features.has(feature)) {
-                    featuresToEnable.push(feature);
+                    requested.add(feature);
                 } else {
                     console.warn(
                         `NullGraph: Optional feature "${feature}" is not supported by this device.`
@@ -79,9 +105,19 @@ export class WebGPUContext {
             }
         }
 
+        if (options.autoNegotiate ?? true) {
+            for (const feature of PROGRESSION_FEATURES) {
+                if (adapter.features.has(feature)) requested.add(feature);
+            }
+        }
+
         this.device = await adapter.requestDevice({
-            requiredFeatures: featuresToEnable
+            requiredFeatures: [...requested]
         });
+
+        // Snapshot what the device actually granted so downstream systems (e.g. the
+        // clustered LightSystem) can select modern code paths without re-probing.
+        this.capabilities = buildCapabilities(this.device, info);
 
         this.context = canvas.getContext('webgpu') as GPUCanvasContext;
         this.format = navigator.gpu.getPreferredCanvasFormat();
@@ -126,4 +162,27 @@ export class WebGPUContext {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
     }
+}
+
+/**
+ * Distills the raw device feature set and adapter subgroup sizes into the structured,
+ * queryable {@link GPUCapabilities} snapshot consumed across the engine.
+ */
+function buildCapabilities(device: GPUDevice, info: GPUAdapterInfo): GPUCapabilities {
+    const enabled = new Set<GPUFeatureName>();
+    for (const f of device.features) enabled.add(f as GPUFeatureName);
+
+    const subgroups = enabled.has('subgroups');
+    return {
+        features: enabled,
+        subgroups,
+        shaderF16: enabled.has('shader-f16'),
+        bgra8unormStorage: enabled.has('bgra8unorm-storage'),
+        dualSourceBlending: enabled.has('dual-source-blending'),
+        // subgroupMinSize/MaxSize live on GPUAdapterInfo and stay optional until every
+        // browser reports them; treat "subgroups off" or "unreported" as 0.
+        subgroupMinSize: subgroups ? (info.subgroupMinSize ?? 0) : 0,
+        subgroupMaxSize: subgroups ? (info.subgroupMaxSize ?? 0) : 0,
+        has: (feature) => enabled.has(feature),
+    };
 }

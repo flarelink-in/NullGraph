@@ -100,6 +100,7 @@ export class DynamicGeometryManager {
         // 3. Register the mesh
         const offset: MeshOffset = {
             indexCount: numIndices,
+            vertexCount: numVerts, // needed to free the vertex block correctly (indices != vertices)
             firstIndex: firstIndex,
             baseVertex: baseVertex,
             meshID: this.currentMeshID++
@@ -113,11 +114,11 @@ export class DynamicGeometryManager {
         const offset = this.meshRegistry.get(name);
         if (!offset) return;
 
-        // 1. Return the memory to the free lists
-        this.freeSpace(this.freeVertexBlocks, offset.baseVertex, offset.indexCount /* wait, need vertex count here, see note below */);
-
-        // Note: To free vertices properly, you need to store `vertexCount` in MeshOffset when adding!
-        // this.freeSpace(this.freeIndexBlocks, offset.firstIndex, offset.indexCount);
+        // 1. Return the memory to the free lists — vertices by vertexCount, indices by indexCount.
+        //    (Freeing vertices by indexCount pushed a wrong-sized, overlapping block into the free
+        //     list, so the next addMesh DMA-wrote over a live mesh — half-faced / flickering geometry.)
+        this.freeSpace(this.freeVertexBlocks, offset.baseVertex, offset.vertexCount ?? 0);
+        this.freeSpace(this.freeIndexBlocks, offset.firstIndex, offset.indexCount);
 
         // 2. Remove from registry
         this.meshRegistry.delete(name);

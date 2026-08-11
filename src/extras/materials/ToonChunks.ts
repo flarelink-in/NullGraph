@@ -1,5 +1,7 @@
 // ToonShaderChunks.ts
 
+import { MaterialBindings, TOON_MATH_WGSL } from './materialFragments';
+
 export const ToonChunks = {
     // 1. Common Structs & Bindings (Always included)
     CommonBindings: `
@@ -23,31 +25,13 @@ export const ToonChunks = {
             _padEnd: vec4<f32>          
         };
 
-        struct ToonMaterialParams {
-    baseColor: vec4<f32>,        // 16 bytes (offset 0)
-    rampSteps: f32,              // 4 bytes  (offset 16)
-    rimLightPower: f32,          // 4 bytes  (offset 20)
-    specularThreshold: f32,      // 4 bytes  (offset 24)
-    outlineWidth: f32,           // 4 bytes  (offset 28)
-    rimLightColor: vec3<f32>,    // 12 bytes + 4 padding (offset 32)
-    outlineColor: vec3<f32>,     // 12 bytes + 4 padding (offset 48)
-    outlineEnabled: f32,         // 4 bytes  (offset 64)
-    hasAlbedoTexture: f32,       // 4 bytes  (offset 68)
-    hasNormalTexture: f32,       // 4 bytes  (offset 72)
-    padding: vec2<f32>,          // 8 bytes  (offset 76)
-};
-// Total: 84 bytes
-
-       
         // Group 0: Engine Data
         @group(0) @binding(0) var<uniform> camera: Camera;
         @group(0) @binding(1) var<storage, read> ecs: array<f32>;
 
-        // Group 1: Material Data
-        @group(1) @binding(0) var samp: sampler;
-        @group(1) @binding(1) var texAlbedo: texture_2d<f32>;
-        @group(1) @binding(2) var texNormal: texture_2d<f32>;
-        @group(1) @binding(3) var<uniform> material: ToonMaterialParams;
+        // Group 1: Material Data — from materialFragments.ts, the single source of truth
+        // shared with the visibility path (which binds it at a different group index).
+        ${MaterialBindings.toon(1)}
 
         struct VertexOut {
     @builtin(position) clipPos: vec4<f32>,
@@ -64,6 +48,8 @@ export const ToonChunks = {
         @group(2) @binding(0) var<uniform> skeleton: Skeleton;
     `,
 
+    // Shared verbatim with the visibility path; `rotateVector` and the shadow-banding helper are
+    // appended here because only this path's ECS vertex shader / outline pass use them.
     ToonMath: `
     // Quaternion rotation utility (needed for vertex shader)
     fn rotateVector(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
@@ -71,68 +57,7 @@ export const ToonChunks = {
         return v + q.w * t + cross(q.xyz, t);
     }
 
-    // Core toon ramp function - creates the cel-shading bands
-    fn calcToonRamp(NdotL: f32, steps: f32) -> f32 {
-        return ceil(NdotL * steps) / steps;
-    }
-
-    // Smooth toon ramp (optional variation with softer edges)
-    fn calcSmoothToonRamp(NdotL: f32, steps: f32, smoothness: f32) -> f32 {
-        let ramp = NdotL * steps;
-        let layer = floor(ramp);
-        let nextLayer = min(layer + 1.0, steps);
-        let frac = ramp - layer;
-        let smoothedFrac = smoothstep(0.0, smoothness, frac);
-        return mix(layer, nextLayer, smoothedFrac) / steps;
-    }
-
-    // Rim light calculation
-    fn calcRimLight(
-        normal: vec3<f32>, 
-        viewDir: vec3<f32>, 
-        color: vec3<f32>, 
-        power: f32
-    ) -> vec3<f32> {
-        let NdotV = max(dot(normal, viewDir), 0.0);
-        let rim = pow(1.0 - NdotV, power);
-        return rim * color;
-    }
-
-    // Sharp specular highlight (binary on/off for toon look)
-    fn calcToonSpecular(
-        normal: vec3<f32>,
-        viewDir: vec3<f32>,
-        lightDir: vec3<f32>,
-        threshold: f32,
-        specularColor: vec3<f32>
-    ) -> vec3<f32> {
-        let halfVec = normalize(lightDir + viewDir);
-        let NdotH = max(dot(normal, halfVec), 0.0);
-        let specIntensity = pow(NdotH, 32.0); // Hard specular
-        return select(vec3(0.0), specularColor, specIntensity > threshold);
-    }
-
-    // Get normal either from map or geometry
-    fn getToonNormal(
-        uv: vec2<f32>, 
-        worldPos: vec3<f32>, 
-        worldNormal: vec3<f32>
-    ) -> vec3<f32> {
-        if (material.hasNormalTexture < 0.5) {
-            return normalize(worldNormal);
-        }
-        
-        let tangentNormal = textureSample(texNormal, samp, uv).xyz * 2.0 - 1.0;
-        let Q1 = dpdx(worldPos); 
-        let Q2 = dpdy(worldPos);
-        let st1 = dpdx(uv);      
-        let st2 = dpdy(uv);
-        let N = normalize(worldNormal);
-        let T = normalize(Q1 * st2.y - Q2 * st1.y);
-        let B = -normalize(cross(N, T)); 
-        let TBN = mat3x3<f32>(T, B, N);
-        return normalize(TBN * tangentNormal);
-    }
+    ${TOON_MATH_WGSL}
 
     // Shadow banding (posterization of shadow values)
     fn calcToonShadow(shadowFactor: f32, steps: f32) -> f32 {

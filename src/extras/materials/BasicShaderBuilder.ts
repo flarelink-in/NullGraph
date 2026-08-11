@@ -3,38 +3,16 @@
 // just baseColor * ECS instance color * (optional) albedo texture.
 
 import {CommonChunks, buildStandardVertexShader} from "./CommonChunks";
+import {MaterialBindings, MaterialFragments} from "./materialFragments";
 import {ShaderConfig} from "./types";
 
-const BasicBindings = `
-    struct BasicMaterialParams {
-        baseColor: vec4<f32>,        // 16 bytes (offset 0)
-        uvTiling: vec2<f32>,         // 8 bytes  (offset 16)
-        hasAlbedoTexture: f32,       // 4 bytes  (offset 24)
-        _pad: f32,                   // 4 bytes  (offset 28)
-    };
-    // Total: 32 bytes
-
-    // Group 1: Material Data
-    @group(1) @binding(0) var samp: sampler;
-    @group(1) @binding(1) var texAlbedo: texture_2d<f32>;
-    @group(1) @binding(2) var<uniform> material: BasicMaterialParams;
-`;
+// Bindings and fragment live in materialFragments.ts so `null-graph/visibility` can reuse the
+// exact same stage with its own GPU-culled vertex shader. Group 1 is this path's convention.
+const BasicBindings = MaterialBindings.basic(1);
 
 export function buildBasicShader(config: ShaderConfig): string {
 
-    const fragmentShader = `
-    @fragment
-    fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-        let instanceColor = vec4<f32>(in.ecsColor, 1.0);
-
-        var color = material.baseColor * instanceColor;
-        if (material.hasAlbedoTexture > 0.5) {
-            color = textureSample(texAlbedo, samp, in.uv * material.uvTiling) * color;
-        }
-
-        return color;
-    }
-    `;
+    const fragmentShader = MaterialFragments.basic(config);
 
     return `
         ${CommonChunks.CameraStruct}
