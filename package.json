@@ -1,6 +1,6 @@
 {
   "name": "null-graph",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
@@ -47,6 +47,10 @@
     "./post": {
       "types": "./dist/extras/post/index.d.ts",
       "import": "./dist/post.js"
+    },
+    "./visibility": {
+      "types": "./dist/extras/visibility/index.d.ts",
+      "import": "./dist/visibility.js"
     }
   },
   "scripts": {
@@ -60,6 +64,8 @@
     "dev:serve": "node dev-server.js",
     "dev:serve:nosab": "node dev-server.js --no-sab",
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",
+    "test:geometry": "node test/geometry-meshlets.test.mjs",
+    "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs",
     "watch:lib": "node build.js && tsc --watch",
     "watch:test-ui": "esbuild test/javascript/index.js --bundle --outfile=dist-web-test/index.js --platform=browser --format=esm --sourcemap --watch",
     "dev": "concurrently \"npm run watch:lib\" \"npm run watch:test-ui\" \"npm run dev:serve\"",

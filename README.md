@@ -39,6 +39,8 @@ NullGraph solves this by doing less:
 
 - **Compute-Driven Indirect Drawing:** Offload culling entirely to the GPU. NullGraph supports WebGPU Compute Shaders that dynamically build `IndirectDrawArgs`, resulting in zero CPU overhead for visibility checks.
 
+- **GPU-Driven Visibility (v1.0.5):** Batteries-included culling on the GPU — frustum, Hi-Z occlusion, meshlet normal-cone (backface cluster) rejection, and screen-space-error LOD. Draw-call count becomes proportional to **material count, not object count**, so 100,000 instances still cost a handful of draws.
+
 - **Multi-Pass Architecture:** Seamlessly chain offscreen render passes into screen-space post-processing pipelines (Bloom, CRT, HUD effects) by attaching textures directly to subsequent batches.
 
 ---
@@ -70,7 +72,10 @@ NullGraph uses Subpath Exports to keep your production bundles lean. You only pa
 The Core Engine. Handles WebGPU device initialization, Pass management, and Buffer streaming.
 
 ### `null-graph/geometry`
-The Math and Primitive Toolbox. Contains dynamic generators for Cubes, Spheres, and custom Vertex Layouts.
+The Math and Primitive Toolbox. 13 primitive generators, custom Vertex Layouts, the `MegabufferBuilder` (one unified vertex/index pool for every mesh), and the `MeshletBuilder` (cluster partitioning with bounds, normal cones, and LOD chains).
+
+### `null-graph/visibility`
+GPU-driven culling. The `VisibilitySystem` decides **on the GPU** what to draw — frustum, Hi-Z occlusion, meshlet cone culling, LOD — and issues indirect draws, so the CPU never iterates the scene.
 
 ### `null-graph/loaders`
 High-performance GLBParser, Animator, and SkeletonManager for hardware-accelerated skinning.
@@ -106,9 +111,13 @@ For comprehensive guides and API references, please check our documentation:
 
 ### Guides
 - [Quick Start Guide](./docs/quick-start.md) — get a lit cube on screen
+- [Scene Composition](./docs/scene-composition.md) — how to assemble any scene, end to end
+- [Engine Roadmap](./docs/roadmap.md) — versioned module plan and what ships when
 - [Post-Processing Design](./docs/post-processing-design.md) — how the `PostChain` is architected
 - [Post-Processing Presets](./docs/post-presets.md) — ready-made Bloom / SSAO / Tonemap bundles
 - [Transient Pool](./docs/transient-pool.md) — render-target recycling internals
+- [Meshlet Geometry Design](./docs/geometry-meshlets-design.md) — clusters, bounds, cones, LOD
+- [Visibility Design](./docs/visibility-design.md) — the GPU culling architecture
 - [Deprecated & Breaking API Changes](./docs/deprecated-api.md) — migration guide
 
 ### API References
@@ -121,6 +130,7 @@ For comprehensive guides and API references, please check our documentation:
 - [Materials (`null-graph/materials`)](./docs/api/materials.md)
 - [Post-Processing (`null-graph/post`)](./docs/api/post.md)
 - [Profiler (`null-graph/profiler`)](./docs/api/profiler.md)
+- [Visibility (`null-graph/visibility`)](./docs/api/visibility.md) · [Shader & Buffer Reference](./docs/api/visibility-shader-reference.md)
 ## Roadmap
 
 NullGraph is the high-performance rendering backbone for the Axion Engine.
@@ -140,6 +150,14 @@ NullGraph is the high-performance rendering backbone for the Axion Engine.
 - [x] GPU Compute Frustum Culling & Indirect Drawing
 
 - [x] Geometry Builder & `null-graph/geometry` extras
+
+- [x] Megabuffer (unified vertex/index pool) & Meshlet Builder (bounds, cones, LOD)
+
+- [x] GPU-Driven Visibility — two-tier culling (instance + meshlet), Hi-Z occlusion, screen-space-error LOD
+
+- [ ] Deferred / Visibility-Buffer Shading
+
+- [ ] Virtual Geometry (Nanite-style cluster-LOD DAG)
 
 ---
 

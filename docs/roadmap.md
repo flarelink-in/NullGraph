@@ -1,8 +1,9 @@
 # NullGraph — Engine Roadmap
 
 **Status:** planning document. Non-binding except where a linked spec exists.
-**Current release:** `v1.0.3`.
-**Flagship next release:** `v1.0.5` — *GPU-Driven Visibility* (meshlets + two-tier GPU culling).
+**Current release:** `v1.0.4`.
+**Flagship release:** `v1.0.5` — *GPU-Driven Visibility* (meshlets + two-tier GPU culling) — **✅ implemented**,
+see §1.1.
 
 This document turns a loose module wishlist into a versioned plan that is **grounded in how
 NullGraph actually renders today** — the linear `render(sequence)` model, the existing indirect
@@ -10,12 +11,18 @@ hook, the clustered `LightSystem` compute pattern, and the "detect capabilities,
 stance. Every future module is mapped onto those primitives rather than onto a generic engine
 architecture, because that is what makes the plan buildable instead of aspirational.
 
-The two v1.0.5 modules have full implementation-ready specs:
+The two v1.0.5 modules have full implementation-ready specs — **both are now implemented**:
 
 - **[`geometry-meshlets-design.md`](./geometry-meshlets-design.md)** — the data layer: how
   geometry becomes meshlets with bounds and cones, and the exact buffer contract.
-- **[`visibility-design.md`](./visibility-design.md)** — the runtime layer: two-phase GPU
-  culling that consumes those buffers and emits the indirect draws the engine already renders.
+  → `src/extras/geometry/MeshletBuilder.ts`
+- **[`visibility-design.md`](./visibility-design.md)** — the runtime layer: GPU culling that
+  consumes those buffers and emits the indirect draws the engine already renders.
+  → `src/extras/visibility/`, exported as `null-graph/visibility`.
+
+API docs: [`api/visibility.md`](./api/visibility.md) (usage) ·
+[`api/visibility-shader-reference.md`](./api/visibility-shader-reference.md) (buffer layouts, WGSL
+contracts, material bridge).
 
 ---
 
@@ -46,7 +53,7 @@ inherits them. A design that violates one of these is wrong even if it renders.
 
 ---
 
-## 1. Where NullGraph is today — `v1.0.3`
+## 1. Where NullGraph is today — `v1.0.4` (+ v1.0.5 modules landed)
 
 Verified against the tree at the time of writing. This is the substrate every future module
 builds on.
@@ -54,7 +61,8 @@ builds on.
 | Area | Module(s) | Status | Notes |
 |---|---|---|---|
 | **Core** | `WebGPUContext`, `NullGraph`, `RenderPipeline`, `BatchManager`, `BufferManager`, `TextureManager`, `Camera` | ✅ shipped | Linear compute+render execution; capability negotiation; **indirect draw already wired**. |
-| **Geometry** | `Primitives` (13 shapes), `GeometryBuilder`, `Geometry`, `MegabufferBuilder`, `DynamicGeometryManager`, `VertexLayout` | ✅ basic | `MegabufferBuilder` already produces per-mesh `{indexCount, firstIndex, baseVertex, meshID}` — a multi-draw foundation with no consumer yet. |
+| **Geometry** | `Primitives` (13 shapes), `GeometryBuilder`, `Geometry`, `MegabufferBuilder`, **`MeshletBuilder`**, `DynamicGeometryManager`, `VertexLayout` | ✅ shipped | `MegabufferBuilder` produces per-mesh `{indexCount, firstIndex, baseVertex, meshID}`; `MeshletBuilder` layers clusters + bounds + cones + LOD on it (§4.1). |
+| **Visibility** | `VisibilitySystem`, `HiZPyramid`, `cullMath`, `visibilityShaders` | ✅ shipped | Two-tier GPU culling (instance + meshlet), Hi-Z occlusion, cone culling, LOD. Consumes the dormant indirect hook. `null-graph/visibility`. |
 | **Cameras** | Orbital, Fly, Follow, Path (+ event proxies) | ✅ shipped | State objects, worker-friendly. |
 | **Lighting** | `LightSystem` (standard + **clustered-forward** + tiled), 7 light proxy types | ✅ shipped | The reference compute-driven subsystem: builds buffers, emits a `ComputeStageNode`, subgroup-accelerated binning when available. |
 | **Materials** | PBR, Lambert, Toon, Matcap, Emissive, Basic (+ shader builders/chunks) | ✅ shipped | Shader-composition pattern (`build*Shader`) is the template for generated pipelines. |
@@ -62,13 +70,28 @@ builds on.
 | **Loaders** | `GLBParser`, `Animator`, `SkeletonManager` | ✅ shipped | Already **parses** skins/animations. GPU skinning is not yet wired — see v1.3. |
 | **Tooling** | `profiler`, `debug-ui` | ✅ shipped | Perf widgets. |
 
-**The single most important fact for the roadmap:** GPU-driven rendering is already plumbed and
-unused. `RenderPipeline.ts:107-110` issues `drawIndexedIndirect(batch.indirectBuffer, 0)` for any
-batch flagged `isIndirect`, and `RenderPipeline.ts:92` exempts such batches from the
-"instanceCount === 0 → skip" rule. `types.ts:32-33` exposes `isIndirect` and a
-`sharedSourceBuffer` populated by a prior compute stage. **Nothing consumes this today.** v1.0.5
-is, more than anything, the release that connects a GPU culling compute stage to that dormant
-draw path.
+**The fact that shaped this roadmap** (now discharged): GPU-driven rendering was already plumbed
+and unused. `RenderPipeline.ts:107-110` issues `drawIndexedIndirect(batch.indirectBuffer, 0)` for
+any batch flagged `isIndirect`, `RenderPipeline.ts:92` exempts such batches from the
+"instanceCount === 0 → skip" rule, and `types.ts:32-33` exposes `isIndirect` +
+`sharedSourceBuffer`. v1.0.5 is the release that connected a GPU culling compute stage to that
+dormant draw path — **and it did so with zero core-engine changes**, exactly as designed.
+
+### 1.1 v1.0.5 status — what actually landed
+
+| Piece | Where | Notes |
+|---|---|---|
+| Meshlet build (clusters, bounds, cones, LOD) | `extras/geometry/MeshletBuilder.ts` | Consumes a `MegabufferBuilder`; emits the flat `MeshletPack` buffers. |
+| Instance tier (coarse, per-object) | `VisibilitySystem.createInstanceDrawBatch` | One `drawIndexedIndirect` per unique mesh, independent of instance count. |
+| Meshlet tier (fine, per-cluster) | `VisibilitySystem.createMeshletDrawBatch` | Vertex-pulling over a static index buffer; one draw per material. |
+| Hi-Z pyramid + occlusion | `HiZPyramid.ts`, `HIZ_OCCLUSION_WGSL` | `r32float` max-reduction mip chain; single-phase (last frame's depth). |
+| Normal-cone (backface cluster) culling | `CULL_CORE_WGSL` | With the `cutoff >= 2.0` never-cull sentinel. |
+| Screen-space-error LOD | `buildMeshletInstanceCullWGSL` | `LOD_AUTO`, or a per-instance override. |
+| CPU mirror of the cull math | `cullMath.ts` | Pinned by `npm run test:visibility` (no GPU needed). |
+
+**Deliberately still open:** `mode: 'two-phase'` throws a named error (design §9 — single-phase is
+the proven baseline); the GPU integration tests (design §10 T1–T7) need a browser harness; indirect
+*dispatch* (§6) is still the one optional additive engine change.
 
 ---
 
@@ -83,29 +106,30 @@ NullGraph
 │   ├── Device / Context / Capabilities          ✅
 │   ├── Linear execution (compute + render)       ✅
 │   ├── Resource / Buffer / Pipeline mgmt          ✅
-│   ├── Indirect draw hook                          ✅ present, unused → consumed in v1.0.5
-│   └── Indirect dispatch                           ◻ v1.0.5 (small additive engine change)
+│   ├── Indirect draw hook                          ✅ consumed by Visibility (v1.0.5)
+│   └── Indirect dispatch                           ◻ optional (small additive engine change)
 │
-├── Geometry                                     ◐ basic → expanded
+├── Geometry                                     ✅ shipped
 │   ├── Meshes / Primitives                        ✅
 │   ├── Megabuffer (per-mesh offsets)             ✅
-│   ├── Meshlets (build + bounds + cones)          ◻ v1.0.5   → geometry-meshlets-design.md
-│   ├── Discrete LOD chains                         ◻ v1.0.5   → geometry-meshlets-design.md
+│   ├── Meshlets (build + bounds + cones)          ✅ v1.0.5   → geometry-meshlets-design.md
+│   ├── Discrete LOD chains                         ✅ v1.0.5   → geometry-meshlets-design.md
 │   ├── Geometry compression (quantized verts)      ◻ v1.1
 │   └── Virtual geometry (DAG cluster-LOD)         ◻ v2.0     (Nanite-class; stretch)
 │
-├── Visibility                                   ◻ NEW — v1.0.5 flagship → visibility-design.md
-│   ├── Frustum culling (instance + meshlet)       ◻ v1.0.5
-│   ├── Hi-Z pyramid build                          ◻ v1.0.5
-│   ├── Occlusion culling (Hi-Z test)              ◻ v1.0.5
-│   ├── Two-phase temporal culling                  ◻ v1.0.5 (accuracy mode)
-│   ├── Meshlet cone (backface cluster) culling     ◻ v1.0.5
+├── Visibility                                   ✅ v1.0.5 flagship → visibility-design.md
+│   ├── Frustum culling (instance + meshlet)       ✅ v1.0.5
+│   ├── Hi-Z pyramid build                          ✅ v1.0.5
+│   ├── Occlusion culling (Hi-Z test)              ✅ v1.0.5
+│   ├── Meshlet cone (backface cluster) culling     ✅ v1.0.5
+│   ├── Screen-space-error LOD selection            ✅ v1.0.5
+│   ├── Two-phase temporal culling                  ◻ reserved (throws; design §9)
 │   └── Visibility buffer (deferred IDs)            ◻ v1.1
 │
-├── Rendering                                    ◐ forward only → expanded
+├── Rendering                                    ◐ forward + GPU-driven
 │   ├── Forward (materials)                        ✅
 │   ├── Forward+ / Clustered                       ✅ (LightSystem)
-│   ├── Indirect / GPU-driven                       ◻ v1.0.5 (the draw side of Visibility)
+│   ├── Indirect / GPU-driven                       ✅ v1.0.5 (the draw side of Visibility)
 │   ├── Multi-draw fast path                        ◻ v1.1  (detect-only; not universal)
 │   └── Deferred / Visibility-buffer shading        ◻ v1.1
 │
@@ -149,7 +173,7 @@ Legend: `✅` shipped · `◐` partial · `◻` planned · `⛔` blocked on the 
 
 | Version | Theme | Headline modules | New specs | Depends on |
 |---|---|---|---|---|
-| **v1.0.5** | **GPU-Driven Visibility** | Meshlet geometry, two-tier GPU culling, Hi-Z occlusion | geometry-meshlets, visibility | indirect hook (present) |
+| **v1.0.5** ✅ | **GPU-Driven Visibility** | Meshlet geometry, two-tier GPU culling, Hi-Z occlusion | geometry-meshlets, visibility | indirect hook (present) |
 | v1.1 | Deferred & Shadows | Visibility buffer, deferred shading, shadow maps + CSM, geometry compression | rendering-deferred, shadows | v1.0.5 (caster culling, meshlet IDs) |
 | v1.2 | Image-based lighting & Effects | IBL, light probes, GPU particles, decals, shadow atlas | lighting-ibl, effects-particles | v1.1 (deferred, atlas) |
 | v1.3 | Animation on the GPU | Compute skinning, morph targets | animation-gpu | v1.0.5 (mega-buffer skinned variant) |
@@ -164,7 +188,7 @@ CPU-bound draw loop and reworking them later.
 
 ---
 
-## 4. v1.0.5 in one paragraph
+## 4. v1.0.5 in one paragraph — ✅ shipped
 
 Geometry gains a **meshlet build step** (`geometry-meshlets-design.md`): a mesh is partitioned
 into clusters of ≤64 vertices / ≤124 triangles, each with a bounding sphere and a normal cone,
@@ -186,8 +210,8 @@ easy to confuse, so, top to bottom of the hierarchy `meshes → meshlets → tri
 | Layer | Component | Role | Status |
 |---|---|---|---|
 | Vertex/index pool | **`MegabufferBuilder`** | Packs every mesh into one vertex + index buffer; records per-mesh `{indexCount, firstIndex, baseVertex, meshID}`. | ✅ ships today |
-| Sub-mesh clusters | **`MeshletBuilder`** | *Consumes* the megabuffer; partitions each mesh into ≤64v/≤124t meshlets with bounds + cones that **reference** the mega vertex pool. | ◻ v1.0.5 |
-| Runtime culling/draw | **`VisibilitySystem`** | GPU-culls instances (coarse) and meshlets (fine), emits the indirect draws over that same pool. | ◻ v1.0.5 |
+| Sub-mesh clusters | **`MeshletBuilder`** | *Consumes* the megabuffer; partitions each mesh into ≤64v/≤124t meshlets with bounds + cones that **reference** the mega vertex pool. | ✅ v1.0.5 |
+| Runtime culling/draw | **`VisibilitySystem`** | GPU-culls instances (coarse) and meshlets (fine), emits the indirect draws over that same pool. | ✅ v1.0.5 |
 
 ```
 MegabufferBuilder ─▶ mega vertex pool + per-mesh offsets
@@ -216,7 +240,7 @@ Every module in the tree gets a brief here: its goal, the **real integration sur
 off, its dependencies, and its explicit non-goals. A brief becomes a full standalone spec when
 its release is scheduled — the two v1.0.5 modules already have theirs.
 
-### 5.1 Geometry → Meshlets & LOD — **v1.0.5** — [full spec](./geometry-meshlets-design.md)
+### 5.1 Geometry → Meshlets & LOD — **v1.0.5 ✅ shipped** — [full spec](./geometry-meshlets-design.md)
 
 - **Goal.** Turn a mesh into GPU-cullable clusters and discrete LOD chains; define the flat
   buffer layout the `VisibilitySystem` consumes.
@@ -227,7 +251,7 @@ its release is scheduled — the two v1.0.5 modules already have theirs.
 - **Non-goals (v1.0.5).** The DAG cluster-LOD graph and runtime streaming of virtual geometry
   (v2.0); vertex quantization/compression (v1.1).
 
-### 5.2 Visibility → GPU culling — **v1.0.5** — [full spec](./visibility-design.md)
+### 5.2 Visibility → GPU culling — **v1.0.5 ✅ shipped** — [full spec](./visibility-design.md) · [API](./api/visibility.md)
 
 - **Goal.** Make visible-set determination O(GPU) and scene-size-independent: frustum + normal
   cone + Hi-Z occlusion, producing indirect draw args.
@@ -376,19 +400,18 @@ geometry inherit it.
 
 ---
 
-## 8. What "done" means for v1.0.5
+## 8. What "done" means for v1.0.5 — scorecard
 
-The release is complete when all of the following hold — these are the acceptance gates the two
-specs elaborate:
+The acceptance gates the two specs elaborate, against what shipped:
 
-1. A scene of N instances renders with **draw calls proportional to material count, not N**
-   (`visibility-design.md` §10, tests).
-2. Meshlets behind other geometry are **not drawn**, verified by a Hi-Z occlusion test scene with
-   a known visible-triangle count (`visibility-design.md` §10, T4).
-3. Culling is driven entirely from GPU buffers a **Web Worker** can fill; the main thread issues
-   uploads, clears, one dispatch chain, and the draws — **no per-frame allocation**
-   (`geometry-meshlets-design.md` §9, `visibility-design.md` §9).
-4. The baseline runs on **core WebGPU** with no optional features; `capabilities.subgroups` and
-   `multi-draw-indirect`, where present, only make it faster (constraint #4).
-5. No core-engine file changes are required for the draw path; any additive change (indirect
-   dispatch) is behind a capability/opt-in and the engine renders correctly without it.
+| # | Gate | Status |
+|---|---|---|
+| 1 | A scene of N instances renders with **draw calls proportional to material/mesh count, not N** | ✅ by construction — one `drawIndexedIndirect` per mesh (instance tier) / per material (meshlet tier). Needs a GPU harness to assert numerically (§10 T2). |
+| 2 | Meshlets behind other geometry are **not drawn** (Hi-Z) | ✅ implemented (`HIZ_OCCLUSION_WGSL`); the numeric scene test (§10 T4) awaits a browser harness. |
+| 3 | Culling driven entirely from **worker-fillable** GPU buffers, **no per-frame allocation** | ✅ `InstanceBuffer` + `setInstances` adopt by reference; the frame path is one `writeBuffer`, the param refresh, clears, dispatches, draws. |
+| 4 | Baseline runs on **core WebGPU**, optional features only accelerate | ✅ storage buffers, atomics, `r32float` storage textures, `drawIndexedIndirect` — all core. No feature gates. |
+| 5 | **No core-engine changes** for the draw path | ✅ confirmed — `src/core/` untouched by v1.0.5; indirect dispatch remains optional (§6). |
+
+**Remaining before the gates are fully *proven* (not just met):** a browser/WebGPU test harness for
+§10 T1–T7. The pure math and every generated WGSL module are already covered headless by
+`npm run test:visibility`.
