@@ -59,8 +59,11 @@ export class Camera {
         this.currentAspect = aspect;
         const fovRads = (this.fovDegrees * Math.PI) / 180;
 
-        // 1. Calculate Projection
-        mat4.perspective(this.projectionMatrix, fovRads, aspect, this.near, this.far);
+        // 1. Calculate Projection — perspectiveZO, because WebGPU's clip volume is z ∈ [0, 1],
+        //    NOT OpenGL's [-1, 1]. A NO projection has every point with z_ndc < 0 clipped, which
+        //    silently moves the near plane to 2×near (and the far plane to ~2×far): geometry
+        //    within that shell vanishes/pops right at the camera.
+        mat4.perspectiveZO(this.projectionMatrix, fovRads, aspect, this.near, this.far);
 
         // 2. Calculate Inverse Projection
         mat4.invert(this.inverseProjectionMatrix, this.projectionMatrix);

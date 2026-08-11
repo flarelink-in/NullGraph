@@ -69,6 +69,44 @@ export interface EngineInitResult {
 }
 
 // =========================================================
+// GPU CAPABILITY NEGOTIATION
+// =========================================================
+
+/**
+ * A structured, queryable snapshot of the optional WebGPU features (and subgroup
+ * sizes) that were successfully negotiated when the device was created. Downstream
+ * systems read this instead of re-probing the adapter — e.g. the clustered
+ * {@link LightSystem} checks `capabilities.subgroups` to pick a subgroup-accelerated
+ * binning kernel over the universal atomic one.
+ *
+ * Booleans mirror the entries NullGraph opportunistically enables (see
+ * `PROGRESSION_FEATURES` in `WebGPUContext`). Detection is deliberately broader than
+ * current usage: `shaderF16`, `bgra8unormStorage`, and `dualSourceBlending` are surfaced
+ * as groundwork so those features can be adopted later without re-plumbing negotiation.
+ */
+export interface GPUCapabilities {
+    /** The features actually granted on the `GPUDevice`. */
+    readonly features: ReadonlySet<GPUFeatureName>;
+
+    /** Subgroup ops (`subgroupAdd`/`subgroupElect`/…, `enable subgroups;`) are available. */
+    readonly subgroups: boolean;
+    /** 16-bit floats (`enable f16;`) are available in WGSL. */
+    readonly shaderF16: boolean;
+    /** `bgra8unorm` is usable as a storage texture (`STORAGE_BINDING`). */
+    readonly bgra8unormStorage: boolean;
+    /** Dual-source blending (`@blend_src(0/1)`) is available. */
+    readonly dualSourceBlending: boolean;
+
+    /** Minimum hardware subgroup size; `0` when subgroups are unavailable/unreported. */
+    readonly subgroupMinSize: number;
+    /** Maximum hardware subgroup size; `0` when subgroups are unavailable/unreported. */
+    readonly subgroupMaxSize: number;
+
+    /** Convenience membership test against the enabled feature set. */
+    has(feature: GPUFeatureName): boolean;
+}
+
+// =========================================================
 // COMPUTE STAGE CONFIGURATIONS
 // =========================================================
 

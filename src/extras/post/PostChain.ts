@@ -126,11 +126,15 @@ export class PostChain {
     }
 
     private get internalWidth(): number {
-        return Math.max(1, Math.floor(this.baseWidth * this.scale));
+        const w = Number(this.baseWidth);
+        const validW = (isNaN(w) || w <= 0) ? (this.engine.width || 1280) : w;
+        return Math.max(1, Math.floor(validW * this.scale));
     }
 
     private get internalHeight(): number {
-        return Math.max(1, Math.floor(this.baseHeight * this.scale));
+        const h = Number(this.baseHeight);
+        const validH = (isNaN(h) || h <= 0) ? (this.engine.height || 720) : h;
+        return Math.max(1, Math.floor(validH * this.scale));
     }
 
     // =========================================================

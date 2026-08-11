@@ -1,4 +1,5 @@
 import {ToonChunks} from "./ToonChunks";
+import {MaterialFragments} from "./materialFragments";
 import {ShaderConfig} from "./types";
 
 export function buildToonShader(config: ShaderConfig): string {
@@ -56,94 +57,8 @@ export function buildToonShader(config: ShaderConfig): string {
     }
     `;
 
-    // --- 2. Main Fragment Shader (CLEAN - No outlines) ---
-    const fragmentShader = `
-    @fragment
-    fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-        // Calculate view direction
-        let viewDir = normalize(camera.eyePos - in.worldPos);
-        let instanceColor = vec4<f32>(in.ecsColor, 1.0);
-        
-        ${config.lighting ? `
-        // --- DYNAMIC LIGHTING LOOP (Toon Style) ---
-        let lightCount = getVisibleLightCount(in.worldPos);
-        
-        var baseColor: vec4<f32>;
-        if (material.hasAlbedoTexture > 0.5) {
-            baseColor = textureSample(texAlbedo, samp, in.uv) * material.baseColor * instanceColor;
-        } else {
-            baseColor = material.baseColor * instanceColor;
-        }
-        
-        let N = getToonNormal(in.uv, in.worldPos, in.worldNormal);
-        
-        var finalColor = vec3<f32>(0.0);
-        let ambient = 0.15 * baseColor.rgb;
-        finalColor += ambient;
-        
-        for (var i = 0u; i < lightCount; i = i + 1u) {
-            let incident = getIncidentLight(i, in.worldPos);
-            let L = normalize(incident.direction);
-            
-            let NdotL = max(dot(N, L), 0.0);
-            
-            ${config.useSmoothRamp ? `
-            // Smooth toon ramp
-            let toonShade = calcSmoothToonRamp(NdotL, material.rampSteps, 0.2);
-            ` : `
-            // Hard toon ramp
-            let toonShade = calcToonRamp(NdotL, material.rampSteps);
-            `}
-            
-            // Toon diffuse
-            let diffuse = baseColor.rgb * toonShade * incident.color * incident.attenuation;
-            finalColor += diffuse;
-            
-            // Toon specular (hard cutoff)
-            let specular = calcToonSpecular(N, viewDir, L, material.specularThreshold, vec3(1.0));
-            finalColor += specular * incident.color * incident.attenuation * 0.5;
-        }
-        
-        // Rim light (calculated once, not per-light)
-        let rimLight = calcRimLight(N, viewDir, material.rimLightColor, material.rimLightPower);
-        finalColor += rimLight;
-        
-        ` : `
-        // --- HARDCODED FALLBACK TOON LIGHTING ---
-        var baseColor: vec4<f32>;
-        if (material.hasAlbedoTexture > 0.5) {
-            baseColor = textureSample(texAlbedo, samp, in.uv) * material.baseColor * instanceColor;
-        } else {
-            baseColor = material.baseColor * instanceColor;
-        }
-        
-        let lightDir = normalize(vec3<f32>(1.0, 1.0, 0.5));
-        let lightColor = vec3<f32>(3.0, 3.0, 3.0);
-        
-        let N = getToonNormal(in.uv, in.worldPos, in.worldNormal);
-        let NdotL = max(dot(N, lightDir), 0.0);
-        
-        ${config.useSmoothRamp ? `
-        let toonShade = calcSmoothToonRamp(NdotL, material.rampSteps, 0.2);
-        ` : `
-        let toonShade = calcToonRamp(NdotL, material.rampSteps);
-        `}
-        
-        var finalColor = baseColor.rgb * toonShade * lightColor;
-        
-        let ambient = 0.15 * baseColor.rgb;
-        finalColor += ambient;
-        
-        let specular = calcToonSpecular(N, viewDir, lightDir, material.specularThreshold, vec3(1.0));
-        finalColor += specular * lightColor * 0.5;
-        
-        let rimLight = calcRimLight(N, viewDir, material.rimLightColor, material.rimLightPower);
-        finalColor += rimLight;
-        `}
-        
-        return vec4<f32>(finalColor, baseColor.a);
-    }
-    `;
+    // --- 2. Fragment stage — shared with null-graph/visibility ---
+    const fragmentShader = MaterialFragments.toon(config);
 
     // --- 3. Glue it all together ---
     return `
