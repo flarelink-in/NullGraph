@@ -157,3 +157,71 @@ engine.setBatchGeometry(batch, vertexBuffer, indexBuffer, baked.i.length);
 > For very large, streaming worlds see `DynamicGeometryManager` and `MegaBufferBuilder` (also
 > exported from this module), which pack many meshes into shared mega-buffers to minimize buffer
 > churn and state changes.
+
+---
+
+## `MeshletBuilder` (v1.0.5)
+
+Partitions each mesh into **meshlets** — small clusters of ≤64 vertices / ≤124 triangles, each
+carrying a bounding sphere and a backface normal cone — and packs the result into flat typed arrays
+ready to upload as GPU storage buffers. Meshlets are the unit of sub-object culling consumed by the
+companion [`VisibilitySystem`](../visibility-design.md). This is a **build-time** module: it never
+touches a `GPUDevice`, so it runs in a Web Worker or a Node bake script and costs nothing per frame.
+See [`geometry-meshlets-design.md`](../geometry-meshlets-design.md) for the full contract.
+
+`MeshletBuilder` is layered **on top of** `MegabufferBuilder`: meshlet vertex references are global
+indices into the shared mega vertex pool, so one vertex allocation backs both the instance tier and
+the meshlet tier (design doc §2.1).
+
+```ts
+import { MegabufferBuilder, MeshletBuilder } from 'null-graph/geometry';
+
+const mega = new MegabufferBuilder(8);                 // 8 floats/vertex: pos(3) normal(3) uv(2)
+const builder = new MeshletBuilder(mega, {
+    positionOffsetFloats: 0,
+    maxVertices: 64,        // clamp 1..255 (local indices are 8-bit)
+    maxTriangles: 124,      // clamp 1..124 (the companion draw expansion)
+});
+
+// one LOD:
+const rock = builder.addMesh('rock', { vertices: rockVerts, indices: rockIndices });
+
+// or an explicit LOD chain (pre-decimated index arrays you supply):
+builder.addMesh('tree', {
+    vertices: treeVerts,
+    lods: [
+        { indices: treeLOD0, error: 0.0  },   // world-space geometric error vs LOD0, in mesh units
+        { indices: treeLOD1, error: 0.05 },
+        { indices: treeLOD2, error: 0.20 },
+    ],
+});
+
+const pack = builder.build();
+```
+
+`addMesh` returns `{ meshIndex, name }`; `meshIndex` is what an instance stores to reference the
+mesh. `build()` returns a `MeshletPack`:
+
+| Field | Type | Upload usage | Contents |
+|---|---|---|---|
+| `megaVertices` | `Float32Array` | `VERTEX \| STORAGE` | the shared mega vertex pool |
+| `meshlets` | `ArrayBuffer` (64 B stride) | `STORAGE` | `boundsCenter`, `coneApex`, `coneAxis`, `{vertexOffset, triangleOffset, vertexCount, triangleCount}` |
+| `meshletVertices` | `Uint32Array` | `STORAGE` | flat global vertex indices |
+| `meshletTriangles` | `Uint32Array` | `STORAGE` | 3 × 8-bit local indices packed per u32 |
+| `meshLODs` | `Float32Array` (16 B stride) | `STORAGE` | `[meshletOffset, meshletCount, error, 0]` per LOD |
+| `meshTable` | `Uint32Array` (16 B stride) | `STORAGE` | `[lodOffset, lodCount, 0, 0]` per mesh |
+| `report` | `MeshletReport` | — | counts, `vertexReuse` (want < 1.2), `avgVerticesPerMeshlet` (want > 55), `bytes` |
+
+Uploading is the app's job (one `BufferManager.createBuffer` call each), because usage flags differ
+per buffer and the builder must not depend on a live device. `build()` also finalizes the shared
+`mega`, so `mega.getOffset(name)` stays valid afterward for the meshlet-free instance tier.
+
+Things to know:
+
+- **Deterministic** — the same mesh in produces byte-identical buffers out (property P5), so builds
+  are diffable.
+- **`meshletTriangles.length` equals the input triangle count exactly** — meshletization partitions
+  triangles, never duplicates them.
+- Out-of-range indices, non-÷3 index arrays, degenerate LODs, duplicate names, and cap overflows
+  (`maxTriangles > 124`, `maxVertices > 255`) all **throw at build time** naming the offending mesh.
+
