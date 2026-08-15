@@ -41,6 +41,8 @@ NullGraph solves this by doing less:
 
 - **GPU-Driven Visibility (v1.0.5):** Batteries-included culling on the GPU — frustum, Hi-Z occlusion, meshlet normal-cone (backface cluster) rejection, and screen-space-error LOD. Draw-call count becomes proportional to **material count, not object count**, so 100,000 instances still cost a handful of draws.
 
+- **Shadows That Inherit the Culling:** A shadow cascade is just another camera, so caster culling reuses the same GPU cull chain rather than duplicating it — 4 cascades over 100,000 instances is 4 indirect draws per caster mesh. Cached atlas tiles skip both their draw *and* their cull.
+
 - **Multi-Pass Architecture:** Seamlessly chain offscreen render passes into screen-space post-processing pipelines (Bloom, CRT, HUD effects) by attaching textures directly to subsequent batches.
 
 ---
@@ -69,31 +71,72 @@ npm install @webgpu/types --save-dev
 NullGraph uses Subpath Exports to keep your production bundles lean. You only pay for the features you import.
 
 ### `null-graph`
-The Core Engine. Handles WebGPU device initialization, Pass management, and Buffer streaming.
+The core engine: device and capability negotiation, buffer/texture management, and the linear
+executor. You hand `render()` a flat array of `ComputeStageNode | RenderPassNode` and it walks it
+in order — consecutive compute stages batch into one WebGPU pass, and a render pass closes it,
+which is where the compute→draw memory barrier comes from for free. Camera state is one 432-byte
+uniform (view/proj/their inverses + eye, near/far/fov/aspect) shared by every batch, and indirect
+draw is wired through: a batch flagged `isIndirect` is drawn with `drawIndexedIndirect` from a
+buffer a compute stage filled.
 
 ### `null-graph/geometry`
-The Math and Primitive Toolbox. 13 primitive generators, custom Vertex Layouts, the `MegabufferBuilder` (one unified vertex/index pool for every mesh), and the `MeshletBuilder` (cluster partitioning with bounds, normal cones, and LOD chains).
+13 primitive generators, declarative vertex layouts, and the two-layer buffer story:
+`MegabufferBuilder` packs every mesh into one vertex + index pool and records per-mesh
+`{indexCount, firstIndex, baseVertex}`; `MeshletBuilder` consumes that pool and partitions each
+mesh into ≤64-vertex / ≤124-triangle clusters, each with a bounding sphere and a normal cone, plus
+discrete LOD chains. Meshlets store **global** indices into the mega pool, so one vertex allocation
+backs both the coarse and fine draw paths.
 
 ### `null-graph/visibility`
-GPU-driven culling. The `VisibilitySystem` decides **on the GPU** what to draw — frustum, Hi-Z occlusion, meshlet cone culling, LOD — and issues indirect draws, so the CPU never iterates the scene.
+GPU-driven culling. Two tiers over the same substrate: instance-tier (one indirect draw per unique
+mesh, independent of instance count) and meshlet-tier (per-cluster, drawn by vertex pulling over a
+static index buffer, since WebGPU has no mesh shaders). A compute chain builds an `r32float` Hi-Z
+max-reduction pyramid from last frame's depth, then culls by frustum, normal cone, and occlusion,
+selects LOD by screen-space error, and compacts survivors into the indirect draw args. Nothing is
+read back to the CPU — dispatch sizes come from CPU-known caps with idle threads early-outing. The
+cull math has a CPU mirror (`cullMath.ts`) pinned by headless tests.
+
+### `null-graph/shadows`
+Cascaded shadow maps with GPU caster culling. A cascade fills the *same* 108-float camera layout
+the cull and draw shaders already consume, so caster culling is the visibility chain pointed at a
+different uniform rather than new machinery. Cascades are fitted with a rotation-invariant bounding
+sphere and snapped to whole shadow texels (a box fit shimmers on camera yaw; an unsnapped centre
+crawls on translation), and the ortho near plane is extruded so off-screen casters still land in
+the map. Bias is applied on the caster in the depth-only vertex shader. Receiver-side it
+**decorates** the light system's WGSL — wrapping `getIncidentLight` and folding the shadow term
+into `attenuation` — so Lambert, Toon and PBR all gain shadows with no material edits.
 
 ### `null-graph/loaders`
-High-performance GLBParser, Animator, and SkeletonManager for hardware-accelerated skinning.
+`GLBParser` with resource unpacking, `SkeletonManager`, and an `Animator` for keyframe sampling and
+interpolation, feeding the vertex-shader skinning path in the material builders.
 
 ### `null-graph/materials`
-The full material family — Basic, Lambert, Toon, Emissive, Matcap, and Cook-Torrance PBR — each with its dynamic WGSL shader builder.
+Basic, Lambert, Toon, Emissive, Matcap, and Cook-Torrance PBR. Each family is a **portable pair** —
+WGSL bindings plus an `fs_main` body, parameterized by bind-group index — from one source of truth,
+so the same material drops into a normal batch or a GPU-culled visibility batch unchanged. Lighting
+arrives as an injected WGSL layout (`getVisibleLightCount` / `getIncidentLight`), which is what lets
+the light system swap clustered for standard without any material knowing.
 
 ### `null-graph/lights`
-Data-Oriented lighting. Zero-allocation light-cursor proxies plus `standard`, `tiled-forward`, and compute-driven `clustered-forward` culling for thousands of dynamic lights.
+Data-oriented lighting: 7 proxy types writing into a flat 16-float-per-light array a Worker can
+fill, adopted by reference. Three techniques — `standard`, `tiled-forward`, and compute-driven
+`clustered-forward`, which bins lights into a 3D froxel grid (logarithmic depth slices) in a
+compute stage, using subgroup ops when the device negotiated them and an atomic baseline otherwise.
 
 ### `null-graph/post`
-Screen-space post-processing. An explicit, pre-allocated `PostChain` (Bloom, SSAO, Tonemap, custom effects) with no per-frame garbage.
+An explicit, pre-allocated post chain. `TransientPool` aliases render targets by lifetime analysis
+so a 12-effect chain reuses a handful of textures, with `history: 2` double-buffering reserved for
+temporal effects. `ParamArena` keeps every effect's uniforms in one arena with zero per-frame
+allocation, and `ShaderComposer` generates each pass's WGSL — 16 effects including Bloom, SSAO,
+Bokeh, FXAA, and tonemapping.
 
 ### `null-graph/cameras`
-Decoupled orbital camera controllers — pure spherical-coordinate math plus a DOM input proxy that works on the main thread or in a Worker.
+Orbital, Fly, Follow, and Path controllers as pure state objects — spherical-coordinate math with
+no DOM dependency — plus optional event proxies, so the same controller runs on the main thread or
+inside a Worker.
 
-### `null-graph/debug-ui & null-graph/profiler`
-Real-time performance telemetry, UI widgets, and WebGPU timestamp-query GPU profiling.
+### `null-graph/debug-ui` & `null-graph/profiler`
+Real-time telemetry widgets and WebGPU timestamp-query GPU profiling.
 
 ---
 # The Architecture Demo Suite
@@ -113,12 +156,22 @@ For comprehensive guides and API references, please check our documentation:
 - [Quick Start Guide](./docs/quick-start.md) — get a lit cube on screen
 - [Scene Composition](./docs/scene-composition.md) — how to assemble any scene, end to end
 - [Engine Roadmap](./docs/roadmap.md) — versioned module plan and what ships when
-- [Post-Processing Design](./docs/post-processing-design.md) — how the `PostChain` is architected
+- [Design Principles](./docs/design-principles.md) — the rules every module follows, and the case behind each
+- [Deprecated & Breaking API Changes](./docs/deprecated-api.md) — migration guide
+
+### Technical Designs
+Implementation-ready specs. Each states its non-goals, cites the engine facts it depends on, and
+lists the acceptance tests up front.
+
+- [Meshlet Geometry](./docs/geometry-meshlets-design.md) — clusters, bounds, normal cones, LOD chains
+- [Visibility](./docs/visibility-design.md) — two-tier GPU culling, Hi-Z, indirect draw
+- [Shadows · Phase 1](./docs/shadows-design.md) — cascade fitting, caster bias, the lighting decorator
+- [Shadows · Phase 2](./docs/shadows-atlas-design.md) — atlas, punctual lights, tile caching, light-view Hi-Z
+- [Lighting · Phase 1](./docs/lighting-ibl-design.md) — IBL: prefiltered env, BRDF LUT, SH irradiance
+- [Lighting · Phase 2](./docs/lighting-probes-design.md) — irradiance volumes, probe capture, reflection probes
+- [Post-Processing](./docs/post-processing-design.md) — how the `PostChain` is architected
 - [Post-Processing Presets](./docs/post-presets.md) — ready-made Bloom / SSAO / Tonemap bundles
 - [Transient Pool](./docs/transient-pool.md) — render-target recycling internals
-- [Meshlet Geometry Design](./docs/geometry-meshlets-design.md) — clusters, bounds, cones, LOD
-- [Visibility Design](./docs/visibility-design.md) — the GPU culling architecture
-- [Deprecated & Breaking API Changes](./docs/deprecated-api.md) — migration guide
 
 ### API References
 - [Core (`null-graph`)](./docs/api/core.md) · [Core Reference](./docs/api/core-reference.md)
@@ -130,6 +183,7 @@ For comprehensive guides and API references, please check our documentation:
 - [Materials (`null-graph/materials`)](./docs/api/materials.md)
 - [Post-Processing (`null-graph/post`)](./docs/api/post.md)
 - [Profiler (`null-graph/profiler`)](./docs/api/profiler.md)
+- [Shadows (`null-graph/shadows`)](./docs/api/shadows.md) · [Shader & Buffer Reference](./docs/api/shadows-shader-reference.md)
 - [Visibility (`null-graph/visibility`)](./docs/api/visibility.md) · [Shader & Buffer Reference](./docs/api/visibility-shader-reference.md)
 ## Roadmap
 
@@ -193,9 +247,13 @@ NullGraph is the high-performance rendering backbone for the Axion Engine.
 
 - [x] Post-Processing Pipeline (Bloom, SSAO, Tonemap, Custom Effects)
 
-- [ ] Directional Shadows / Cascaded Shadow Maps (CSM)
+- [x] Directional Shadows / Cascaded Shadow Maps (CSM) — sphere-fit cascades, texel snapping, GPU caster culling, hardware PCF
 
-- [ ] Image-Based Lighting (IBL) & Environment Mapping
+- [x] Shadow Atlas — punctual (spot + point) shadows, importance-driven tiles, per-tile caching, light-view Hi-Z
+
+- [ ] Image-Based Lighting (IBL) & Environment Mapping — [specced](./docs/lighting-ibl-design.md)
+
+- [ ] Irradiance Volumes & Reflection Probes — [specced](./docs/lighting-probes-design.md)
 ---
 
 ## Showcase
