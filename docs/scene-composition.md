@@ -53,7 +53,7 @@ render([
 Three ordering rules, and they hold for *every* scene:
 
 1. **Compute before the pass that consumes it.** Light binning and visibility culling write buffers
-   the scene pass reads, so they precede it (`RenderPipeline.ts:62-66` gives the barrier for free).
+   the scene pass reads, so they precede it (`RenderPipeline.ts:65-70` gives the barrier for free).
 2. **Offscreen passes before the main-screen pass.** The main-screen pass substitutes the swapchain
    (`RenderPipeline.ts:72-82`); anything feeding it (scene → post pyramid) comes first.
 3. **Post is last.** `PostChain` owns the linear→display encode on its final pass

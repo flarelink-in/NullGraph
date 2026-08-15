@@ -80,14 +80,14 @@ Verified against this repository at the time of writing.
 
 | Fact | Source |
 |---|---|
-| A batch with no vertex/index buffer draws `draw(3, currentInstanceCount)` — a fullscreen triangle needs no geometry. | `core/RenderPipeline.ts:113-115` |
-| A batch with `currentInstanceCount === 0` is **skipped**. `updateBatchData` must be called at least once per post batch. | `core/RenderPipeline.ts:92` |
-| `createBatch` builds group 0 as `[camera@0, batch.storageBuffer@1]`, unconditionally. | `core/BatchManager.ts:73-79` |
-| Pipelines use `layout: 'auto'`. A binding not *used* by the shader is pruned from the layout, and supplying an entry for it throws. | `core/BatchManager.ts:30` |
-| `setRenderPassBindGroup(batch, entries, groupIndex)` accepts fully explicit entries — use this, not `createTextureBindGroup`, whose binding order is fixed. | `core/BatchManager.ts:148` |
+| A batch with no vertex/index buffer draws `draw(3, currentInstanceCount)` — a fullscreen triangle needs no geometry. | `core/RenderPipeline.ts:143-144` |
+| A batch with `currentInstanceCount === 0` is **skipped**. `updateBatchData` must be called at least once per post batch. | `core/RenderPipeline.ts:105` |
+| `createBatch` builds group 0 as `[camera@0, batch.storageBuffer@1]`, unconditionally. | `core/BatchManager.ts:94-102` |
+| Pipelines use `layout: 'auto'`. A binding not *used* by the shader is pruned from the layout, and supplying an entry for it throws. | `core/BatchManager.ts:69` |
+| `setRenderPassBindGroup(batch, entries, groupIndex)` accepts fully explicit entries — use this, not `createTextureBindGroup`, whose binding order is fixed. | `core/BatchManager.ts:172` |
 | `RenderPassNode.colorAttachments` is public and mutable, and `createPass` stores the caller's array **by reference**. | `core/RenderPass.ts:18,24` |
 | `isMainScreenPass` makes `RenderPipeline` **discard** the node's attachments and substitute the swapchain plus `ctx.depthTexture`, both `loadOp: 'clear'`. | `core/RenderPipeline.ts:72-82` |
-| `expectsDepth` is true for any main-screen pass, and the pipeline depth format is hardcoded `depth24plus`. | `core/BatchManager.ts:27,48` |
+| `expectsDepth` is true for any main-screen pass, and the pipeline depth format is hardcoded `depth24plus`. | `core/BatchManager.ts:69,48` |
 | `ctx.depthTexture` has usage `RENDER_ATTACHMENT` only — it is **not samplable**. | `core/WebGPUContext.ts:126` |
 | `Camera.bufferData` (108 floats): viewProj@0, view@16, proj@32, invViewProj@48, invView@64, invProj@80, eye@96, time@99, near@100, far@101, fovRads@102, aspect@103. | `core/Camera.ts:73-84` |
 
@@ -104,7 +104,7 @@ Rather than change the engine, **use both bindings for what they are good for**:
 - **`@group(0) @binding(1)` — the batch storage buffer, repurposed as the per-pass header**
   (target resolution, texel size, pass index). These values change only on resize, so it is
   written **once at compile** with a single `updateBatchData(batch, header, 1)` — which also
-  sets `currentInstanceCount = 1` and satisfies `RenderPipeline.ts:92`.
+  sets `currentInstanceCount = 1` and satisfies `RenderPipeline.ts:105`.
 
 Result: both group-0 bindings are used, nothing is pruned, zero per-frame writes for headers,
 and no engine modification.
@@ -429,12 +429,12 @@ declaration is a shader-creation error, so it fails loudly — no special valida
      targetFormat: <pass output format>, depthWriteEnabled: false, depthCompare: 'always' })`
    - `engine.setRenderPassBindGroup(batch, [sampler, ...textures, paramsSlice], 1)`
    - `engine.updateBatchData(batch, headerFloats, 1)` — writes the static header **and** sets
-     `currentInstanceCount = 1`, without which `RenderPipeline.ts:92` skips the batch.
+     `currentInstanceCount = 1`, without which `RenderPipeline.ts:105` skips the batch.
 8. **Freeze** — store the sequence array; set state to compiled.
 
 ### 8.1 Depth state on the final pass
 
-`BatchManager.ts:27` sets `expectsDepth` for any main-screen pass, and hardcodes format
+`BatchManager.ts:69` sets `expectsDepth` for any main-screen pass, and hardcodes format
 `depth24plus` (line 48), matching `ctx.depthTexture`. The final post batch **must** pass
 `depthWriteEnabled: false, depthCompare: 'always'`. The defaults (`true` / `'less'`) happen to
 pass because the fullscreen triangle sits at z=0 against a cleared depth of 1.0 — but relying

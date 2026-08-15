@@ -59,7 +59,7 @@ These are load-bearing. Do not assume otherwise.
 
 | Fact | Source |
 |---|---|
-| A batch with no vertex/index buffer issues `draw(3, currentInstanceCount)`. A fullscreen pass is a geometry-less batch with instance count 1. | `src/core/RenderPipeline.ts:113-115` |
+| A batch with no vertex/index buffer issues `draw(3, currentInstanceCount)`. A fullscreen pass is a geometry-less batch with instance count 1. | `src/core/RenderPipeline.ts:143-144` |
 | `RenderPassNode.colorAttachments` is a public mutable array of `GPURenderPassColorAttachment`. The pool may rewrite `.view` in place after the pass is created. | `src/core/RenderPass.ts:18` |
 | `createPass` stores the caller's attachment array **by reference**. | `src/core/RenderPass.ts:24` |
 | When `isMainScreenPass` is true, `RenderPipeline` **discards** the node's colorAttachments and depthStencilAttachment and substitutes the swapchain view plus `ctx.depthTexture`, both with `loadOp: 'clear'`. | `src/core/RenderPipeline.ts:72-82` |

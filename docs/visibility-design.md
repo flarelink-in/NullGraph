@@ -30,8 +30,8 @@ whose fragment shader is the caller's (or a material's).
 
 **NullGraph already implements GPU-driven instance culling.** `createBatch({ isIndirect: true })`
 allocates a 5-`u32` `indirectBuffer` and a `sourceStorageBuffer`
-(`src/core/BatchManager.ts:60-70`); a compute stage writes the visible count into
-`indirectBuffer[1]` and packs survivors; `RenderPipeline.ts:110` draws it with
+(`src/core/BatchManager.ts:82-91`); a compute stage writes the visible count into
+`indirectBuffer[1]` and packs survivors; `RenderPipeline.ts:140` draws it with
 `drawIndexedIndirect`. This exact loop is documented in
 [`api/core.md`](./api/core.md#indirect-drawing-gpu-compute-culling) and
 [`deprecated-api.md`](./deprecated-api.md) §2.
@@ -95,7 +95,7 @@ Per frame, `VisibilitySystem` contributes a compute chain that runs **before** t
       └────┬─────┘ └────┬───────┘ └──────┬───────┘ └──────┬──────────┘
            │            │                │                │
         r32float    indirectBuffer[1]  storageBuffer   drawIndexedIndirect
-        mip chain   += atomic count    = visible list   (RenderPipeline.ts:110)
+        mip chain   += atomic count    = visible list   (RenderPipeline.ts:140)
 ```
 
 Every box maps to an existing engine primitive: `createComputeStage` for the compute nodes
@@ -110,14 +110,14 @@ Load-bearing. Each was read from source, not assumed.
 
 | Fact | Source |
 |---|---|
-| `isIndirect` batch allocates `indirectBuffer` = **5 × u32 = 20 B**, usage `INDIRECT \| STORAGE \| COPY_DST`. That is exactly `[indexCount, instanceCount, firstIndex, baseVertex, firstInstance]`. | `src/core/BatchManager.ts:61-64` |
-| `sourceStorageBuffer = config.sharedSourceBuffer \|\| <auto>`. Pass your own to avoid a redundant allocation. | `src/core/BatchManager.ts:66-69` |
-| The draw's **group 0** is always `[camera@0, batch.storageBuffer@1]`, created at `createBatch`. `layout:'auto'` prunes unused bindings, so the draw shader **must** use both. | `src/core/BatchManager.ts:73-79` |
-| For an indirect batch, `updateBatchData` writes to **`sourceStorageBuffer`**, not `storageBuffer`. So `storageBuffer` is free to be the compute's compacted **output** that the draw reads at `@group(0)@binding(1)`. | `src/core/BatchManager.ts:130` |
-| The draw is `drawIndexedIndirect(batch.indirectBuffer, 0)`; index & vertex buffers come from `setBatchGeometry`. An indirect batch is **exempt** from the `instanceCount===0` skip. | `RenderPipeline.ts:92,107-110` |
-| Compute stages run before the render pass when sequenced first; the compute pass is closed before the render pass begins, giving the compute→draw memory barrier for free. | `RenderPipeline.ts:62-66` |
-| `preClearBuffers` does a `queue.writeBuffer` before the stage — used to zero `indirectBuffer[1]` (offset 4) and the atomic cursors each frame, exactly as the clustered binner zeroes its counter. | `RenderPipeline.ts:26-40`, `LightSystem.ts:396` |
-| Dispatch count may be a `() => [x,y,z]` re-evaluated per frame, but only from **CPU-known** values. GPU counts require §12. | `src/core/types.ts:149-154` |
+| `isIndirect` batch allocates `indirectBuffer` = **5 × u32 = 20 B**, usage `INDIRECT \| STORAGE \| COPY_DST`. That is exactly `[indexCount, instanceCount, firstIndex, baseVertex, firstInstance]`. | `src/core/BatchManager.ts:83-86` |
+| `sourceStorageBuffer = config.sharedSourceBuffer \|\| <auto>`. Pass your own to avoid a redundant allocation. | `src/core/BatchManager.ts:88-91` |
+| The draw's **group 0** is always `[camera@0, batch.storageBuffer@1]`, created at `createBatch`. `layout:'auto'` prunes unused bindings, so the draw shader **must** use both. | `src/core/BatchManager.ts:94-102` |
+| For an indirect batch, `updateBatchData` writes to **`sourceStorageBuffer`**, not `storageBuffer`. So `storageBuffer` is free to be the compute's compacted **output** that the draw reads at `@group(0)@binding(1)`. | `src/core/BatchManager.ts:154` |
+| The draw is `drawIndexedIndirect(batch.indirectBuffer, 0)`; index & vertex buffers come from `setBatchGeometry`. An indirect batch is **exempt** from the `instanceCount===0` skip. | `RenderPipeline.ts:105,107-110` |
+| Compute stages run before the render pass when sequenced first; the compute pass is closed before the render pass begins, giving the compute→draw memory barrier for free. | `RenderPipeline.ts:65-70` |
+| `preClearBuffers` does a `queue.writeBuffer` before the stage — used to zero `indirectBuffer[1]` (offset 4) and the atomic cursors each frame, exactly as the clustered binner zeroes its counter. | `RenderPipeline.ts:30-44`, `LightSystem.ts:396` |
+| Dispatch count may be a `() => [x,y,z]` re-evaluated per frame, but only from **CPU-known** values. GPU counts require §12. | `src/core/types.ts:156-161` |
 | `ctx.depthTexture` is `RENDER_ATTACHMENT`-only — **not samplable**. Hi-Z must read a depth target created with `TEXTURE_BINDING` (a depth pre-pass, or the `PostChain` g-buffer depth). | `WebGPUContext.ts:126`, `post-processing-design.md` §5 |
 | Camera uniform is 108 floats: `viewProj@0, view@16, proj@32, invViewProj@48, invProj@80, eye@96, near@100, far@101`. Frustum planes come from `viewProj`; Hi-Z projection from `view`/`proj`. | `Camera.ts`, `post-processing-design.md` §3 |
 
@@ -169,7 +169,7 @@ things written during culling; they are reset by `preClearBuffers`.
 
 A mip chain where texel at level *L* holds the **maximum** (farthest) depth of the 2×2 region
 below it. Max, not min, because the depth buffer stores the *nearest* surface per pixel (clear
-1.0, `depthCompare:'less'`, `BatchManager.ts:47`), and an object is occluded only when its nearest
+1.0, `depthCompare:'less'`, `BatchManager.ts:69`), and an object is occluded only when its nearest
 point is behind the farthest of those near surfaces over its footprint (§5.2).
 
 ### 5.1 Build
@@ -203,7 +203,7 @@ fn cs_main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
 Successive dispatches in one compute pass are ordered with a memory barrier between them under
 WebGPU's sync model, so the N nodes may batch into one pass (they carry no `preClearBuffers`, so
-the engine does batch them, `RenderPipeline.ts:42`). Odd dimensions floor on the way down; the
+the engine does batch them, `RenderPipeline.ts:46`). Odd dimensions floor on the way down; the
 max-reduction stays conservative because a dropped column can only make the stored occluder depth
 *smaller* (less occlusion), never larger.
 
@@ -408,14 +408,14 @@ fn vs_main(@builtin(instance_index) mi: u32, @builtin(vertex_index) vi: u32) -> 
 ```
 
 **The `@group(0)@binding(1)` requirement.** `createBatch` binds `batch.storageBuffer` there
-unconditionally and `layout:'auto'` prunes it if unused (`BatchManager.ts:73-79`), so the shader
+unconditionally and `layout:'auto'` prunes it if unused (`BatchManager.ts:94-102`), so the shader
 must use it. We *make it the visible list* — genuinely needed — by having the meshlet-cull compute
 write compacted entries into `batch.storageBuffer`. `updateBatchData` is not used on this batch
-(for indirect it targets `sourceStorageBuffer`, `BatchManager.ts:130`), so `storageBuffer` is free
+(for indirect it targets `sourceStorageBuffer`, `BatchManager.ts:154`), so `storageBuffer` is free
 for this. Set `strideFloats: 2` (one `vec2<u32>` per entry) and `maxInstances:
 maxVisibleMeshletInstances` so the engine sizes `storageBuffer` correctly, and pass
 `sharedSourceBuffer: <the instance buffer>` so the auto `sourceStorageBuffer` allocation
-(`BatchManager.ts:66`) is not wasted.
+(`BatchManager.ts:88`) is not wasted.
 
 **Idle lanes.** A half-full meshlet still spends `372` vertex invocations; the extra ones take the
 degenerate branch and are clipped. That is the cost of no mesh shaders on WebGPU. When
@@ -547,12 +547,12 @@ silently — the visibility analogue of `transient-pool.md`'s over-aliasing.
 additions, filed here so they are not rediscovered later:
 
 1. **Indirect dispatch** (`dispatchWorkgroupsIndirect`). Today `RenderPipeline` dispatches a
-   CPU-known count (`RenderPipeline.ts:54`). The meshlet cull (§7.2) and two-phase (§9) over-dispatch
+   CPU-known count (`RenderPipeline.ts:58`). The meshlet cull (§7.2) and two-phase (§9) over-dispatch
    to cover a GPU-side count. Adding an optional `dispatchIndirect?: GPUBuffer` to
    `ComputeStageConfig`, and calling `dispatchWorkgroupsIndirect` when present, lets the instance
    cull write phase-2's exact dispatch size. **Additive, opt-in, correct-without-it.**
 2. **`setBatchIndexBuffer(batch, buffer, count, format)`.** The meshlet draw wants an index buffer
-   without a meaningful vertex buffer. `setBatchGeometry` sets both (`BatchManager.ts:121-126`);
+   without a meaningful vertex buffer. `setBatchGeometry` sets both (`BatchManager.ts:145-150`);
    the baseline works by binding the mega buffer as an unused vertex buffer (legal — a bound-but-
    unread vertex buffer is valid), but a dedicated setter is tidier. **Cosmetic.**
 
