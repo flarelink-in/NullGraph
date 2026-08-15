@@ -69,9 +69,13 @@ export class LightSystem {
     }
 
     /**
-     * Inversion of Control: Attach our buffers to the Render Batch
+     * The bind-group entries `applyToBatch` builds (lighting-ibl-design.md §12.2). Extracted so
+     * the EnvironmentSystem can build a COMBINED group-2 bind group — core WebGPU guarantees
+     * only 4 bind groups and all four are spent, so indirect lighting lives inside the lighting
+     * group at bindings 3+ rather than in a group of its own. Behavior of `applyToBatch` is
+     * unchanged.
      */
-    public applyToBatch(batch: RenderBatch, bindGroupIndex: number = 2) {
+    public getBindGroupEntries(): GPUBindGroupEntry[] {
         const entries: GPUBindGroupEntry[] = [
             { binding: 0, resource: { buffer: this.lightStorageBuffer } }
         ];
@@ -81,8 +85,14 @@ export class LightSystem {
             entries.push({ binding: 1, resource: { buffer: this.clusterGridBuffer! } });
             entries.push({ binding: 2, resource: { buffer: this.lightIndexBuffer! } });
         }
+        return entries;
+    }
 
-        this.engine.setRenderPassBindGroup(batch, entries, bindGroupIndex);
+    /**
+     * Inversion of Control: Attach our buffers to the Render Batch
+     */
+    public applyToBatch(batch: RenderBatch, bindGroupIndex: number = 2) {
+        this.engine.setRenderPassBindGroup(batch, this.getBindGroupEntries(), bindGroupIndex);
     }
 
     /**

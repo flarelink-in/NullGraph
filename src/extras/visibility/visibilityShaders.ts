@@ -68,7 +68,12 @@ struct MeshLOD {
 };
 `;
 
-/** Per-draw cull parameters uniform (32 bytes). */
+/**
+ * Per-draw cull parameters uniform (48 bytes — shadows-atlas-design.md §7.2 grew it from 32).
+ * `hizRect` remaps the occlusion test's UVs into a sub-rectangle of the Hi-Z pyramid so a
+ * shadow view samples only its own atlas tile; the main view passes the identity (1,1,0,0),
+ * which leaves the v1.0.5 kernel bit-for-bit unchanged (§10 U5).
+ */
 export const CULL_PARAMS_WGSL = /* wgsl */ `
 struct CullParams {
     instanceCount: u32,
@@ -78,6 +83,7 @@ struct CullParams {
     screenSize: vec2<f32>,
     lodErrorPx: f32,
     _pad: f32,
+    hizRect: vec4<f32>,
 };
 `;
 
@@ -136,7 +142,7 @@ fn coneIsBackfacing(axisW: vec3<f32>, cutoff: f32, apexW: vec3<f32>, eye: vec3<f
  * anything crossing the near plane visible.
  */
 export const HIZ_OCCLUSION_WGSL = /* wgsl */ `
-fn occludedByHiZ(c: vec3<f32>, r: f32, cam: Camera, screenSize: vec2<f32>, hizMaxLevel: u32, hiz: texture_2d<f32>) -> bool {
+fn occludedByHiZ(c: vec3<f32>, r: f32, cam: Camera, screenSize: vec2<f32>, hizMaxLevel: u32, hiz: texture_2d<f32>, hizRect: vec4<f32>) -> bool {
     let vc = (cam.view * vec4<f32>(c, 1.0)).xyz;
     let zView = -vc.z;
     if (zView - r < cam.zNear) { return false; }
@@ -151,6 +157,12 @@ fn occludedByHiZ(c: vec3<f32>, r: f32, cam: Camera, screenSize: vec2<f32>, hizMa
     // NDC -> uv, undoing the clip-space Y flip (clip +Y up, texture +V down).
     let uvMin = (vec2<f32>(ndcC.x - rx, -(ndcC.y + ry)) * 0.5) + vec2<f32>(0.5);
     let uvMax = (vec2<f32>(ndcC.x + rx, -(ndcC.y - ry)) * 0.5) + vec2<f32>(0.5);
+
+    // shadows-atlas-design.md §7.2 — remap into the view's atlas tile before sampling. The
+    // pyramid's texel space is the whole atlas; a shadow view owns only hizRect of it. The
+    // identity (1,1,0,0) leaves the main view bit-for-bit unchanged (§10 U5).
+    let uvMinA = uvMin * hizRect.xy + hizRect.zw;
+    let uvMaxA = uvMax * hizRect.xy + hizRect.zw;
 
     let sizePx = max(uvMax.x - uvMin.x, uvMax.y - uvMin.y) * max(screenSize.x, screenSize.y);
     let level = clamp(u32(ceil(log2(max(sizePx, 1.0)))), 0u, hizMaxLevel);
@@ -263,7 +275,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return; }
 
     ${occlusion ? `if ((inst.flags & 1u) == 0u) {
-        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz)) { return; }
+        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return; }
     }` : ''}
 
     let slot = atomicAdd(&drawArgs[1], 1u);
@@ -337,7 +349,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return; }
 
     ${occlusion ? `if ((inst.flags & 1u) == 0u) {
-        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz)) { return; }
+        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return; }
     }` : ''}
 
     let mesh = meshTable[inst.meshIndex];
@@ -421,7 +433,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return; }
 
     ${occlusion ? `if ((inst.flags & 1u) == 0u) {
-        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz)) { return; }
+        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return; }
     }` : ''}
 
     let outSlot = atomicAdd(&drawArgs[1], 1u);

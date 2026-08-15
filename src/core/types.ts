@@ -25,6 +25,31 @@ export interface PipelineConfig {
     depthWriteEnabled?: boolean;
     depthCompare?: GPUCompareFunction;
 
+    /**
+     * Depth-only rendering (shadows-design.md §12.1): when set, the pipeline omits the
+     * `fragment` stage and all color targets — a fragment-less render pipeline is core WebGPU.
+     * The pass it is created into must have zero color attachments (a depth-only
+     * `RenderPassNode` needs only its `depthStencilAttachment` set).
+     */
+    depthOnly?: boolean;
+
+    /**
+     * The group-0 binding-0 camera uniform, defaulting to `ctx.cameraUniformBuffer`
+     * (shadows-design.md §12.1). This is what makes "a cascade is a camera" true end-to-end —
+     * and it is the enabling change for every future off-main-view render: shadows, reflection
+     * probes, IBL capture, editor picking passes.
+     */
+    cameraBuffer?: GPUBuffer;
+
+    /**
+     * Per-batch viewport, in attachment pixels: `[x, y, width, height]`
+     * (shadows-atlas-design.md §12.1). When set, the render pass scopes this batch's
+     * rasterization to the rectangle via `setViewport` + `setScissorRect` — the change the
+     * shadow atlas rests on (§6.2: a clip-space remap bleeds into neighbouring tiles because
+     * clipping still happens against the full attachment). Inert when omitted.
+     */
+    viewport?: [x: number, y: number, width: number, height: number];
+
     // Extensions
     material?: Material;
 
@@ -53,6 +78,13 @@ export class RenderBatch {
     public isIndirect: boolean = false;
     public indirectBuffer?: GPUBuffer;
     public sourceStorageBuffer?: GPUBuffer;
+
+    /**
+     * Per-batch viewport in attachment pixels (shadows-atlas-design.md §12.1). Copied from
+     * `PipelineConfig.viewport` at creation; mutable so a system (the shadow atlas) can retarget
+     * a batch when its tile moves without rebuilding the pipeline.
+     */
+    public viewport?: [x: number, y: number, width: number, height: number];
 
     // Render-specific Custom Data
     public customBindGroups: { [groupIndex: number]: GPUBindGroup } = {};
@@ -135,6 +167,17 @@ export class ComputeStageNode {
     public computePipeline!: GPUComputePipeline;
     public customBindGroups: { [key: number]: GPUBindGroup } = {};
     public preClearBuffers: BufferClearConfig[];
+
+    /**
+     * Set `false` to skip this stage — its `preClearBuffers` **and** its dispatch — for a frame,
+     * without splicing it out of the sequence array. Mutable and checked per frame by
+     * `RenderPipeline`, so a system that owns many stages can gate them cheaply.
+     *
+     * The shadow atlas uses this: a cached tile that is not being re-rendered should not pay for
+     * its caster cull either (shadows-atlas-design.md §8). Defaults to `true`, so every existing
+     * stage runs exactly as before.
+     */
+    public enabled: boolean = true;
 
     private _dispatchCount: [number, number, number] | (() => [number, number, number]);
 
