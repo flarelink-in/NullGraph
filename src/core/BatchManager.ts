@@ -12,9 +12,29 @@ export class BatchManager {
         const batch = new RenderBatch();
         batch.stride = config.strideFloats;
         batch.isIndirect = config.isIndirect || false;
+        // Per-batch viewport (shadows-atlas-design.md §12.1) — undefined for every existing batch.
+        batch.viewport = config.viewport;
+
+        // Viewport/scissor persist across draws within a render pass, so a full-pass batch that
+        // follows a viewport-scoped one silently inherits its tile. RenderPipeline restores the
+        // full viewport between them — but only if it knows the attachment size. Refuse the
+        // combination it cannot fix, naming the pass, rather than rendering into the wrong rect.
+        if (!pass.isMainScreenPass && !pass.size && pass.batches.length > 0) {
+            const scoped = batch.viewport !== undefined;
+            if (pass.batches.some(b => (b.viewport !== undefined) !== scoped)) {
+                throw new Error(
+                    `BatchManager: pass "${pass.name}" mixes viewport-scoped and full-pass batches ` +
+                    `but has no size, so the full viewport cannot be restored between them ` +
+                    `(viewport state persists across draws in a pass). Give the pass a ` +
+                    `size: [width, height], or give every batch in it an explicit viewport.`);
+            }
+        }
 
         const shaderModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
-        const formats = config.targetFormats || [config.targetFormat || this.ctx.format];
+        // depthOnly (shadows-design.md §12.1): no color targets at all — a fragment-less render
+        // pipeline is core WebGPU, and a pipeline whose color-target count disagrees with the
+        // pass is a validation error.
+        const formats = config.depthOnly ? [] : (config.targetFormats || [config.targetFormat || this.ctx.format]);
 
         const colorTargets: GPUColorTargetState[] = formats.map(fmt => {
             const target: GPUColorTargetState = { format: fmt };
@@ -33,11 +53,13 @@ export class BatchManager {
                 entryPoint: 'vs_main',
                 buffers: config.vertexLayouts || []
             },
-            fragment: {
-                module: shaderModule,
-                entryPoint: 'fs_main',
-                targets: colorTargets
-            },
+            ...(config.depthOnly ? {} : {
+                fragment: {
+                    module: shaderModule,
+                    entryPoint: 'fs_main',
+                    targets: colorTargets
+                }
+            }),
             primitive: {
                 topology: config.topology || 'triangle-list'
             },
@@ -69,11 +91,13 @@ export class BatchManager {
             });
         }
 
-        // Render Bind Group (Group 0)
+        // Render Bind Group (Group 0). The camera buffer is overridable per batch
+        // (shadows-design.md §12.1) — a shadow cascade IS a camera, and this is the line that
+        // makes pointing the cull+draw chain at it possible.
         batch.bindGroup = this.ctx.device.createBindGroup({
             layout: batch.pipeline.getBindGroupLayout(0),
             entries: [
-                { binding: 0, resource: { buffer: this.ctx.cameraUniformBuffer } },
+                { binding: 0, resource: { buffer: config.cameraBuffer || this.ctx.cameraUniformBuffer } },
                 { binding: 1, resource: { buffer: batch.storageBuffer } }
             ]
         });

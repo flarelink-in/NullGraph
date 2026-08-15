@@ -8,6 +8,16 @@ export interface RenderPassConfig {
     colorAttachments?: GPURenderPassColorAttachment[];
     // Custom depth target
     depthStencilAttachment?: GPURenderPassDepthStencilAttachment;
+    /**
+     * Attachment dimensions in pixels, `[width, height]`. Only needed when this pass mixes
+     * viewport-scoped batches with full-pass ones: viewport/scissor state persists across draws
+     * within a render pass, so `RenderPipeline` needs the attachment size to restore the full
+     * viewport between them. A `GPUTextureView` does not expose its dimensions, hence the config.
+     *
+     * Omit it when every batch in the pass has a viewport, or none does — `createBatch` throws
+     * naming this pass if it ever sees a mix without a size.
+     */
+    size?: [width: number, height: number];
 }
 
 export class RenderPassNode {
@@ -17,12 +27,15 @@ export class RenderPassNode {
 
     public colorAttachments: GPURenderPassColorAttachment[];
     public depthStencilAttachment?: GPURenderPassDepthStencilAttachment;
+    /** Attachment size in pixels — see {@link RenderPassConfig.size}. */
+    public size?: [width: number, height: number];
 
     constructor(config: RenderPassConfig) {
         this.name = config.name;
         this.isMainScreenPass = config.isMainScreenPass;
         this.colorAttachments = config.colorAttachments || [];
         this.depthStencilAttachment = config.depthStencilAttachment;
+        this.size = config.size;
     }
 
     public addBatch(batch: RenderBatch): void {

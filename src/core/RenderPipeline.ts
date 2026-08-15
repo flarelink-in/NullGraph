@@ -23,6 +23,10 @@ export class RenderPipeline {
             // =========================================================
             if (node instanceof ComputeStageNode) {
 
+                // A disabled stage costs nothing this frame — no buffer clears, no dispatch.
+                // Lets a system gate stages it owns without rebuilding the sequence array.
+                if (!node.enabled) continue;
+
                 if (node.preClearBuffers.length > 0) {
                     // If a compute pass is already open, we MUST close it to issue a queue command
                     if (activeComputePass) {
@@ -86,6 +90,15 @@ export class RenderPipeline {
                     ...(depthStencilAttachment ? { depthStencilAttachment } : {})
                 });
 
+                // Viewport and scissor are PASS state, not per-draw state — once a batch narrows
+                // them they stay narrowed for every following batch in this pass. `narrowed`
+                // tracks that so a full-pass batch can restore them. `createBatch` guarantees the
+                // size is knowable whenever a pass actually mixes the two (BatchManager).
+                let narrowed = false;
+                const passSize: [number, number] | undefined = node.isMainScreenPass
+                    ? [this.ctx.width, this.ctx.height]
+                    : node.size;
+
                 // Iterate through the geometric render batches assigned to this pass
                 for (const batch of node.batches) {
                     // If it's not indirect and has no instances, bypass it entirely
@@ -93,6 +106,23 @@ export class RenderPipeline {
 
                     passEncoder.setPipeline(batch.pipeline);
                     passEncoder.setBindGroup(0, batch.bindGroup);
+
+                    // Per-batch viewport (shadows-atlas-design.md §12.1): scope rasterization to
+                    // the batch's tile. setScissorRect is belt-and-braces — the viewport
+                    // transform already guarantees containment — but it makes the invariant
+                    // explicit and costs nothing.
+                    if (batch.viewport) {
+                        const [vx, vy, vw, vh] = batch.viewport;
+                        passEncoder.setViewport(vx, vy, vw, vh, 0, 1);
+                        passEncoder.setScissorRect(vx, vy, vw, vh);
+                        narrowed = true;
+                    } else if (narrowed && passSize) {
+                        // Restore the full attachment, or this batch would silently inherit the
+                        // previous batch's tile.
+                        passEncoder.setViewport(0, 0, passSize[0], passSize[1], 0, 1);
+                        passEncoder.setScissorRect(0, 0, passSize[0], passSize[1]);
+                        narrowed = false;
+                    }
 
                     if (batch.customBindGroups) {
                         for (const groupIndexStr in batch.customBindGroups) {

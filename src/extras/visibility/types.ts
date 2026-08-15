@@ -64,6 +64,12 @@ export interface VisibilityMaterial {
     instance: { applyToBatch(batch: any, groupIndex?: number): unknown };
     /** `LightSystem.getShaderLayout()` — enables the material's clustered/tiled lighting loop. */
     lighting?: { wgslStructs: string; wgslLogic: string };
+    /**
+     * `EnvironmentSystem.getShaderLayout()` (lighting-ibl-design.md §12.2 item 3) — enables the
+     * material's image-based indirect term, the same one-liner way `lighting` enables clustered
+     * light. PBR gets the full split-sum; Lambert/Toon get the diffuse half.
+     */
+    indirect?: { wgslStructs: string; wgslLogic: string };
     /** Lambert only: wrap light around the terminator. */
     useHalfLambert?: boolean;
     /** Toon only: soften the cel ramp edges. */
@@ -72,6 +78,18 @@ export interface VisibilityMaterial {
 
 /** Options for a single instance-tier draw batch (one per unique mesh). */
 export interface InstanceDrawOptions {
+    /**
+     * Camera uniform for BOTH the cull stage and the draw (shadows-design.md §9.3). Default:
+     * `engine.ctx.cameraUniformBuffer`. A shadow cascade passes its own 432-byte Camera buffer
+     * here — the cascade IS a camera, so nothing downstream learns what a shadow is.
+     */
+    camera?: GPUBuffer;
+    /**
+     * Override the system-wide Hi-Z setting for this batch (shadows-design.md §9.3). A shadow
+     * view has no pyramid, so caster culls pass `occlusion: false`. Default: the system-wide
+     * setting (`config.hiZ !== undefined`).
+     */
+    occlusion?: boolean;
     /**
      * Render with a stock material — the one-liner path. Generates the material's bindings and
      * fragment stage and binds its resources, so no `fragmentBody`/`extraBindings`/`materialEntries`
@@ -92,10 +110,47 @@ export interface InstanceDrawOptions {
     materialEntries?: GPUBindGroupEntry[];
     /** Group index the materialEntries bind to. Default 1. */
     materialGroupIndex?: number;
+    /**
+     * Full shader-module override (shadows-design.md §6.2). Replaces the generated draw WGSL
+     * entirely — the shadow caster pass uses it to swap in the depth-only vertex shader while
+     * reusing the whole cull + indirect-draw chain. Must still define `vs_main` and consume
+     * group 0 (camera@0, instances@1).
+     */
+    shaderCode?: string;
+    /** Forwarded to `PipelineConfig.depthOnly` (§12.1) — no fragment stage, no color targets. */
+    depthOnly?: boolean;
+    /**
+     * Forwarded to `PipelineConfig.viewport` (shadows-atlas-design.md §12.1) — scopes the draw
+     * to a tile of the pass's attachment. The shadow atlas sets it to the view's tile rect.
+     */
+    viewport?: [x: number, y: number, width: number, height: number];
+    /**
+     * The cull stage's Hi-Z UV remap (shadows-atlas-design.md §7.2): `[scaleX, scaleY,
+     * offsetX, offsetY]` in the pyramid's UV space. A shadow view passes its tile's atlas rect
+     * so the occlusion test samples only that tile; the main view leaves the default
+     * `[1, 1, 0, 0]` (the identity — bit-for-bit the v1.0.5 behavior, §10 U5).
+     */
+    hizRect?: [number, number, number, number];
+    /**
+     * The screen size the cull stage's Hi-Z footprint/LOD math uses (shadows-atlas-design.md
+     * §7.2: "screenSize for a shadow view is the tile size"). Default: the Hi-Z source size,
+     * then the engine canvas.
+     */
+    screenSize?: [number, number];
 }
 
 /** Options for a meshlet-tier draw batch (one per material). */
 export interface MeshletDrawOptions {
+    /**
+     * Camera uniform for BOTH the cull stage and the draw (shadows-design.md §9.3). Default:
+     * `engine.ctx.cameraUniformBuffer`.
+     */
+    camera?: GPUBuffer;
+    /**
+     * Override the system-wide Hi-Z setting for this batch (shadows-design.md §9.3). Default:
+     * the system-wide setting (`config.hiZ !== undefined`).
+     */
+    occlusion?: boolean;
     /**
      * Render with a stock material — the one-liner path. On this tier the material is bound at
      * `materialGroupIndex` (default 2, since group 1 holds the meshlet geometry), and the generated

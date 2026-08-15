@@ -17,7 +17,7 @@
 // `materials/CommonChunks.ts` and `visibility/visibilityShaders.ts` both emit exactly that struct —
 // keep all three in lockstep.
 
-import type { ShaderConfig, ShaderLightingLayout } from './types';
+import type { ShaderConfig, ShaderIndirectLayout, ShaderLightingLayout } from './types';
 
 /** The stock material families. Each maps to one bindings + fragment pair below. */
 export type MaterialKind = 'basic' | 'lambert' | 'emissive' | 'matcap' | 'toon' | 'pbr';
@@ -295,6 +295,11 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         finalColor += baseColor.rgb * NdotL * lightColor;
         `}
 
+        ${config.indirect ? `
+        // --- IMAGE-BASED / PROBE INDIRECT LIGHT (diffuse half; lighting-ibl-design.md §5.3) ---
+        finalColor += baseColor.rgb * getIndirectDiffuse(in.worldPos, N);
+        ` : ''}
+
         return vec4<f32>(finalColor, baseColor.a);
     }
     `;
@@ -367,8 +372,13 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         let N = getToonNormal(in.uv, in.worldPos, in.worldNormal);
 
         var finalColor = vec3<f32>(0.0);
+        ${config.indirect ? `
+        // --- IMAGE-BASED / PROBE INDIRECT LIGHT (diffuse half; lighting-ibl-design.md §5.3) ---
+        finalColor += baseColor.rgb * getIndirectDiffuse(in.worldPos, getToonNormal(in.uv, in.worldPos, in.worldNormal));
+        ` : `
         let ambient = 0.15 * baseColor.rgb;
         finalColor += ambient;
+        `}
 
         for (var i = 0u; i < lightCount; i = i + 1u) {
             let incident = getIncidentLight(i, in.worldPos);
@@ -420,8 +430,13 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
 
         var finalColor = baseColor.rgb * toonShade * lightColor;
 
+        ${config.indirect ? `
+        // --- IMAGE-BASED / PROBE INDIRECT LIGHT (diffuse half; lighting-ibl-design.md §5.3) ---
+        finalColor += baseColor.rgb * getIndirectDiffuse(in.worldPos, N);
+        ` : `
         let ambient = 0.15 * baseColor.rgb;
         finalColor += ambient;
+        `}
 
         let specular = calcToonSpecular(N, viewDir, lightDir, material.specularThreshold, vec3(1.0));
         finalColor += specular * lightColor * 0.5;
@@ -510,7 +525,17 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         Lo += (kD * albedo / PI + specular) * lightColor * max(dot(N, L), 0.0);
         `}
 
+        ${config.indirect ? `
+        // --- IMAGE-BASED / PROBE INDIRECT LIGHT (lighting-ibl-design.md §5.3) ---
+        // Split-sum: diffuse = irradiance(N) * albedo * kD; specular = prefiltered(R, roughness)
+        // * (F0 * LUT.x + LUT.y) — the LUT join happens inside getIndirectSpecular.
+        let F_ibl  = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        let kD_ibl = (vec3<f32>(1.0) - F_ibl) * (1.0 - metallic);
+        let ambient = (kD_ibl * albedo * getIndirectDiffuse(in.worldPos, N)
+                       + getIndirectSpecular(in.worldPos, N, V, roughness, F0)) * ao;
+        ` : `
         let ambient = vec3<f32>(0.3) * albedo * ao;
+        `}
         var finalColor = ambient + Lo;
 
         // Tonemapping
@@ -532,6 +557,12 @@ export interface MaterialFragmentOptions {
     groupIndex?: number;
     /** Clustered/standard lighting layout from `LightSystem.getShaderLayout()`. */
     lighting?: ShaderLightingLayout;
+    /**
+     * Indirect-lighting layout from `EnvironmentSystem.getShaderLayout()`
+     * (lighting-ibl-design.md §5.3). PBR gets the full split-sum; Lambert and Toon get the
+     * diffuse half; Basic/Emissive/Matcap are unlit by definition and ignore it.
+     */
+    indirect?: ShaderIndirectLayout;
     /** Lambert: wrap light around the terminator. */
     useHalfLambert?: boolean;
     /** Toon: soften the cel ramp edges. */
@@ -553,7 +584,7 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
     bindings: string;
     fragment: string;
 } {
-    const { kind, groupIndex = 1, lighting } = opts;
+    const { kind, groupIndex = 1, lighting, indirect } = opts;
     if (!MaterialBindings[kind]) {
         throw new Error(`buildMaterialFragment: unknown material kind "${kind}".`);
     }
@@ -561,6 +592,7 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
     const config: ShaderConfig = {
         useSkinning: false,
         lighting,
+        indirect,
         useHalfLambert: opts.useHalfLambert,
         useSmoothRamp: opts.useSmoothRamp,
     };
@@ -571,6 +603,8 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
         MaterialHelpers[kind],
         lighting ? lighting.wgslStructs : '',
         lighting ? lighting.wgslLogic : '',
+        indirect ? indirect.wgslStructs : '',
+        indirect ? indirect.wgslLogic : '',
     ].join('\n');
 
     return { bindings, fragment: MaterialFragments[kind](config) };

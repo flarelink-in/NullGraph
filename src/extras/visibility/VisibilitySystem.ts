@@ -15,6 +15,7 @@
 // `getComputeStages()` ahead of the scene pass — no per-frame allocation, no scene-graph walk.
 
 import { NullGraph, RenderBatch, ComputeStageNode, RenderPassNode } from '../../core';
+import { StandardLayout } from '../geometry/VertexLayout';
 import type { MegabufferBuilder } from '../geometry/MegaBufferBuilder';
 import type { MeshletPack } from '../geometry/MeshletBuilder';
 import { HiZPyramid } from './HiZPyramid';
@@ -37,6 +38,18 @@ interface CullStageRecord {
     paramsBuffer: GPUBuffer;
     /** meshIndex filter for instance-tier culls; unused (0) for meshlet-tier stages. */
     meshIndex: number;
+    /** The draw batch this stage feeds — the key for {@link VisibilitySystem.getCullStage}. */
+    batch?: RenderBatch;
+    /**
+     * Hi-Z UV remap for this stage (shadows-atlas-design.md §7.2). Default `[1,1,0,0]` — the
+     * identity, which leaves the main view bit-for-bit unchanged (§10 U5).
+     */
+    hizRect?: [number, number, number, number];
+    /**
+     * Screen size for the Hi-Z footprint/LOD math (§7.2: a shadow view uses its tile size).
+     * Default: the Hi-Z source size, then the engine canvas.
+     */
+    screenSize?: [number, number];
 }
 
 export class VisibilitySystem {
@@ -80,8 +93,9 @@ export class VisibilitySystem {
     private meshletParamsBuffer: GPUBuffer | null = null;
     private computeChain: ComputeStageNode[] | null = null;
 
-    // params staging: 8 slots (2 u32-ish + ... ) → 32 bytes. See CULL_PARAMS_WGSL.
-    private readonly paramsFloat = new Float32Array(8);
+    // params staging: 12 slots → 48 bytes (shadows-atlas-design.md §7.2 grew CullParams by
+    // hizRect). See CULL_PARAMS_WGSL.
+    private readonly paramsFloat = new Float32Array(12);
     private readonly paramsU32 = new Uint32Array(this.paramsFloat.buffer);
 
     constructor(engine: NullGraph, config: VisibilityConfig) {
@@ -182,7 +196,7 @@ export class VisibilitySystem {
         // Refresh the per-stage CullParams (instanceCount + screen size change per frame/resize).
         const records: CullStageRecord[] = [...this.instanceTierCulls, ...this.meshletTierCulls];
         if (this.meshletInstanceCull) records.push(this.meshletInstanceCull);
-        for (const rec of records) this.writeParams(rec.paramsBuffer, rec.meshIndex);
+        for (const rec of records) this.writeParams(rec);
     }
 
     // ---------------------------------------------------------------------------
@@ -207,17 +221,25 @@ export class VisibilitySystem {
         const materialGroup = options.materialGroupIndex ?? 1;
         const wgsl = this.resolveMaterialWGSL(
             options.material, options.fragmentBody, options.extraBindings, materialGroup);
+        // §9.3 (shadows-design.md): a shadow cascade points this batch at its own camera and
+        // runs without Hi-Z. Both default to today's behavior.
+        const camera = options.camera ?? this.engine.ctx.cameraUniformBuffer;
+        const occlusion = options.occlusion ?? this.occlusion;
 
         const batch = this.engine.createBatch(pass, {
-            shaderCode: buildInstanceDrawWGSL({ ...options, ...wgsl }),
+            shaderCode: options.shaderCode ?? buildInstanceDrawWGSL({ ...options, ...wgsl }),
             strideFloats: INSTANCE_FLOATS,
             maxInstances: this.config.maxInstances,
             isIndirect: true,
             sharedSourceBuffer: this.instanceBuffer, // avoid a redundant auto-allocation
-            vertexLayouts: options.vertexLayouts,
+            vertexLayouts: options.vertexLayouts ?? StandardLayout.getWebGPUDescriptor(),
             targetFormat: options.targetFormat,
+            depthOnly: options.depthOnly,
             depthWriteEnabled: true,
             depthCompare: 'less',
+            cameraBuffer: camera,
+            // §12.1 (shadows-atlas-design.md): a shadow view scopes its draw to its atlas tile.
+            viewport: options.viewport,
         });
 
         this.engine.setBatchGeometry(batch, this.megaVertexBuffer, this.megaIndexBuffer, offset.indexCount, this.megaIndexFormat);
@@ -236,20 +258,24 @@ export class VisibilitySystem {
         const paramsBuffer = this.createParamsBuffer();
         const stage = this.engine.createComputeStage({
             name: `Instance Cull: ${meshName}`,
-            shaderCode: buildInstanceCullWGSL({ occlusion: this.occlusion }),
+            shaderCode: buildInstanceCullWGSL({ occlusion }),
             dispatchCount: () => [Math.ceil(this.instanceCount / 64), 1, 1],
             preClearBuffers: [{ buffer: batch.indirectBuffer!, offset: 4, data: new Uint32Array([0]) }],
         });
         this.engine.setComputePassBindGroup(stage, [
-            { binding: 0, resource: { buffer: this.engine.ctx.cameraUniformBuffer } },
+            { binding: 0, resource: { buffer: camera } },
             { binding: 1, resource: { buffer: this.instanceBuffer } },
             { binding: 2, resource: { buffer: batch.storageBuffer } },
             { binding: 3, resource: { buffer: batch.indirectBuffer! } },
             { binding: 4, resource: { buffer: paramsBuffer } },
-            ...(this.occlusion ? [{ binding: 5, resource: this.hiZ!.view }] : []),
+            ...(occlusion ? [{ binding: 5, resource: this.hiZ!.view }] : []),
         ], 0);
 
-        this.instanceTierCulls.push({ stage, paramsBuffer, meshIndex });
+        this.instanceTierCulls.push({
+            stage, paramsBuffer, meshIndex, batch,
+            hizRect: options.hizRect,
+            screenSize: options.screenSize,
+        });
         this.computeChain = null;
         return batch;
     }
@@ -273,6 +299,10 @@ export class VisibilitySystem {
         const materialGroup = options.materialGroupIndex ?? 2;
         const wgsl = this.resolveMaterialWGSL(
             options.material, options.fragmentBody, options.extraBindings, materialGroup);
+        // §9.3 (shadows-design.md): per-batch camera + occlusion overrides, defaulting to
+        // today's behavior.
+        const camera = options.camera ?? this.engine.ctx.cameraUniformBuffer;
+        const occlusion = options.occlusion ?? this.occlusion;
 
         const batch = this.engine.createBatch(pass, {
             shaderCode: buildMeshletDrawWGSL({ strideFloats: this.megaStrideFloats, ...options, ...wgsl }),
@@ -284,6 +314,7 @@ export class VisibilitySystem {
             targetFormat: options.targetFormat,
             depthWriteEnabled: true,
             depthCompare: 'less',
+            cameraBuffer: camera,
         });
 
         // Static index buffer [0..371]; mega vertex buffer bound but unread (design doc §12 note 2).
@@ -310,7 +341,7 @@ export class VisibilitySystem {
         const paramsBuffer = this.createParamsBuffer();
         const stage = this.engine.createComputeStage({
             name: 'Meshlet Cull',
-            shaderCode: buildMeshletCullWGSL({ occlusion: this.occlusion, cone: true }),
+            shaderCode: buildMeshletCullWGSL({ occlusion, cone: true }),
             dispatchCount: [
                 Math.ceil(this.config.maxInstances / 8),
                 Math.ceil(maxPerInstance / 8),
@@ -321,18 +352,18 @@ export class VisibilitySystem {
         // `params` is bound only when occlusion is on, matching the shader (layout:'auto' prunes
         // the unused binding otherwise and bind-group creation would throw).
         this.engine.setComputePassBindGroup(stage, [
-            { binding: 0, resource: { buffer: this.engine.ctx.cameraUniformBuffer } },
+            { binding: 0, resource: { buffer: camera } },
             { binding: 1, resource: { buffer: this.instanceBuffer } },
             { binding: 2, resource: { buffer: this.getVisibleInstancesBuffer() } },
             { binding: 3, resource: { buffer: this.meshletBuffers.meshlets } },
             { binding: 4, resource: { buffer: this.getCountersBuffer() } },
             { binding: 5, resource: { buffer: batch.storageBuffer } },
             { binding: 6, resource: { buffer: batch.indirectBuffer! } },
-            ...(this.occlusion ? [{ binding: 7, resource: { buffer: paramsBuffer } }, { binding: 8, resource: this.hiZ!.view }] : []),
+            ...(occlusion ? [{ binding: 7, resource: { buffer: paramsBuffer } }, { binding: 8, resource: this.hiZ!.view }] : []),
         ], 0);
 
 
-        this.meshletTierCulls.push({ stage, paramsBuffer, meshIndex: 0 });
+        this.meshletTierCulls.push({ stage, paramsBuffer, meshIndex: 0, batch });
         this.computeChain = null;
         return batch;
     }
@@ -346,6 +377,20 @@ export class VisibilitySystem {
      * `[...hiZBuild, ...instanceCulls, meshletInstanceCull, ...meshletCulls]`. Built once and
      * cached; the camera is read from the shared engine uniform, so no per-call camera is needed.
      */
+    /**
+     * The cull stage that feeds `batch`, or `null` if this system did not create it.
+     *
+     * The stage still rides this system's compute chain; the handle exists so an owner can gate
+     * it with `stage.enabled = false` when it knows the draw is suppressed this frame. The shadow
+     * atlas does exactly that for cached tiles (shadows-atlas-design.md §8) — a tile that is not
+     * being re-rendered should not pay for its caster cull either.
+     */
+    public getCullStage(batch: RenderBatch): ComputeStageNode | null {
+        for (const rec of this.instanceTierCulls) if (rec.batch === batch) return rec.stage;
+        for (const rec of this.meshletTierCulls) if (rec.batch === batch) return rec.stage;
+        return null;
+    }
+
     public getComputeStages(): ComputeStageNode[] {
         if (this.computeChain) return this.computeChain;
 
@@ -386,6 +431,7 @@ export class VisibilitySystem {
             kind: material.kind,
             groupIndex,
             lighting: material.lighting,
+            indirect: material.indirect,
             useHalfLambert: material.useHalfLambert,
             useSmoothRamp: material.useSmoothRamp,
         });
@@ -456,24 +502,33 @@ export class VisibilitySystem {
     private createParamsBuffer(): GPUBuffer {
         return this.device.createBuffer({
             label: 'NullGraph_VisCullParams',
-            size: 32,
+            size: 48, // CullParams grew hizRect (shadows-atlas-design.md §7.2): 32 → 48 bytes.
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }
 
-    /** Fill one stage's CullParams uniform (32 bytes) from current frame state. */
-    private writeParams(paramsBuffer: GPUBuffer, meshIndex: number): void {
+    /** Fill one stage's CullParams uniform (48 bytes) from current frame state. */
+    private writeParams(rec: CullStageRecord): void {
         const u = this.paramsU32;
         const f = this.paramsFloat;
         u[0] = this.instanceCount;
-        u[1] = meshIndex;
+        u[1] = rec.meshIndex;
         u[2] = this.hiZ ? this.hiZ.maxLevel : 0;
         u[3] = 0; // flags: reserved (occlusion is baked into the shader variant)
-        f[4] = this.config.hiZ?.width ?? this.engine.width;
-        f[5] = this.config.hiZ?.height ?? this.engine.height;
+        // §7.2 — a shadow view's screen size is its TILE size, so the footprint→mip selection
+        // stays correct; the main view uses the Hi-Z source / canvas size.
+        f[4] = rec.screenSize?.[0] ?? this.config.hiZ?.width ?? this.engine.width;
+        f[5] = rec.screenSize?.[1] ?? this.config.hiZ?.height ?? this.engine.height;
         f[6] = this.lodErrorPx;
         f[7] = 0;
-        this.device.queue.writeBuffer(paramsBuffer, 0, this.paramsFloat);
+        // §7.2 — the Hi-Z UV remap. Identity (1,1,0,0) for the main view; a shadow view passes
+        // its tile's atlas rect so the occlusion test samples only that tile.
+        const hr = rec.hizRect;
+        f[8] = hr?.[0] ?? 1;
+        f[9] = hr?.[1] ?? 1;
+        f[10] = hr?.[2] ?? 0;
+        f[11] = hr?.[3] ?? 0;
+        this.device.queue.writeBuffer(rec.paramsBuffer, 0, this.paramsFloat);
     }
 
     private createMappedBuffer(label: string, data: ArrayBuffer | ArrayBufferView, usage: GPUBufferUsageFlags): GPUBuffer {
