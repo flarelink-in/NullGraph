@@ -55,6 +55,10 @@
     "./shadows": {
       "types": "./dist/extras/shadows/index.d.ts",
       "import": "./dist/shadows.js"
+    },
+    "./environment": {
+      "types": "./dist/extras/environment/index.d.ts",
+      "import": "./dist/environment.js"
     }
   },
   "scripts": {
@@ -71,6 +75,7 @@
     "test:geometry": "node test/geometry-meshlets.test.mjs",
     "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs",
     "test:shadows": "node test/shadows-csm.test.mjs",
+    "test:environment": "node test/environment-ibl.test.mjs && node test/environment-probes.test.mjs",
     "watch:lib": "node build.js && tsc --watch",
     "watch:test-ui": "esbuild test/javascript/index.js --bundle --outfile=dist-web-test/index.js --platform=browser --format=esm --sourcemap --watch",
     "dev": "concurrently \"npm run watch:lib\" \"npm run watch:test-ui\" \"npm run dev:serve\"",

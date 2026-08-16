@@ -7,7 +7,7 @@
 lights, caching, and shadow-view Hi-Z. Read this one first.
 **Depends on:** [`visibility-design.md`](./visibility-design.md) (GPU caster culling),
 [`api/lights.md`](./api/lights.md) (the lighting contract this decorates).
-**Roadmap:** [`roadmap.md`](./roadmap.md) §5.4, §3.
+**Roadmap:** [`roadmap.md`](./roadmap.md) §3 · [`roadmap-modules.md`](./roadmap-modules.md) §4.
 
 ---
 
@@ -42,7 +42,7 @@ culling "for free" is *almost* true; §12 is the exact price.
   correct, and the thing Phase 2 replaces.
 - **Occlusion-culled casters.** No Hi-Z on the light view (Phase 2 §8). Frustum-only caster culling.
 - **Contact-hardening / area shadows.** PCSS, VSM/ESM/MSM are out. Fixed-radius PCF only.
-- **Ray-traced shadows.** ⛔ blocked on WebGPU (roadmap §5.9).
+- **Ray-traced shadows.** ⛔ blocked on WebGPU (roadmap-modules.md §12).
 
 ### Design principles
 

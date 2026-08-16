@@ -22,6 +22,7 @@ async function build() {
                 'post':'src/extras/post/index.ts',
                 'visibility':'src/extras/visibility/index.ts',
                 'shadows':'src/extras/shadows/index.ts',
+                'environment':'src/extras/environment/index.ts',
             },
 
             outdir: 'dist', // NEW: Outputs to dist/index.js and dist/geometry.js
@@ -34,7 +35,7 @@ async function build() {
             external: ['gl-matrix'],
         });
 
-        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows): ${isProd ? 'Production' : 'Development'} build complete.`);
+        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment): ${isProd ? 'Production' : 'Development'} build complete.`);
     } catch (error) {
         console.error(' Build failed:', error);
         process.exit(1);

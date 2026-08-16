@@ -66,3 +66,95 @@ export interface SkyParams {
     /** Prefiltered-cube mip the sky samples — 0 is sharp, higher is a blurred backdrop. */
     blurMip?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2 — irradiance volumes & probes (docs/lighting-probes-design.md)
+// ---------------------------------------------------------------------------
+
+import type { EnvironmentSystem } from './EnvironmentSystem';
+import type { VisibilitySystem } from '../visibility/VisibilitySystem';
+import type { ShadowSystem } from '../shadows/ShadowSystem';
+import type { LightSystem } from '../lights/LightSystem';
+import type { VisibilityMaterial } from '../visibility/types';
+
+export interface ProbeVolumeConfig {
+    /** World-space position of probe (0,0,0) — the volume's near corner. */
+    origin: [number, number, number];
+    /** World-space distance between neighbouring probes. */
+    spacing: number;
+    /** Probe counts per axis. dims[0]×dims[1]×dims[2] ≤ maxProbes. */
+    dims: [number, number, number];
+    /** Capture cube-face resolution in px. Four SH coefficients need no more (§7.1). Default 32. */
+    captureFaceSize?: number;
+    /** Probes recaptured per frame (amortization, §7.4). Default 16. */
+    probesPerFrame?: number;
+    /** Capture atlas edge in px (holds probesPerFrame×6 tiles + the reflection band). Default 1024. */
+    captureAtlasSize?: number;
+    /** Normal bias in probe-grid texels — the cheapest leak mitigation (§6.1). Default 0.5. */
+    normalBiasTexels?: number;
+    /** Border fade width in world units — a smooth exit at the volume's edge (§5). Default 4. */
+    borderFade?: number;
+    /** Indirect intensity multiplier on the volume lookup. Default 1.0. */
+    intensity?: number;
+    /** Hard probe cap — a 3D texture allocation beyond this is refused (§11). Default 65536. */
+    maxProbes?: number;
+    /** Capture near plane. Default spacing × 0.05. */
+    captureNear?: number;
+    /** Capture far plane. Default 2 × the volume diagonal. */
+    captureFar?: number;
+    /** Scheduler near-priority weight (§7.4): a probe at the camera refreshes this many times
+     *  more often than one past the reference distance. Default 16. */
+    distanceBias?: number;
+    /** SH band. Only 1 is supported — band 2 needs 7 texture bindings where 4 exist (§4.2). */
+    shBands?: 1 | 2;
+    /** Phase 1 environment — the fallback outside the volume and the capture's ambient (§5, §7.3). */
+    environment: EnvironmentSystem;
+    /** GPU caster culling for captures; probe capture has no CPU draw path. */
+    visibility: VisibilitySystem;
+    /** Captures see shadows; without them GI is flat and wrong (§9). */
+    shadows?: ShadowSystem;
+    /** Accept shadowless capture (§11). Default false. */
+    allowShadowlessCapture?: boolean;
+    /** Frames between reflection-probe refreshes (one probe per interval). Default 2. */
+    reflectionRefreshInterval?: number;
+    /** Atlas band reserved for reflection captures, in px. A ReflectionProbes attached through
+     *  {@link ProbeVolume.setReflectionProbes} must match this face size. Default 128. */
+    reflectionFaceSize?: number;
+}
+
+export interface ReflectionProbesConfig {
+    /** Cube count in the array, allocated once at maxProbes × 6 layers. Default 16. */
+    maxProbes?: number;
+    /** Capture/prefilter face size in px — specular carries high frequencies (§8.1). Default 128. */
+    faceSize?: number;
+    /** GGX prefiltered mip levels per cube. Default 6. */
+    prefilterMips?: number;
+    /** GGX importance samples per texel. Default 64. */
+    prefilterSamples?: number;
+}
+
+/** One reflection probe registration ({@link ReflectionProbes.add}). */
+export interface ReflProbeConfig {
+    /** Proxy box centre (world). */
+    center: [number, number, number];
+    /** Proxy box half-extents (world). Zero on any axis is rejected (§11). */
+    halfExtent: [number, number, number];
+    /** Where the cube is captured from. Default: centre — but see §8.2: parallax reprojects
+     *  FROM the capture point, so off-centre capture is handled exactly. */
+    capture?: [number, number, number];
+    /** Blend distance inside the proxy boundary: weight fades 1 → 0 over this band. Default 1. */
+    blend?: number;
+    /** Influence radius from the centre; outside it the weight is 0. Default: |halfExtent|. */
+    radius?: number;
+    /** Debug name, used in error messages. */
+    name?: string;
+}
+
+/** Options for {@link ProbeVolume.registerCaptureMesh}. */
+export interface CaptureMeshOptions {
+    material: VisibilityMaterial;
+    /** The LightSystem whose entries fill group-2 bindings 0–1(–4) of the capture materials'
+     *  combined bind group. Pass the same system (through shadows.wrapLighting for the layout)
+     *  that lights the main scene pass. */
+    lights: LightSystem;
+}

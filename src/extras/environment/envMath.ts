@@ -61,10 +61,21 @@ export function dirToEquirectUV(d: ArrayLike<number>, out: Float32Array | number
  * whole irradiance field toward the corners — U3 catches that by checking the weights sum to 4π.
  */
 export function cubeTexelSolidAngle(x: number, y: number, size: number): number {
-    const s = (x + 0.5) / size * 2 - 1;
-    const t = (y + 0.5) / size * 2 - 1;
-    const l = Math.hypot(s, t, 1);
-    return (4 / (size * size)) / (l * l * l);
+    // EXACT, via spherical excess — not the midpoint approximation `(4/size²)/(s²+t²+1)^1.5`.
+    // That approximation converges only as O(1/size²): at the 8×8 mip the SH projection actually
+    // uses, it over-counts total sphere area by 0.38%, which lands directly in the irradiance as
+    // an energy error. The exact form sums to 4π at any size (U3 asserts 1e-4).
+    const inv = 1 / size;
+    const u = (x + 0.5) * 2 * inv - 1;
+    const v = (y + 0.5) * 2 * inv - 1;
+    const x0 = u - inv, x1 = u + inv;
+    const y0 = v - inv, y1 = v + inv;
+    return areaElement(x0, y0) - areaElement(x0, y1) - areaElement(x1, y0) + areaElement(x1, y1);
+}
+
+/** The signed spherical area of the [0,x]×[0,y] rectangle on the unit cube face. */
+function areaElement(x: number, y: number): number {
+    return Math.atan2(x * y, Math.sqrt(x * x + y * y + 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +158,7 @@ export function evalSHL2(coeffs: ArrayLike<number>, dir: ArrayLike<number>, out:
 const _basisScratch = new Float64Array(9);
 
 /** Rotate a vector about +Y by `angle` radians — mirrors `rotateY` in WGSL. */
-export function rotateY(v: ArrayLike<number>, angle: number, out: Float32Array | number[] = [0, 0, 0]): typeof out {
+export function rotateY(v: ArrayLike<number>, angle: number, out: Float32Array | Float64Array | number[] = [0, 0, 0]): typeof out {
     const c = Math.cos(angle), s = Math.sin(angle);
     const x = v[0], z = v[2];
     out[0] = c * x - s * z;

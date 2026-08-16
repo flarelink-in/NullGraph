@@ -1,15 +1,17 @@
 # NullGraph Lighting — Phase 1: Image-Based Lighting — Technical Design
 
-**Target:** `src/extras/environment/` (`EnvironmentSystem`, `CubePrefilter`, `shProject`, `envShaders`)
-**Package:** `null-graph/environment` (new subpath export)
-**Status:** `v1.2` design, implementation-ready.
+**Target:** `src/extras/environment/` (`EnvironmentSystem`, `envMath`, `envShaders`, `types`)
+**Package:** `null-graph/environment` ✅ exported
+**Status:** `v1.2` — **✅ implemented.** Headless suite: `npm run test:environment` (U1–U10 + §11).
+GPU integration (§10 T1–T6) still needs a browser harness.
 **Companion:** [`lighting-probes-design.md`](./lighting-probes-design.md) — Phase 2: irradiance
 volumes, GPU probe capture, and local reflection probes. Read this one first — it defines the
 contract Phase 2 reimplements.
 **Depends on:** `LightSystem` ([`api/lights.md`](./api/lights.md)), the material shader chunks
 (`materials/materialFragments.ts`), and — for the capture path only — the two engine additions
 [`shadows-design.md`](./shadows-design.md) §12.1 already introduced.
-**Roadmap:** [`roadmap.md`](./roadmap.md) §5.5, §3.
+**Roadmap:** [`roadmap.md`](./roadmap.md) §3 · [`roadmap-modules.md`](./roadmap-modules.md) §5.
+**API:** [`api/environment.md`](./api/environment.md) (usage) · [`api/environment-shader-reference.md`](./api/environment-shader-reference.md) (layouts, WGSL contracts)
 
 ---
 
@@ -435,6 +437,52 @@ fn cs_main(@builtin(local_invocation_id) lid: vec3<u32>) {
 texels subtend markedly less than its centre ones, and using a uniform weight tilts the whole
 irradiance field toward the corners. §10 U3 catches it by checking that the weights sum to `4π`.
 
+**And "true" means the exact spherical-excess form, not the midpoint approximation.** The obvious
+formula — differential solid angle at the texel centre, `(4/size²)/(s²+t²+1)^1.5` — is a midpoint
+rule that converges only as O(1/size²). Measured: it over-counts the sphere by **0.38 % at size 8**,
+0.096 % at 16, 0.024 % at 32. Since the SH projection reads the **8×8** mip specifically, that is
+the worst case, and it lands straight in the irradiance as an energy error. The exact form sums to
+`4π` at any size:
+
+```
+fn areaElement(x: f32, y: f32) -> f32 { return atan2(x * y, sqrt(x * x + y * y + 1.0)); }
+
+// texel (x,y) spans [x0,x1]×[y0,y1] in face-local [-1,1] coordinates
+Ω = areaElement(x0,y0) - areaElement(x0,y1) - areaElement(x1,y0) + areaElement(x1,y1)
+```
+
+U3 asserts `1e-4`, which the midpoint form cannot reach at size 8 — the tolerance *is* the test.
+
+### 7.2.1 Getting the coefficients from the kernel into the uniform
+
+The projection is a **compute** shader, so it writes a storage buffer. The fragment shader reads
+`EnvParams`, a **uniform**. Nothing bridges those two on its own, and the failure is silent: the
+specular half works, the diffuse half is black, and it reads as "SH is broken" rather than "nothing
+copied it."
+
+Reading back to the CPU is forbidden in the frame loop, so the transport is a GPU-side copy — and
+the trick that makes it one copy instead of a repack is having the kernel write **the exact packed
+layout of `EnvParams` floats 0..35** (§7.3), not the natural 27-float interleave:
+
+```wgsl
+@group(0) @binding(1) var<storage, read_write> shOut: array<f32, 36>;   // 36, not 27
+...
+let slot = (k / 3u) * 4u + (k % 3u);      // the same index shCoeffR(k) reads back
+shOut[0u  + slot] = partialR[0][k];
+shOut[12u + slot] = partialG[0][k];
+shOut[24u + slot] = partialB[0][k];
+```
+
+Then `copySHToParams()` is `copyBufferToBuffer(shBuffer, 0, envParamsBuffer, 0, 144)`, and queue
+ordering guarantees it lands after the dispatch that produced it.
+
+**The consequence for the CPU writer.** `EnvParams` now has two owners: the GPU owns floats 0..35,
+the CPU owns the 36..43 tail (rotation, intensity, specularMip, horizonFade). So the CPU-side
+`writeEnvParams` must write **only the tail** — a full-struct write would clobber the projected
+coefficients with the CPU's stale zeros every time someone nudged the intensity, and the symptom
+would be "the environment goes black when I move a slider." `setRawSH` is the one path that
+deliberately writes the SH region, because there the CPU *is* the source.
+
 ### 7.3 Packing 9 `vec3`s into `array<vec4, 3>` per channel
 
 WGSL uniform arrays stride to 16 bytes per element, so `array<vec3<f32>, 9>` in a uniform costs 144
@@ -568,6 +616,11 @@ most of it is testable without a device.
 - **U9 — the material hook.** `buildMaterialFragment({ kind:'pbr', indirect })` emits the
   `getIndirectDiffuse` call and **not** the `vec3<f32>(0.3)` constant; without `indirect`, exactly
   the reverse. Byte-compare the no-`indirect` output against today's to prove nothing regressed.
+- **U10 — no backtick in any generated WGSL.** A backtick inside a WGSL comment *terminates the
+  JavaScript template literal carrying it*, and the symptom is a cascade of TypeScript syntax
+  errors pointing at WGSL — which reads as a corrupted file rather than a quoting mistake. It cost
+  two separate debugging sessions in this module before it was pinned. One `includes('`')` assert
+  over every generator output, and it can never recur.
 
 **Integration tests (GPU, one readback each):**
 
@@ -672,4 +725,4 @@ reflection probes, and the volume↔global blend at volume borders.
 
 To **v2.0**: DDGI-style per-probe visibility (the real fix for light leaking, Phase 2 §6.3);
 screen-space specular occlusion; and a specular↔SSR handoff, which needs the deferred g-buffer
-(roadmap §5.3, v1.1).
+(roadmap-modules.md §3, v1.1).
