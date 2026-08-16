@@ -265,9 +265,76 @@ needed for:
    shadow tap produces a plausible image — the visibility spec's `ndcNear > occ` and the shadow
    spec's `textureSampleCompareLevel` rule both have tests whose stated purpose is catching the
    flip, because the eye will not.
+3. **Pin the hazards of your own tooling, not just the algorithm.** A module that *generates* code
+   inherits the host language's quoting rules as a failure mode, and those failures do not look
+   like what they are.
 
 Prefer a test that names its own failure diagnosis: *"if the wall disappears and the quad draws,
 `ndcNear > occ` is flipped."*
+
+**The case for rule 3.** Every WGSL generator here is a JavaScript template literal, so a backtick
+inside a WGSL comment silently *ends the string*. The rest of the shader is then parsed as
+TypeScript, producing a cascade of syntax errors pointing at WGSL — which reads as a corrupted file,
+not a quoting mistake. It cost two debugging sessions in `envShaders.ts`: once in the original
+authoring, and once more when the person fixing it wrote the explanatory comment using backticks to
+quote the offending identifier. The fix is one assertion over every generator's output
+(`environment-ibl.test.mjs` U10), and the class of bug is now closed.
+
+**A case for rule 2, in the reviewer's own hand.** While writing the BRDF-LUT test, the assertion
+went in as "the split-sum scale term is non-**decreasing** in `NdotV`." It is non-*increasing* —
+the term is largest at grazing incidence (above 1 there, correctly) and falls toward ~0.77 head-on.
+The test failed, the *implementation* was fine, and the fix was to the assertion. Worth recording
+because it is the ordinary case: an inverted expectation is at least as likely in the test as in
+the code, which is exactly why "measure the curve before asserting its shape" beats intuition.
+
+**And a second one, from probes.** Phase 2's U10 asserted the composed env+probe WGSL spans
+bindings `0–13`. It spans `3–13`: bindings 0–2 belong to the `LightSystem` and are declared by
+*its* `wgslStructs`, which is not part of the environment layout at all — a fact Phase 1's U8
+asserts from the other side. Two tests, adjacent modules, contradicting each other about who owns
+three bind slots; the implementation was right and both could not be. When a new test disagrees
+with an old one, check which of them the *code* agrees with before changing anything.
+
+---
+
+## 13.1 A CPU mirror is a second implementation, and it drifts
+
+Several modules keep a pure-JS mirror of a GPU kernel — `cullMath` ↔ `visibilityShaders`,
+`shadowMath` ↔ `shadowShaders`, `probeMath` ↔ `probeShaders`. The mirror is what makes the math
+testable without a device, and it is worth having. But it is **a second implementation of the same
+algorithm**, and the two drift in ways neither compiler catches.
+
+**The case.** `probeMath.projectSHL1FromCapture` called
+`cubeTexelSolidAngle(u, v, F)` with *normalized* UVs. The shared helper's CPU signature is
+`(x, y, size)` and takes **integer texel indices** — it derives the centre itself. Its WGSL twin
+takes the already-normalized `uv`. Same math, different parameterization, no type error: `number`
+accepts `0.0625` as happily as `0`. Every texel's solid angle came out too small, the total came to
+7.78 instead of 4π, and the whole projection scaled down by ~1.6× — silently, with plausible-looking
+output. A second bug in the same function defaulted "no depth supplied" to the *sky* sentinel, so
+the colour was never read at all and the projection returned zeros.
+
+**The rules that follow.**
+
+- **Pin the mirror against an invariant, not against the kernel.** "Σ solid angle == 4π" and
+  "a constant environment projects to that constant" catch a scale error that no amount of reading
+  the two side by side will. Both bugs above were found by one such test.
+- **When a mirror and a kernel take the same quantity in different units, say so at both call
+  sites.** A comment at the definition is not where the mistake happens.
+- **Fix the mirror to match the kernel, not the reverse — after checking which one is right.** Here
+  the WGSL was correct and only the CPU had drifted; the fix would have been backwards otherwise,
+  and would have broken the GPU path to make a test pass.
+
+---
+
+## 13.2 A test suite that cannot fail the build is not a test suite
+
+`environment-probes.test.mjs` counted failures into a variable, printed each one — and then exited
+`0`. It was chained into `npm run test:environment` with `&&`, so a red suite reported success and
+the next suite ran anyway.
+
+**The rule.** Every suite ends with a summary line and `process.exit(failures === 0 ? 0 : 1)`, and
+that exit path is itself verified once by injecting a deliberate failure and checking the exit code
+is `1`. A suite whose failure mode is "prints FAIL and passes" is worse than no suite: it is a
+green light with no bulb in it.
 
 ---
 
@@ -317,4 +384,10 @@ Before a module is called done:
 - [ ] Pipelines and stages are built against registered demand, not against caps.
 - [ ] The baseline path uses no optional WebGPU feature.
 - [ ] Every regression test was observed failing before it passed.
+- [ ] The suite exits non-zero on failure, and that exit path was verified once (§13.2).
+- [ ] Every CPU mirror of a GPU kernel is pinned by an invariant, not by inspection (§13.1).
+- [ ] A code generator pins its own quoting hazards, not only its output's semantics.
+- [ ] Data produced on the GPU has a stated path to whoever reads it — the bridge between a
+      compute stage's storage buffer and a fragment stage's uniform is not automatic, and its
+      absence fails silently (`lighting-ibl-design.md` §7.2.1).
 - [ ] Engine touchpoints list required vs optional, with fallbacks and their costs.

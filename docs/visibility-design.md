@@ -420,7 +420,7 @@ maxVisibleMeshletInstances` so the engine sizes `storageBuffer` correctly, and p
 **Idle lanes.** A half-full meshlet still spends `372` vertex invocations; the extra ones take the
 degenerate branch and are clipped. That is the cost of no mesh shaders on WebGPU. When
 `capabilities.has('multi-draw-indirect')`, a v1.1 path replaces the static index buffer with one
-real indexed draw per meshlet and removes the waste (roadmap §5.3); the baseline stays universal.
+real indexed draw per meshlet and removes the waste (roadmap-modules.md §3); the baseline stays universal.
 
 ---
 
@@ -492,7 +492,7 @@ set.
 ### T2 — draw-call independence
 10 000 instances of **one** mesh, all visible. **Expect:** exactly **one** `drawIndexedIndirect`,
 `instanceCount === 10 000`. Raise to 100 000 → still one draw call. This is the headline property
-(roadmap §8.1).
+(roadmap §8.1 gate 1).
 
 ### T3 — meshlet cone culling
 One sphere mesh (meshletized), camera outside. **Expect:** roughly half its meshlets survive cone
@@ -516,7 +516,8 @@ Frame 0 with a never-written Hi-Z. **Expect:** nothing is occlusion-culled (`occ
 i.e. identical output to occlusion disabled. No black frame.
 
 ### T7 — zero-copy, zero-alloc
-Drive `setInstances` from a `SharedArrayBuffer` view filled by a Worker; run 100 frames.
+Drive `setInstances` from a Worker-filled view (transferable `ArrayBuffer` or
+`SharedArrayBuffer` — the contract is the same either way); run 100 frames.
 **Expect:** no per-frame allocation on the main thread (instrument `report()`), and the frame path
 is upload + clears + dispatch chain + draws only.
 

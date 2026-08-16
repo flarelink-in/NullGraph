@@ -1,14 +1,16 @@
 # NullGraph Lighting — Phase 2: Irradiance Volumes & Probes — Technical Design
 
 **Target:** `src/extras/environment/` (`ProbeVolume`, `ProbeCapture`, `ReflectionProbes`, `probeMath`)
-**Package:** `null-graph/environment` (same subpath; Phase 2 is additive)
-**Status:** `v1.2` design, implementation-ready.
+**Package:** `null-graph/environment` ✅ exported (same subpath; Phase 2 is additive)
+**Status:** `v1.2` — **✅ implemented.** Headless suite: `npm run test:environment`
+(`environment-probes.test.mjs`, U1–U10 + §11). GPU integration (§10 T1–T7) needs a browser harness.
 **Prerequisite:** [`lighting-ibl-design.md`](./lighting-ibl-design.md) — Phase 1. Read it first;
 this document reimplements its §5 contract and inherits its §3 integration facts and §4.4 binding map.
 **Depends on:** Phase 1; [`shadows-design.md`](./shadows-design.md) §12.1 (`depthOnly`,
 `cameraBuffer`) and [`shadows-atlas-design.md`](./shadows-atlas-design.md) §12.1 (per-batch
 `viewport`) — the capture path is the shadow atlas architecture pointed at a different target.
-**Roadmap:** [`roadmap.md`](./roadmap.md) §5.5, §3.
+**Roadmap:** [`roadmap.md`](./roadmap.md) §3 · [`roadmap-modules.md`](./roadmap-modules.md) §5.
+**API:** [`api/probes.md`](./api/probes.md) (usage) · [`api/probes-shader-reference.md`](./api/probes-shader-reference.md) (layouts, WGSL contracts) · Phase 1: [`api/environment.md`](./api/environment.md)
 
 ---
 

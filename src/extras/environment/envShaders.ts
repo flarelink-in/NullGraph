@@ -40,11 +40,19 @@ fn dirToEquirectUV(d: vec3<f32>) -> vec2<f32> {
 
 // The TRUE solid angle of a cube texel — corner texels subtend markedly less than centre ones,
 // and a uniform 4π/384 weight tilts the irradiance field toward the corners (§7.2, U3).
+// EXACT, via spherical excess: the midpoint form (4/size²)/(s²+t²+1)^1.5 converges only as
+// O(1/size²) and over-counts by 0.38% at the 8×8 SH mip. Mirrors envMath.cubeTexelSolidAngle.
+fn areaElement(x: f32, y: f32) -> f32 {
+    return atan2(x * y, sqrt(x * x + y * y + 1.0));
+}
+
 fn cubeTexelSolidAngle(uv: vec2<f32>, size: u32) -> f32 {
-    let s = uv.x * 2.0 - 1.0;
-    let t = uv.y * 2.0 - 1.0;
-    let l2 = s * s + t * t + 1.0;
-    return (4.0 / f32(size * size)) / (l2 * sqrt(l2));
+    let inv = 1.0 / f32(size);
+    let u = uv.x * 2.0 - 1.0;
+    let v = uv.y * 2.0 - 1.0;
+    let x0 = u - inv; let x1 = u + inv;
+    let y0 = v - inv; let y1 = v + inv;
+    return areaElement(x0, y0) - areaElement(x0, y1) - areaElement(x1, y0) + areaElement(x1, y1);
 }
 
 // The 9 SH-L2 basis values, order [1, y, z, x, xy, yz, 3z²−1, xz, x²−y²] — mirrors envMath.ts.
@@ -85,7 +93,7 @@ fn hammersley(i: u32, n: u32) -> vec2<f32> {
     return vec2<f32>(f32(i) / f32(n), radicalInverse(i));
 }
 
-// TBN frame about N, then the GGX half-vector for roughness `a` (already squared).
+// TBN frame about N, then the GGX half-vector for roughness 'a' (already squared).
 fn importanceSampleGGX(xi: vec2<f32>, N: vec3<f32>, a: f32) -> vec3<f32> {
     let phi = 2.0 * PI * xi.x;
     let cosTheta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
@@ -151,15 +159,14 @@ ${ENV_MATH_WGSL}
 ${body}
 @compute @workgroup_size(8, 8, 1)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let dim = textureDimensions(dstMip0());
+    // Directly on the binding: WGSL has no constructible texture type, so a function cannot
+    // return one — textureDimensions(someFn()) does not compile.
+    let dim = textureDimensions(dstCube);
     if (gid.x >= dim.x || gid.y >= dim.y) { return; }
     let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dim);
     let dir = faceDirection(gid.z, uv);
     ${sample}
 }
-
-// textureDimensions on a storage texture returns the mip-0 size for a single-mip view.
-fn dstMip0() -> texture_storage_2d_array<rgba16float, write> { return dstCube; }
 `;
 }
 
@@ -211,15 +218,22 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
  * bright texel from surviving as a hard dot in a rough reflection; T2 measures the variance
  * with and without it.
  */
-export function buildPrefilterWGSL(opts: { level: number; prefilterMips: number; samples: number; srcSize: number }): string {
+export function buildPrefilterWGSL(opts: { level: number; prefilterMips: number; samples: number; srcSize: number; arrayLayerOffset?: boolean }): string {
     const roughness = opts.prefilterMips > 1 ? opts.level / (opts.prefilterMips - 1) : 0;
+    // Phase 2 (lighting-probes-design.md §8.1, §12.2): reflection probes prefilter INTO one cube
+    // of the shared cube array. The destination layer offset arrives as a uniform so ONE set of
+    // per-mip pipelines serves every probe — a pipeline-constant layer would recompile per probe.
+    // Default (no offset) is byte-identical to the Phase 1 kernel.
+    const layerDecl = opts.arrayLayerOffset
+        ? '@group(0) @binding(3) var<uniform> reflLayerOffset: vec4<u32>;\n' : '';
+    const storeLayer = opts.arrayLayerOffset ? 'gid.z + reflLayerOffset.x' : 'gid.z';
     if (roughness === 0) {
         // Mirror mip: a straight copy through the cube sampler.
         return /* wgsl */ `
 @group(0) @binding(0) var srcCube: texture_cube<f32>;
 @group(0) @binding(1) var srcSamp: sampler;
 @group(0) @binding(2) var dstMip: texture_storage_2d_array<rgba16float, write>;
-
+${layerDecl}
 ${ENV_MATH_WGSL}
 
 @compute @workgroup_size(8, 8, 1)
@@ -228,7 +242,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (gid.x >= dstDim.x || gid.y >= dstDim.y) { return; }
     let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dstDim);
     let dir = faceDirection(gid.z, uv);
-    textureStore(dstMip, gid.xy, gid.z, vec4<f32>(textureSampleLevel(srcCube, srcSamp, dir, 0.0).rgb, 1.0));
+    textureStore(dstMip, gid.xy, ${storeLayer}, vec4<f32>(textureSampleLevel(srcCube, srcSamp, dir, 0.0).rgb, 1.0));
 }
 `;
     }
@@ -236,7 +250,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(0) var srcCube: texture_cube<f32>;
 @group(0) @binding(1) var srcSamp: sampler;
 @group(0) @binding(2) var dstMip: texture_storage_2d_array<rgba16float, write>;
-
+${layerDecl}
 ${ENV_MATH_WGSL}
 ${ENV_SAMPLING_WGSL}
 
@@ -272,7 +286,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         color += textureSampleLevel(srcCube, srcSamp, L, mip).rgb * NdotL;
         weight += NdotL;
     }
-    textureStore(dstMip, gid.xy, gid.z, vec4<f32>(color / max(weight, 1e-4), 1.0));
+    textureStore(dstMip, gid.xy, ${storeLayer}, vec4<f32>(color / max(weight, 1e-4), 1.0));
 }
 `;
 }
@@ -290,7 +304,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 export function buildBRDFLUTWGSL(opts: { samples?: number } = {}): string {
     const samples = opts.samples ?? 1024;
     return /* wgsl */ `
-@group(0) @binding(0) var dstLUT: texture_storage_2d<rg16float, write>;
+@group(0) @binding(0) var dstLUT: texture_storage_2d<rgba16float, write>;
 
 ${ENV_MATH_WGSL}
 ${ENV_SAMPLING_WGSL}
@@ -350,7 +364,11 @@ export function buildSHProjectWGSL(): string {
     const S = SH_SOURCE_SIZE;
     return /* wgsl */ `
 @group(0) @binding(0) var srcCube2DArray: texture_2d_array<f32>;
-@group(0) @binding(1) var<storage, read_write> shOut: array<f32, 27>;
+// 36 floats, NOT 27: this is written in the EXACT packed layout of EnvParams floats 0..35
+// (shR[3] then shG[3] then shB[3], each a vec4 holding 3 coefficients — §7.3), so the result is
+// moved into the uniform with one copyBufferToBuffer instead of a readback. envMath.packSHChannel
+// is the CPU mirror of this indexing, and U4 pins the two together.
+@group(0) @binding(1) var<storage, read_write> shOut: array<f32, 36>;
 
 ${ENV_MATH_WGSL}
 
@@ -402,10 +420,13 @@ fn cs_main(@builtin(local_invocation_id) lid: vec3<u32>) {
         workgroupBarrier();
     }
     if (t == 0u) {
+        // Packed EnvParams layout: coefficient k of a channel lives at
+        // channelBase + (k/3)*4 + (k%3) — the same index shCoeffR/G/B(k) reads back out.
         for (var k = 0u; k < 9u; k = k + 1u) {
-            shOut[k * 3u + 0u] = partialR[0][k];
-            shOut[k * 3u + 1u] = partialG[0][k];
-            shOut[k * 3u + 2u] = partialB[0][k];
+            let slot = (k / 3u) * 4u + (k % 3u);
+            shOut[0u  + slot] = partialR[0][k];
+            shOut[12u + slot] = partialG[0][k];
+            shOut[24u + slot] = partialB[0][k];
         }
     }
 }
@@ -481,9 +502,11 @@ fn rotateYEnv(v: vec3<f32>, angle: f32) -> vec3<f32> {
     return vec3<f32>(c * v.x - s * v.z, v.y, s * v.x + c * v.z);
 }
 
-/** Cosine-convolved irradiance arriving at `worldPos` with normal `N`, divided by PI.
+/** Cosine-convolved irradiance arriving at 'worldPos' with normal 'N', divided by PI.
  *  Multiply by albedo (and kD) to get the diffuse indirect term. */
 fn getIndirectDiffuse(worldPos: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
+    let _antiPrune = textureSampleLevel(brdfLUT, envSampler, vec2<f32>(0.0, 0.0), 0.0).r * 0.0000001;
+    let _antiPruneCube = textureSampleLevel(envSpecular, envSampler, vec3<f32>(0.0, 1.0, 0.0), 0.0).r * 0.0000001;
     let n = rotateYEnv(N, -env.rotation.w);          // environment yaw
     let b = shBasisL2Env(n);
     var c = vec3<f32>(0.0);
@@ -492,14 +515,15 @@ fn getIndirectDiffuse(worldPos: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
     }
     // Clamp: an L2 projection of a high-contrast environment rings, and the negative lobe reads
     // as black patches on surfaces facing away from the dominant light (§7.4, U5).
-    return max(c, vec3<f32>(0.0)) * env.intensity;
+    return (max(c, vec3<f32>(0.0)) + vec3<f32>(_antiPrune + _antiPruneCube)) * env.intensity;
 }
 
 /** Pre-integrated specular radiance for the reflection lobe, already including the split-sum
  *  BRDF term — the caller multiplies by nothing but occlusion. */
 fn getIndirectSpecular(worldPos: vec3<f32>, N: vec3<f32>, V: vec3<f32>,
                        roughness: f32, F0: vec3<f32>) -> vec3<f32> {
-    let R = reflect(-V, N);
+    // var, not let — the yaw rotation reassigns it, and WGSL let is immutable.
+    var R = reflect(-V, N);
     R = rotateYEnv(R, -env.rotation.w);
     // Occlude reflections pointing under the horizon: a rough surface sampling below itself
     // would otherwise read the ground lobe of the cube at full strength (§4.3 horizonFade).

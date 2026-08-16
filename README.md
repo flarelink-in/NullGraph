@@ -25,9 +25,9 @@ If you are building an MMO, a voxel engine, or a multiverse with tens of thousan
 
 # Why NullGraph?
 
-Traditional WebGL frameworks (like Three.js or Babylon.js) are built for ease of use, heavily relying on the `new` keyword, dynamic memory, and Garbage Collection. When scaling up to massive open worlds, this OOP overhead causes main-thread stuttering and shader compilation lag.
+A retained scene graph costs you a traversal, a matrix update, and a draw call **per object, per frame** — on the main thread, allocating as it goes. That is fine at a thousand objects and fatal at a hundred thousand: the frame time becomes a function of how much exists rather than how much is visible, and the garbage collector starts showing up in your frame graph.
 
-NullGraph solves this by doing less:
+NullGraph takes the opposite approach — it does less, and moves what remains to the GPU:
 
 - **Zero Scene Graph:** No `.traverse()`, no `.updateMatrixWorld()`. The GPU reads your flat array directly.
 
@@ -43,7 +43,49 @@ NullGraph solves this by doing less:
 
 - **Shadows That Inherit the Culling:** A shadow cascade is just another camera, so caster culling reuses the same GPU cull chain rather than duplicating it — 4 cascades over 100,000 instances is 4 indirect draws per caster mesh. Cached atlas tiles skip both their draw *and* their cull.
 
+- **Dynamic Global Illumination:** Not just an environment map — an **irradiance volume filled by GPU probe capture**, where each capture shades against the previous volume so bounce light accumulates into multi-bounce GI. Colour bleeding, indoor/outdoor transitions, and lighting that responds when you open a door — no ray tracing, no lightmap bake, no offline step.
+
 - **Multi-Pass Architecture:** Seamlessly chain offscreen render passes into screen-space post-processing pipelines (Bloom, CRT, HUD effects) by attaching textures directly to subsequent batches.
+
+---
+
+# What's In The Box
+
+A complete GPU-driven pipeline: geometry goes in as meshlets, the GPU decides what's visible, and
+the CPU never iterates the scene.
+
+| Subsystem | What ships |
+|---|---|
+| **Geometry** | 13 primitives · one unified vertex/index pool · meshlet clusters (≤64v/≤124t) with bounds, normal cones, and LOD chains |
+| **Visibility** | Two-tier GPU culling (instance + meshlet) · Hi-Z occlusion from an `r32float` max-pyramid · normal-cone rejection · screen-space-error LOD · per-view culling for any camera |
+| **Shadows** | Cascaded shadow maps (sphere-fit, texel-snapped, caster-extruded) · shadow atlas with importance tiles, per-tile caching, and eviction · spot + point (6-face) shadows · light-view Hi-Z |
+| **Lighting** | 7 light types · clustered-forward froxel binning (subgroup-accelerated when available) · tiled · standard |
+| **Indirect lighting** | Split-sum IBL: GGX-prefiltered cube, BRDF LUT, SH-L2 irradiance · procedural or HDR sky · skybox pass |
+| **Global illumination** | SH-L1 irradiance volumes · GPU probe capture · multi-bounce convergence · parallax-corrected reflection probes |
+| **Materials** | PBR (Cook-Torrance), Lambert, Toon, Matcap, Emissive, Basic — one portable definition per family, shared by every draw path |
+| **Post** | 16 effects · lifetime-aliased render targets · zero-allocation param arena |
+| **Platform** | Worker rendering via OffscreenCanvas · capability negotiation · zero-copy buffer contracts throughout |
+
+Three properties hold across all of it: **draw calls scale with material count, not object count**;
+**the frame path allocates nothing** (measured, not assumed); and **the baseline runs on core WebGPU**
+with no optional features required.
+
+### Verification status
+
+Every subsystem is pinned by headless tests — **349 checks** across five suites, covering the pure
+math, every generated WGSL module, and system wiring through mock devices. Run with
+`npm run test:visibility · test:shadows · test:environment · test:geometry · test:post`.
+
+The **GPU integration harnesses have not been run in a browser yet**, and there is currently one only
+for shadows (`test/shadows-gpu/`). The maths is verified; the pixels are not. That is the next
+milestone, not a footnote.
+
+### Not in the box (yet)
+
+Deferred / visibility-buffer shading · TAA and motion blur · volumetric fog · virtualized geometry
+(cluster-LOD streaming) · virtual shadow maps · leak-free DDGI probe visibility · compute skinning.
+All planned and specced — see the [roadmap](./docs/roadmap.md) and
+[architecture tree](./docs/architecture-tree.md).
 
 ---
 
@@ -106,6 +148,25 @@ the map. Bias is applied on the caster in the depth-only vertex shader. Receiver
 **decorates** the light system's WGSL — wrapping `getIncidentLight` and folding the shadow term
 into `attenuation` — so Lambert, Toon and PBR all gain shadows with no material edits.
 
+### `null-graph/environment`
+Indirect lighting — the half of the lighting equation that isn't a light. **Phase 1** replaces the
+hardcoded ambient constant with the split-sum IBL model: a GGX-prefiltered environment cube (with
+solid-angle mip selection, so a sun disc doesn't shatter into fireflies at mid roughness), a
+split-sum BRDF LUT, and an SH-L2 irradiance projection that fits in 27 floats instead of a cubemap
+— which is what leaves binding budget for Phase 2. Sources are an equirect HDR, a procedural sky
+(zero assets), or precomputed coefficients from a Worker.
+
+**Phase 2** makes it vary through space: an SH-L1 **irradiance volume** sampled by hardware
+trilinear filtering (the 8-probe blend is one `textureSampleLevel`), filled by **GPU probe capture**
+— the shadow atlas architecture rendered in colour, amortized at `probesPerFrame`. Because each
+capture shades against the *previous* volume, bounce light accumulates: **multi-bounce global
+illumination that converges over a few refresh cycles**, with no ray tracing and no second data
+structure. Local **reflection probes** with parallax-corrected box proxies handle specular, blending
+to the global cube so a scene with no probes degrades exactly to Phase 1.
+
+Both phases implement the *same* two WGSL functions, so swapping global IBL for spatial probes costs
+zero material edits.
+
 ### `null-graph/loaders`
 `GLBParser` with resource unpacking, `SkeletonManager`, and an `Animator` for keyframe sampling and
 interpolation, feeding the vertex-shader skinning path in the material builders.
@@ -155,7 +216,9 @@ For comprehensive guides and API references, please check our documentation:
 ### Guides
 - [Quick Start Guide](./docs/quick-start.md) — get a lit cube on screen
 - [Scene Composition](./docs/scene-composition.md) — how to assemble any scene, end to end
-- [Engine Roadmap](./docs/roadmap.md) — versioned module plan and what ships when
+- [Engine Roadmap](./docs/roadmap.md) — target architecture, release plan, and the WebGPU realities that shape both
+- [Architecture Tree](./docs/architecture-tree.md) — every module and planned feature in one tree, plus what lands in each release
+- [Module Briefs](./docs/roadmap-modules.md) — per-module goal, integration surface, and non-goals (incl. Environment + the physics plugin)
 - [Design Principles](./docs/design-principles.md) — the rules every module follows, and the case behind each
 - [Deprecated & Breaking API Changes](./docs/deprecated-api.md) — migration guide
 
@@ -177,11 +240,13 @@ lists the acceptance tests up front.
 - [Core (`null-graph`)](./docs/api/core.md) · [Core Reference](./docs/api/core-reference.md)
 - [Cameras (`null-graph/cameras`)](./docs/api/cameras.md)
 - [Debug UI (`null-graph/debug-ui`)](./docs/api/debug-ui.md)
+- [Environment (`null-graph/environment`)](./docs/api/environment.md) · [Shader & Buffer Reference](./docs/api/environment-shader-reference.md)
 - [Geometry (`null-graph/geometry`)](./docs/api/geometry.md)
 - [Lights (`null-graph/lights`)](./docs/api/lights.md) · [Shader & Compute Reference](./docs/api/lights-shader-reference.md)
 - [Loaders (`null-graph/loaders`)](./docs/api/loaders.md)
 - [Materials (`null-graph/materials`)](./docs/api/materials.md)
 - [Post-Processing (`null-graph/post`)](./docs/api/post.md)
+- [Probes (`null-graph/environment`, Phase 2)](./docs/api/probes.md) · [Shader & Buffer Reference](./docs/api/probes-shader-reference.md)
 - [Profiler (`null-graph/profiler`)](./docs/api/profiler.md)
 - [Shadows (`null-graph/shadows`)](./docs/api/shadows.md) · [Shader & Buffer Reference](./docs/api/shadows-shader-reference.md)
 - [Visibility (`null-graph/visibility`)](./docs/api/visibility.md) · [Shader & Buffer Reference](./docs/api/visibility-shader-reference.md)
@@ -251,9 +316,13 @@ NullGraph is the high-performance rendering backbone for the Axion Engine.
 
 - [x] Shadow Atlas — punctual (spot + point) shadows, importance-driven tiles, per-tile caching, light-view Hi-Z
 
-- [ ] Image-Based Lighting (IBL) & Environment Mapping — [specced](./docs/lighting-ibl-design.md)
+- [x] Image-Based Lighting (IBL) & Environment Mapping — GGX prefilter, split-sum BRDF LUT, SH-L2 irradiance, procedural + HDR sky
 
-- [ ] Irradiance Volumes & Reflection Probes — [specced](./docs/lighting-probes-design.md)
+- [x] **Dynamic Global Illumination** — SH-L1 irradiance volumes, GPU probe capture, multi-bounce convergence, parallax-corrected reflection probes
+
+- [ ] DDGI per-probe visibility (leak-free probes) — needs bind-group budget reclaimed
+
+- [ ] Volumetric fog & atmospheric scattering
 ---
 
 ## Showcase

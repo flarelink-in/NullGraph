@@ -7,7 +7,7 @@
 generalizes its `ShadowView` and assumes its §3 integration facts.
 **Depends on:** Phase 1, [`visibility-design.md`](./visibility-design.md) §5 (`HiZPyramid`),
 [`api/lights.md`](./api/lights.md).
-**Roadmap:** [`roadmap.md`](./roadmap.md) §5.4, §3.
+**Roadmap:** [`roadmap.md`](./roadmap.md) §3 · [`roadmap-modules.md`](./roadmap-modules.md) §4.
 
 ---
 
