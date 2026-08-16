@@ -203,7 +203,7 @@ Real-time telemetry widgets and WebGPU timestamp-query GPU profiling.
 ## Play the Live Demo
 [nullgraph.dev](https://nullgraph.dev/)
 
-## Github Source Code [v1.0.0]
+## Github Source Code [v1.0.0/Legacy/Refer to nullgraph.dev Live Editor for latest demos and tutorials]
 [NullGraph-Test-Engine](https://github.com/Vikas593-cloud/NullGraph-Test-Engine)
 
 ---
