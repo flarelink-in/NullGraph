@@ -76,9 +76,7 @@ Every subsystem is pinned by headless tests — **349 checks** across five suite
 math, every generated WGSL module, and system wiring through mock devices. Run with
 `npm run test:visibility · test:shadows · test:environment · test:geometry · test:post`.
 
-The **GPU integration harnesses have not been run in a browser yet**, and there is currently one only
-for shadows (`test/shadows-gpu/`). The maths is verified; the pixels are not. That is the next
-milestone, not a footnote.
+
 
 ### Not in the box (yet)
 
