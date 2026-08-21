@@ -27,7 +27,8 @@ const SCHEMA: ParamSchema = [
 // Same soft-knee prefilter as Bloom, so the two effects respond to the same
 // highlights consistently when stacked.
 const EXTRACT = `fn effect(uv: vec2f) -> vec4f {
-    let c = sampleInput0(uv).rgb;
+    let raw = sampleInput0(uv).rgb;
+    let c = clamp(raw, vec3f(0.0), vec3f(65000.0));
     let br = max(c.r, max(c.g, c.b));
     let knee = params.threshold * params.knee + 1e-5;
     var soft = clamp(br - params.threshold + knee, 0.0, 2.0 * knee);

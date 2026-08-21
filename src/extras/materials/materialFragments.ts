@@ -17,7 +17,27 @@
 // `materials/CommonChunks.ts` and `visibility/visibilityShaders.ts` both emit exactly that struct —
 // keep all three in lockstep.
 
-import type { ShaderConfig, ShaderIndirectLayout, ShaderLightingLayout } from './types';
+import type { ShaderAerialLayout, ShaderConfig, ShaderIndirectLayout, ShaderLightingLayout } from './types';
+
+/**
+ * The aerial-perspective one-liner (environment-aerial-design.md §5.3), emitted where the
+ * fragment still holds LINEAR radiance.
+ *
+ * For PBR that placement is load-bearing: the PBR fragment tonemaps and gamma-corrects inline,
+ * and aerial perspective is radiometric. Applied after the tonemap it fogs an already-compressed
+ * value, which desaturates toward grey rather than toward the sky's colour and reads as "the fog
+ * colour is wrong" — a symptom that points nowhere near the injection site. U7 pins the order.
+ */
+function aerialLine(config: ShaderConfig, target: string, kind: 'vec3' | 'vec4' = 'vec3'): string {
+    if (!config.aerial) return '';
+    const assignment = kind === 'vec4'
+        ? `${target} = vec4<f32>(applyAerialAt(${target}.rgb, in.worldPos), ${target}.a);`
+        : `${target} = applyAerialAt(${target}, in.worldPos);`;
+    return `
+        // --- AERIAL PERSPECTIVE (environment-aerial-design.md §5.3) ---
+        ${assignment}
+`;
+}
 
 /** The stock material families. Each maps to one bindings + fragment pair below. */
 export type MaterialKind = 'basic' | 'lambert' | 'emissive' | 'matcap' | 'toon' | 'pbr';
@@ -238,7 +258,7 @@ export const MaterialNeedsPI: Record<MaterialKind, boolean> = {
 // ---------------------------------------------------------------------------
 
 export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => string> = {
-    basic: () => `
+    basic: (config) => `
     @fragment
     fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let instanceColor = vec4<f32>(in.ecsColor, 1.0);
@@ -247,7 +267,7 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         if (material.hasAlbedoTexture > 0.5) {
             color = textureSample(texAlbedo, samp, in.uv * material.uvTiling) * color;
         }
-
+${aerialLine(config, 'color', 'vec4')}
         return color;
     }
     `,
@@ -299,13 +319,13 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         // --- IMAGE-BASED / PROBE INDIRECT LIGHT (diffuse half; lighting-ibl-design.md §5.3) ---
         finalColor += baseColor.rgb * getIndirectDiffuse(in.worldPos, N);
         ` : ''}
-
+${aerialLine(config, 'finalColor')}
         return vec4<f32>(finalColor, baseColor.a);
     }
     `;
     },
 
-    emissive: () => `
+    emissive: (config) => `
     @fragment
     fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let instanceColor = vec4<f32>(in.ecsColor, 1.0);
@@ -326,12 +346,13 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         // GPU-side pulse animation — pulseAmount of 0 disables it entirely
         let pulse = 1.0 + material.pulseAmount * sin(camera.simTime * material.pulseSpeed);
 
-        let finalColor = baseColor.rgb + emissive * material.emissiveIntensity * pulse;
+        var finalColor = baseColor.rgb + emissive * material.emissiveIntensity * pulse;
+${aerialLine(config, 'finalColor')}
         return vec4<f32>(finalColor, baseColor.a);
     }
     `,
 
-    matcap: () => `
+    matcap: (config) => `
     @fragment
     fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let instanceColor = vec4<f32>(in.ecsColor, 1.0);
@@ -346,7 +367,7 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         if (material.hasAlbedoTexture > 0.5) {
             color = textureSample(texAlbedo, samp, in.uv) * color;
         }
-
+${aerialLine(config, 'color', 'vec4')}
         return color;
     }
     `,
@@ -444,7 +465,7 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         let rimLight = calcRimLight(N, viewDir, material.rimLightColor, material.rimLightPower);
         finalColor += rimLight;
         `}
-
+${aerialLine(config, 'finalColor')}
         return vec4<f32>(finalColor, baseColor.a);
     }
     `,
@@ -537,8 +558,10 @@ export const MaterialFragments: Record<MaterialKind, (config: ShaderConfig) => s
         let ambient = vec3<f32>(0.3) * albedo * ao;
         `}
         var finalColor = ambient + Lo;
-
-        // Tonemapping
+${aerialLine(config, 'finalColor')}
+        // Tonemapping — NOTE the aerial line above sits BEFORE this deliberately (U7). Aerial
+        // perspective is radiometric and belongs on linear radiance; after the tonemap it fogs an
+        // already-compressed value and desaturates toward grey instead of toward the sky.
         finalColor = finalColor / (finalColor + vec3<f32>(1.0));
         finalColor = pow(finalColor, vec3<f32>(1.0 / 2.2));
         return vec4<f32>(finalColor, material.baseColor.a);
@@ -563,6 +586,16 @@ export interface MaterialFragmentOptions {
      * diffuse half; Basic/Emissive/Matcap are unlit by definition and ignore it.
      */
     indirect?: ShaderIndirectLayout;
+    /**
+     * Aerial-perspective layout from `AerialPerspective.getShaderLayout()` or
+     * `HeightFog.getShaderLayout()` (environment-aerial-design.md §5.3). Every family gets it,
+     * lit or not: aerial perspective is a property of the air between the camera and the surface,
+     * not of how the surface is shaded.
+     *
+     * For TRANSPARENT passes. Opaque geometry is covered once per pixel by the fullscreen apply
+     * pass instead, and carrying both is refused at build time (§5.4).
+     */
+    aerial?: ShaderAerialLayout;
     /** Lambert: wrap light around the terminator. */
     useHalfLambert?: boolean;
     /** Toon: soften the cel ramp edges. */
@@ -584,7 +617,7 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
     bindings: string;
     fragment: string;
 } {
-    const { kind, groupIndex = 1, lighting, indirect } = opts;
+    const { kind, groupIndex = 1, lighting, indirect, aerial } = opts;
     if (!MaterialBindings[kind]) {
         throw new Error(`buildMaterialFragment: unknown material kind "${kind}".`);
     }
@@ -593,6 +626,7 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
         useSkinning: false,
         lighting,
         indirect,
+        aerial,
         useHalfLambert: opts.useHalfLambert,
         useSmoothRamp: opts.useSmoothRamp,
     };
@@ -605,6 +639,8 @@ export function buildMaterialFragment(opts: MaterialFragmentOptions): {
         lighting ? lighting.wgslLogic : '',
         indirect ? indirect.wgslStructs : '',
         indirect ? indirect.wgslLogic : '',
+        aerial ? aerial.wgslStructs : '',
+        aerial ? aerial.wgslLogic : '',
     ].join('\n');
 
     return { bindings, fragment: MaterialFragments[kind](config) };

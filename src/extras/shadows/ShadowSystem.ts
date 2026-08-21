@@ -465,8 +465,9 @@ export class ShadowSystem {
         for (const light of this.lights) {
             // Directional lights: build the cascades and pack them into the view slots.
             if (light.kind === SHADOW_SLOT_KIND_DIRECTIONAL) {
-                const results = buildCascades(this.fitCameraState(camera), this.lightDir,
-                    this.config, this.cascadeResults);
+                const lDir = light.direction ?? this.lightDir;
+                const results = buildCascades(this.fitCameraState(camera), lDir,
+                    this.config);
                 for (let k = 0; k < results.length; k++) {
                     const viewIndex = light.firstView + k;
                     this.viewDataF32!.set(results[k].viewData, viewIndex * 108);

@@ -39,7 +39,16 @@ export class NullGraph {
             desiredFeatures?: GPUFeatureName[],
             powerPreference?: 'low-power' | 'high-performance',
             width?: number,
-            height?: number
+            height?: number,
+            /**
+             * Create the depth texture with `TEXTURE_BINDING` so it can be sampled
+             * (environment-aerial-design.md §9.1). Required by
+             * `AerialPerspective.getApplyPass()` when it uses the engine's own depth buffer;
+             * a scene that renders offscreen with its own depth attachment needs nothing here.
+             * Default `false`, because the flag can cost depth-compression fast paths every
+             * frame whether or not anything samples the texture.
+             */
+            samplableDepth?: boolean
         } = {},
     ): Promise<EngineInitResult> {
         try {

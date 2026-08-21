@@ -27,6 +27,9 @@ export function buildLambertShader(config: ShaderConfig): string {
         ${config.lighting ? config.lighting.wgslStructs : ''}
         ${config.lighting ? config.lighting.wgslLogic : ''}
 
+        ${config.aerial ? config.aerial.wgslStructs : ''}
+        ${config.aerial ? config.aerial.wgslLogic : ''}
+
         ${buildStandardVertexShader(config)}
         ${fragmentShader}
     `;

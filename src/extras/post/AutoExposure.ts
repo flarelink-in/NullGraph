@@ -60,11 +60,11 @@ const ADAPT = `fn effect(uv: vec2f) -> vec4f {
         }
     }
     let avgLum = exp2(avg / 24.0);
-    let target = clamp(params.key / max(avgLum, 1e-5), params.minExposure, params.maxExposure);
+    let targetExp = clamp(params.key / max(avgLum, 1e-5), params.minExposure, params.maxExposure);
     let prev = sampleInput1(vec2f(0.5)).r;
     // Frame 0 reads the pool's zero-clear: jump straight to target.
-    var adapted = mix(target, prev, clamp(params.smoothing, 0.0, 0.999));
-    if (prev <= 0.0) { adapted = target; }
+    var adapted = mix(targetExp, prev, clamp(params.smoothing, 0.0, 0.999));
+    if (prev <= 0.0) { adapted = targetExp; }
     return vec4f(adapted, avgLum, 0.0, 1.0);
 }`;
 

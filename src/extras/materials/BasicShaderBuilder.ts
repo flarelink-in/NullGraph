@@ -22,6 +22,9 @@ export function buildBasicShader(config: ShaderConfig): string {
         ${CommonChunks.QuatMath}
         ${config.useSkinning ? CommonChunks.SkinningBindings : ''}
 
+        ${config.aerial ? config.aerial.wgslStructs : ''}
+        ${config.aerial ? config.aerial.wgslLogic : ''}
+
         ${buildStandardVertexShader(config)}
         ${fragmentShader}
     `;

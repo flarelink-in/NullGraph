@@ -70,6 +70,16 @@ export interface VisibilityMaterial {
      * light. PBR gets the full split-sum; Lambert/Toon get the diffuse half.
      */
     indirect?: { wgslStructs: string; wgslLogic: string };
+    /**
+     * `AerialPerspective.getShaderLayout()` or `HeightFog.getShaderLayout()`
+     * (environment-aerial-design.md §5.3) — fogs the fragment at its own distance, the same
+     * one-liner way `lighting` enables clustered light.
+     *
+     * For TRANSPARENT batches. Opaque geometry is covered once per pixel by the fullscreen apply
+     * pass, and a batch carrying this layout inside a pass that apply covers is refused at build
+     * time by `AerialPerspective.registerBatch` (§5.4).
+     */
+    aerial?: { wgslStructs: string; wgslLogic: string };
     /** Lambert only: wrap light around the terminator. */
     useHalfLambert?: boolean;
     /** Toon only: soften the cel ramp edges. */

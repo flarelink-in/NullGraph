@@ -1,9 +1,7 @@
 node_modules
 package-lock.json
-test
 dist
 .idea
-test
 .env
 venv
 git_commit.sh
