@@ -1,55 +1,825 @@
-var J=Object.defineProperty;var K=(r,e)=>{for(var a in e)J(r,a,{get:e[a],enumerable:!0})};var q=class{device;context;pipeline;entityStorageBuffer;cameraUniformBuffer;bindGroup;STRIDE_FLOATS=14;currentEntityCount=0;async init(e){let a=await navigator.gpu?.requestAdapter();if(!a)throw new Error("WebGPU not supported!");this.device=await a.requestDevice(),this.context=e.getContext("webgpu");let n=navigator.gpu.getPreferredCanvasFormat();this.context.configure({device:this.device,format:n});let i=this.device.createShaderModule({code:`
-                struct CameraUniform {
-                    viewProj: mat4x4<f32>,
-                };
-                @group(0) @binding(0) var<uniform> camera: CameraUniform;
-                @group(0) @binding(1) var<storage, read> ecsData: array<f32>;
+// src/core/BufferManager.ts
+var BufferManager = class {
+  device;
+  constructor(device) {
+    this.device = device;
+  }
+  // Creates a VBO (Vertex Buffer Object)
+  createVertexBuffer(data) {
+    const buffer = this.device.createBuffer({
+      size: data.byteLength,
+      // Align memory to 4 bytes as required by WebGPU
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Float32Array(buffer.getMappedRange()).set(data);
+    buffer.unmap();
+    return buffer;
+  }
+  // Creates an IBO (Index Buffer Object)
+  createIndexBuffer(data) {
+    const buffer = this.device.createBuffer({
+      size: Math.ceil(data.byteLength / 4) * 4,
+      // Ensure 4-byte alignment
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    if (data instanceof Uint16Array) {
+      new Uint16Array(buffer.getMappedRange()).set(data);
+    } else {
+      new Uint32Array(buffer.getMappedRange()).set(data);
+    }
+    buffer.unmap();
+    return buffer;
+  }
+};
 
-                struct VertexOutput {
-                    @builtin(position) position: vec4<f32>,
-                    @location(0) color: vec3<f32>,
-                };
+// src/core/RenderPass.ts
+var RenderPassNode = class {
+  name;
+  isMainScreenPass;
+  batches = [];
+  colorAttachments;
+  depthStencilAttachment;
+  /** Attachment size in pixels — see {@link RenderPassConfig.size}. */
+  size;
+  constructor(config) {
+    this.name = config.name;
+    this.isMainScreenPass = config.isMainScreenPass;
+    this.colorAttachments = config.colorAttachments || [];
+    this.depthStencilAttachment = config.depthStencilAttachment;
+    this.size = config.size;
+  }
+  addBatch(batch) {
+    this.batches.push(batch);
+  }
+  removeBatch(batch) {
+    const index = this.batches.indexOf(batch);
+    if (index !== -1) {
+      this.batches.splice(index, 1);
+    }
+  }
+};
 
-                // Simple Triangle
-                var<private> triVerts: array<vec3<f32>, 3> = array<vec3<f32>, 3>(
-                    vec3<f32>(-0.5, -0.5, 0.0),
-                    vec3<f32>( 0.5, -0.5, 0.0),
-                    vec3<f32>( 0.0,  0.5, 0.0)
-                );
+// src/core/types.ts
+var RenderBatch = class {
+  pipeline;
+  storageBuffer;
+  bindGroup;
+  stride = 0;
+  // Geometry
+  vertexBuffer = null;
+  indexBuffer = null;
+  indexCount = 0;
+  indexFormat = "uint16";
+  // Instancing
+  currentInstanceCount = 0;
+  maxInstanceCount = 0;
+  // Indirect Drawing
+  isIndirect = false;
+  indirectBuffer;
+  sourceStorageBuffer;
+  /**
+   * Per-batch viewport in attachment pixels (shadows-atlas-design.md §12.1). Copied from
+   * `PipelineConfig.viewport` at creation; mutable so a system (the shadow atlas) can retarget
+   * a batch when its tile moves without rebuilding the pipeline.
+   */
+  viewport;
+  // Render-specific Custom Data
+  customBindGroups = {};
+};
+var ComputeStageNode = class {
+  name;
+  computePipeline;
+  customBindGroups = {};
+  preClearBuffers;
+  /**
+   * Set `false` to skip this stage — its `preClearBuffers` **and** its dispatch — for a frame,
+   * without splicing it out of the sequence array. Mutable and checked per frame by
+   * `RenderPipeline`, so a system that owns many stages can gate them cheaply.
+   *
+   * The shadow atlas uses this: a cached tile that is not being re-rendered should not pay for
+   * its caster cull either (shadows-atlas-design.md §8). Defaults to `true`, so every existing
+   * stage runs exactly as before.
+   */
+  enabled = true;
+  _dispatchCount;
+  constructor(config) {
+    this.name = config.name;
+    this._dispatchCount = config.dispatchCount || [1, 1, 1];
+    this.preClearBuffers = config.preClearBuffers || [];
+  }
+  get dispatchCount() {
+    if (typeof this._dispatchCount === "function") {
+      return this._dispatchCount();
+    }
+    return this._dispatchCount;
+  }
+};
 
-                @vertex
-                fn vs_main(@builtin(vertex_index) vIdx: u32, @builtin(instance_index) iIdx: u32) -> VertexOutput {
-                    var out: VertexOutput;
-                    let baseIndex = iIdx * 14u; // Stride
+// src/core/WebGPUContext.ts
+var PROGRESSION_FEATURES = [
+  "subgroups",
+  "shader-f16",
+  "bgra8unorm-storage",
+  "dual-source-blending"
+];
+var WebGPUContext = class {
+  device;
+  context;
+  format;
+  depthTexture;
+  cameraUniformBuffer;
+  /**
+   * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
+   * (environment-aerial-design.md §9.1). Opt in at {@link init} with `{ samplableDepth: true }`.
+   *
+   * Off by default, and the default is the point: adding `TEXTURE_BINDING` can disable some
+   * drivers' depth-compression fast paths for that texture, and it costs that on EVERY frame
+   * whether or not anything samples it. Paying at construction for what you use beats paying
+   * per frame for what you might.
+   *
+   * Three consumers want it, which is why it is one flag and not three: aerial perspective's
+   * apply pass, `HiZPyramid` (which allocates a separate r32float pyramid today precisely
+   * because this is unsampleable), and a depth pre-pass.
+   */
+  depthSamplable = false;
+  /** Negotiated optional-feature snapshot, populated during {@link init}. */
+  capabilities;
+  width = 1;
+  height = 1;
+  /**
+   * Initializes the WebGPU context with fallback-safe feature negotiation.
+   * @param canvas
+   * @param options
+   */
+  async init(canvas, options = {}) {
+    if (!navigator.gpu) {
+      throw new Error("WebGPU is not supported on this browser.");
+    }
+    let adapter = null;
+    const powerPref = options.powerPreference ?? "high-performance";
+    try {
+      adapter = await navigator.gpu.requestAdapter({
+        powerPreference: powerPref
+      });
+      if (!adapter) {
+        console.warn(
+          `NullGraph: No adapter found with powerPreference "${powerPref}". Falling back to default.`
+        );
+        adapter = await navigator.gpu.requestAdapter();
+      }
+    } catch (e) {
+      console.warn(
+        `NullGraph: Adapter request failed with powerPreference. Falling back to default. Error:`,
+        e
+      );
+      adapter = await navigator.gpu.requestAdapter();
+    }
+    if (!adapter) {
+      throw new Error("No appropriate GPU adapter found.");
+    }
+    const info = adapter.info;
+    console.log(
+      `NullGraph: Using GPU \u2014 ${[info.vendor, info.architecture, info.description].filter(Boolean).join(" ") || "unknown adapter"}`
+    );
+    const requested = /* @__PURE__ */ new Set();
+    if (options.desiredFeatures) {
+      for (const feature of options.desiredFeatures) {
+        if (adapter.features.has(feature)) {
+          requested.add(feature);
+        } else {
+          console.warn(
+            `NullGraph: Optional feature "${feature}" is not supported by this device.`
+          );
+        }
+      }
+    }
+    if (options.autoNegotiate ?? true) {
+      for (const feature of PROGRESSION_FEATURES) {
+        if (adapter.features.has(feature)) requested.add(feature);
+      }
+    }
+    this.device = await adapter.requestDevice({
+      requiredFeatures: [...requested]
+    });
+    this.capabilities = buildCapabilities(this.device, info);
+    this.context = canvas.getContext("webgpu");
+    this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.context.configure({
+      device: this.device,
+      format: this.format,
+      alphaMode: "premultiplied"
+    });
+    this.cameraUniformBuffer = this.device.createBuffer({
+      label: "Global Camera Uniform",
+      size: 432,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.width = options.width ?? canvas.width ?? 1;
+    this.height = options.height ?? canvas.height ?? 1;
+    this.depthSamplable = options.samplableDepth ?? false;
+    this.setupDepthTexture(canvas.width, canvas.height);
+  }
+  resize(width, height) {
+    if (this.device) {
+      this.width = width;
+      this.height = height;
+      this.setupDepthTexture(width, height);
+    }
+  }
+  setupDepthTexture(width, height) {
+    if (this.depthTexture) this.depthTexture.destroy();
+    const dWidth = Math.max(1, width);
+    const dHeight = Math.max(1, height);
+    this.depthTexture = this.device.createTexture({
+      size: [dWidth, dHeight],
+      format: "depth24plus",
+      usage: this.depthSamplable ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING : GPUTextureUsage.RENDER_ATTACHMENT
+    });
+  }
+};
+function buildCapabilities(device, info) {
+  const enabled = /* @__PURE__ */ new Set();
+  for (const f of device.features) enabled.add(f);
+  const subgroups = enabled.has("subgroups");
+  return {
+    features: enabled,
+    subgroups,
+    shaderF16: enabled.has("shader-f16"),
+    bgra8unormStorage: enabled.has("bgra8unorm-storage"),
+    dualSourceBlending: enabled.has("dual-source-blending"),
+    // subgroupMinSize/MaxSize live on GPUAdapterInfo and stay optional until every
+    // browser reports them; treat "subgroups off" or "unreported" as 0.
+    subgroupMinSize: subgroups ? info.subgroupMinSize ?? 0 : 0,
+    subgroupMaxSize: subgroups ? info.subgroupMaxSize ?? 0 : 0,
+    has: (feature) => enabled.has(feature)
+  };
+}
 
-                    let posX = ecsData[baseIndex + 1u];
-                    let posY = ecsData[baseIndex + 2u];
-                    let posZ = ecsData[baseIndex + 3u];
-                    
-                    let scaleX = ecsData[baseIndex + 8u];
-                    let scaleY = ecsData[baseIndex + 9u];
-                    let scaleZ = ecsData[baseIndex + 10u];
+// src/core/BatchManager.ts
+var BatchManager = class {
+  constructor(ctx) {
+    this.ctx = ctx;
+  }
+  /**
+   * Creates a pure rendering batch. No hidden compute execution.
+   */
+  createBatch(pass, config) {
+    const batch = new RenderBatch();
+    batch.stride = config.strideFloats;
+    batch.isIndirect = config.isIndirect || false;
+    batch.viewport = config.viewport;
+    if (!pass.isMainScreenPass && !pass.size && pass.batches.length > 0) {
+      const scoped = batch.viewport !== void 0;
+      if (pass.batches.some((b) => b.viewport !== void 0 !== scoped)) {
+        throw new Error(
+          `BatchManager: pass "${pass.name}" mixes viewport-scoped and full-pass batches but has no size, so the full viewport cannot be restored between them (viewport state persists across draws in a pass). Give the pass a size: [width, height], or give every batch in it an explicit viewport.`
+        );
+      }
+    }
+    const shaderModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+    const formats = config.depthOnly ? [] : config.targetFormats || [config.targetFormat || this.ctx.format];
+    const colorTargets = formats.map((fmt) => {
+      const target = { format: fmt };
+      if (config.blend) {
+        target.blend = config.blend;
+      }
+      return target;
+    });
+    const expectsDepth = pass.depthStencilAttachment !== void 0 || pass.isMainScreenPass;
+    batch.pipeline = this.ctx.device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs_main",
+        buffers: config.vertexLayouts || []
+      },
+      ...config.depthOnly ? {} : {
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs_main",
+          targets: colorTargets
+        }
+      },
+      primitive: {
+        topology: config.topology || "triangle-list"
+      },
+      ...expectsDepth ? {
+        depthStencil: {
+          depthWriteEnabled: config.depthWriteEnabled !== void 0 ? config.depthWriteEnabled : true,
+          depthCompare: config.depthCompare || "less",
+          format: "depth24plus"
+        }
+      } : {}
+    });
+    batch.storageBuffer = this.ctx.device.createBuffer({
+      size: config.maxInstances * config.strideFloats * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+    });
+    if (batch.isIndirect) {
+      batch.indirectBuffer = this.ctx.device.createBuffer({
+        size: 5 * 4,
+        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+      batch.sourceStorageBuffer = config.sharedSourceBuffer || this.ctx.device.createBuffer({
+        size: config.maxInstances * config.strideFloats * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+      });
+    }
+    batch.bindGroup = this.ctx.device.createBindGroup({
+      layout: batch.pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: config.cameraBuffer || this.ctx.cameraUniformBuffer } },
+        { binding: 1, resource: { buffer: batch.storageBuffer } }
+      ]
+    });
+    batch.maxInstanceCount = config.maxInstances;
+    if (config.material) {
+      batch.customBindGroups[1] = config.material.applyToBatch(batch);
+    }
+    pass.addBatch(batch);
+    return batch;
+  }
+  /**
+   * NEW: Explicitly create a separate, global compute execution stage.
+   */
+  createComputeStage(config) {
+    const stage = new ComputeStageNode(config);
+    const computeModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+    stage.computePipeline = this.ctx.device.createComputePipeline({
+      layout: "auto",
+      compute: { module: computeModule, entryPoint: "cs_main" }
+    });
+    return stage;
+  }
+  /**
+   * NEW: Attaches a bind group to a standalone compute stage.
+   */
+  setComputePassBindGroup(stage, entries, groupIndex = 0) {
+    stage.customBindGroups[groupIndex] = this.ctx.device.createBindGroup({
+      layout: stage.computePipeline.getBindGroupLayout(groupIndex),
+      entries
+    });
+  }
+  clearBatch(pass, batch) {
+    pass.removeBatch(batch);
+    if (batch.storageBuffer) batch.storageBuffer.destroy();
+    if (batch.indirectBuffer) batch.indirectBuffer.destroy();
+  }
+  setBatchGeometry(batch, vertexBuffer, indexBuffer, indexCount, format = "uint16") {
+    batch.vertexBuffer = vertexBuffer;
+    batch.indexBuffer = indexBuffer;
+    batch.indexCount = indexCount;
+    batch.indexFormat = format;
+  }
+  updateBatchData(batch, rawData, instanceCount) {
+    batch.currentInstanceCount = instanceCount;
+    const targetBuffer = batch.isIndirect && batch.sourceStorageBuffer ? batch.sourceStorageBuffer : batch.storageBuffer;
+    this.ctx.device.queue.writeBuffer(targetBuffer, 0, rawData.buffer, rawData.byteOffset, instanceCount * batch.stride * 4);
+  }
+  createTextureBindGroup(batch, textureView, sampler, extraEntries = [], groupIndex = 1) {
+    const views = Array.isArray(textureView) ? textureView : [textureView];
+    const entries = [{ binding: 0, resource: sampler }];
+    views.forEach((view, i) => {
+      entries.push({ binding: i + 1, resource: view });
+    });
+    if (extraEntries.length > 0) entries.push(...extraEntries);
+    const bindGroup = this.ctx.device.createBindGroup({
+      layout: batch.pipeline.getBindGroupLayout(groupIndex),
+      entries
+    });
+    batch.customBindGroups[groupIndex] = bindGroup;
+    return bindGroup;
+  }
+  setRenderPassBindGroup(batch, entries, groupIndex = 1) {
+    if (batch.pipeline) {
+      batch.customBindGroups[groupIndex] = this.ctx.device.createBindGroup({
+        layout: batch.pipeline.getBindGroupLayout(groupIndex),
+        entries
+      });
+    }
+  }
+  attachMaterial(batch, material, groupIndex = 1) {
+    const bindGroup = material.applyToBatch(batch);
+    batch.customBindGroups[groupIndex] = bindGroup;
+    return bindGroup;
+  }
+};
 
-                    let r = ecsData[baseIndex + 11u];
-                    let g = ecsData[baseIndex + 12u];
-                    let b = ecsData[baseIndex + 13u];
+// src/core/RenderPipeline.ts
+var RenderPipeline = class {
+  constructor(ctx) {
+    this.ctx = ctx;
+  }
+  /**
+   * Executes a clean sequence of compute stages and render passes linearly.
+   */
+  render(pipelineSequence) {
+    if (pipelineSequence.length === 0) return;
+    const commandEncoder = this.ctx.device.createCommandEncoder();
+    let activeComputePass = null;
+    for (const node of pipelineSequence) {
+      if (node instanceof ComputeStageNode) {
+        if (!node.enabled) continue;
+        if (node.preClearBuffers.length > 0) {
+          if (activeComputePass) {
+            activeComputePass.end();
+            activeComputePass = null;
+          }
+          for (const clear of node.preClearBuffers) {
+            this.ctx.device.queue.writeBuffer(
+              clear.buffer,
+              clear.offset,
+              clear.data
+            );
+          }
+        }
+        if (!activeComputePass) {
+          activeComputePass = commandEncoder.beginComputePass();
+        }
+        activeComputePass.setPipeline(node.computePipeline);
+        for (const groupIndexStr in node.customBindGroups) {
+          const index = parseInt(groupIndexStr, 10);
+          activeComputePass.setBindGroup(index, node.customBindGroups[index]);
+        }
+        const counts = node.dispatchCount;
+        activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
+      } else if (node instanceof RenderPassNode) {
+        if (activeComputePass) {
+          activeComputePass.end();
+          activeComputePass = null;
+        }
+        let colorAttachments = node.colorAttachments;
+        let depthStencilAttachment = node.depthStencilAttachment;
+        if (node.isMainScreenPass) {
+          colorAttachments = [{
+            view: this.ctx.context.getCurrentTexture().createView(),
+            clearValue: { r: 0.05, g: 0.05, b: 0.05, a: 1 },
+            loadOp: "clear",
+            storeOp: "store"
+          }];
+          depthStencilAttachment = {
+            view: this.ctx.depthTexture.createView(),
+            depthClearValue: 1,
+            depthLoadOp: "clear",
+            depthStoreOp: "store"
+          };
+        }
+        const passEncoder = commandEncoder.beginRenderPass({
+          colorAttachments,
+          ...depthStencilAttachment ? { depthStencilAttachment } : {}
+        });
+        let narrowed = false;
+        const passSize = node.isMainScreenPass ? [this.ctx.width, this.ctx.height] : node.size ?? [this.ctx.width, this.ctx.height];
+        for (const batch of node.batches) {
+          if (!batch.isIndirect && batch.currentInstanceCount === 0) continue;
+          if (batch.viewport && (batch.viewport[2] <= 0 || batch.viewport[3] <= 0)) continue;
+          passEncoder.setPipeline(batch.pipeline);
+          passEncoder.setBindGroup(0, batch.bindGroup);
+          if (batch.viewport) {
+            const [vx, vy, vw, vh] = batch.viewport;
+            passEncoder.setViewport(vx, vy, vw, vh, 0, 1);
+            passEncoder.setScissorRect(vx, vy, vw, vh);
+            narrowed = true;
+          } else if (narrowed && passSize) {
+            passEncoder.setViewport(0, 0, passSize[0], passSize[1], 0, 1);
+            passEncoder.setScissorRect(0, 0, passSize[0], passSize[1]);
+            narrowed = false;
+          }
+          if (batch.customBindGroups) {
+            for (const groupIndexStr in batch.customBindGroups) {
+              const index = parseInt(groupIndexStr, 10);
+              passEncoder.setBindGroup(index, batch.customBindGroups[index]);
+            }
+          }
+          if (batch.vertexBuffer) passEncoder.setVertexBuffer(0, batch.vertexBuffer);
+          if (batch.indexBuffer) passEncoder.setIndexBuffer(batch.indexBuffer, batch.indexFormat);
+          if (batch.isIndirect && batch.indirectBuffer) {
+            passEncoder.drawIndexedIndirect(batch.indirectBuffer, 0);
+          } else if (batch.vertexBuffer && batch.indexBuffer) {
+            passEncoder.drawIndexed(batch.indexCount, batch.currentInstanceCount, 0, 0, 0);
+          } else {
+            passEncoder.draw(3, batch.currentInstanceCount, 0, 0);
+          }
+        }
+        passEncoder.end();
+      }
+    }
+    if (activeComputePass) {
+      activeComputePass.end();
+    }
+    this.ctx.device.queue.submit([commandEncoder.finish()]);
+  }
+};
 
-                    let vert = triVerts[vIdx];
-                    let worldPos = vec3<f32>(
-                        (vert.x * scaleX) + posX,
-                        (vert.y * scaleY) + posY,
-                        (vert.z * scaleZ) + posZ
-                    );
+// src/core/TextureManager.ts
+var TextureManager = class {
+  device;
+  // Cache to prevent loading the exact same texture into VRAM twice
+  textureCache = /* @__PURE__ */ new Map();
+  samplerCache = /* @__PURE__ */ new Map();
+  solidTextures = /* @__PURE__ */ new Map();
+  // A default sampler we can reuse for most standard 3D models
+  defaultSampler;
+  constructor(device) {
+    this.device = device;
+    this.defaultSampler = this.device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+      addressModeU: "repeat",
+      addressModeV: "repeat"
+    });
+  }
+  /**
+   * Fetches an image, decodes it, uploads it to the GPU, and returns a View.
+   */
+  async load(url, options = {}) {
+    const isSRGB = options.sRGB ?? false;
+    const cacheKey = `${url}_${isSRGB ? "srgb" : "linear"}`;
+    if (this.textureCache.has(cacheKey)) {
+      return this.textureCache.get(cacheKey).createView();
+    }
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      let imageBitmap;
+      try {
+        imageBitmap = await createImageBitmap(blob, {
+          colorSpaceConversion: isSRGB ? "default" : "none"
+        });
+      } catch (decodeError) {
+        imageBitmap = await createImageBitmap(blob);
+      }
+      const format = isSRGB ? "rgba8unorm-srgb" : "rgba8unorm";
+      const texture = this.device.createTexture({
+        size: [imageBitmap.width, imageBitmap.height, 1],
+        format,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+      });
+      this.device.queue.copyExternalImageToTexture(
+        { source: imageBitmap },
+        { texture },
+        [imageBitmap.width, imageBitmap.height]
+      );
+      this.textureCache.set(cacheKey, texture);
+      return texture.createView();
+    } catch (error) {
+      console.warn(`[TextureManager] Failed to load/decode texture. Using fallback. URL: ${url}`, error);
+      return isSRGB ? this.fallbackWhite : this.fallbackWhite;
+    }
+  }
+  /**
+   * Gets a custom sampler, caching it based on its stringified properties.
+   */
+  getSampler(descriptor) {
+    const key = JSON.stringify(descriptor);
+    if (this.samplerCache.has(key)) {
+      return this.samplerCache.get(key);
+    }
+    const sampler = this.device.createSampler(descriptor);
+    this.samplerCache.set(key, sampler);
+    return sampler;
+  }
+  /**
+   * Clears all textures from VRAM. Call this when destroying a scene.
+   */
+  clearCache() {
+    this.textureCache.forEach((texture) => texture.destroy());
+    this.textureCache.clear();
+    this.samplerCache.clear();
+  }
+  /** Generates a 1x1 solid color texture on the GPU */
+  getSolidTexture(r, g, b, a = 255) {
+    const key = `${r}_${g}_${b}_${a}`;
+    if (this.solidTextures.has(key)) return this.solidTextures.get(key);
+    const tex = this.device.createTexture({
+      size: [1, 1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+    this.device.queue.writeTexture(
+      { texture: tex },
+      new Uint8Array([r, g, b, a]),
+      { bytesPerRow: 4 },
+      [1, 1, 1]
+    );
+    const view = tex.createView();
+    this.solidTextures.set(key, view);
+    return view;
+  }
+  get fallbackWhite() {
+    return this.getSolidTexture(255, 255, 255, 255);
+  }
+  get fallbackNormal() {
+    return this.getSolidTexture(128, 128, 255, 255);
+  }
+};
 
-                    // Apply Camera ViewProjection
-                    out.position = camera.viewProj * vec4<f32>(worldPos, 1.0);
-                    out.color = vec3<f32>(r, g, b);
-                    return out;
-                }
+// src/core/NullGraph.ts
+var NullGraph = class {
+  // Public API Contracts
+  device;
+  bufferManager;
+  textureManager;
+  // We expose the raw context as readonly so users can access core buffers
+  // like ctx.cameraUniformBuffer for their custom compute stages.
+  ctx = new WebGPUContext();
+  batchManager;
+  renderPipeline;
+  // Legacy tracking arrays (Optional in DOD, but kept for memory management / fallback)
+  passes = [];
+  batches = [];
+  computeStages = [];
+  canvas;
+  // Engine State
+  isDestroyed = false;
+  async init(canvas, options = {}) {
+    try {
+      this.canvas = canvas;
+      const initInfo = await this.ctx.init(canvas, options);
+      this.device = this.ctx.device;
+      this.bufferManager = new BufferManager(this.device);
+      this.batchManager = new BatchManager(this.ctx);
+      this.renderPipeline = new RenderPipeline(this.ctx);
+      this.textureManager = new TextureManager(this.device);
+      this.isDestroyed = false;
+      return {
+        success: true,
+        enabledFeatures: this.device.features
+      };
+    } catch (e) {
+      console.error("NullGraph Initialization Failed:", e);
+      return {
+        success: false,
+        enabledFeatures: /* @__PURE__ */ new Set(),
+        error: e instanceof Error ? e.message : "Unknown Error"
+      };
+    }
+  }
+  resize(width, height) {
+    this.ctx.resize(width, height);
+  }
+  get width() {
+    return this.ctx.width;
+  }
+  get height() {
+    return this.ctx.height;
+  }
+  /**
+   * The negotiated optional-feature snapshot (subgroups, shader-f16, storage formats,
+   * dual-source blending, subgroup sizes). Valid only after a successful {@link init}.
+   * See {@link GPUCapabilities}.
+   */
+  get capabilities() {
+    return this.ctx.capabilities;
+  }
+  clearPasses() {
+    this.passes = [];
+  }
+  clearBatches() {
+    this.batches = [];
+  }
+  // =========================================================
+  // PIPELINE NODE CREATION
+  // =========================================================
+  createPass(config) {
+    const pass = new RenderPassNode(config);
+    this.passes.push(pass);
+    return pass;
+  }
+  createComputeStage(config) {
+    const stage = this.batchManager.createComputeStage(config);
+    this.computeStages.push(stage);
+    return stage;
+  }
+  createBatch(pass, config) {
+    const batch = this.batchManager.createBatch(pass, config);
+    this.batches.push(batch);
+    return batch;
+  }
+  clearBatch(pass, batch) {
+    if (typeof this.batchManager.clearBatch === "function") {
+      this.batchManager.clearBatch(pass, batch);
+    }
+    const globalIndex = this.batches.indexOf(batch);
+    if (globalIndex !== -1) {
+      this.batches.splice(globalIndex, 1);
+    }
+  }
+  // =========================================================
+  // DATA & RESOURCE BINDING
+  // =========================================================
+  setBatchGeometry(batch, vertexBuffer, indexBuffer, indexCount, format = "uint16") {
+    this.batchManager.setBatchGeometry(batch, vertexBuffer, indexBuffer, indexCount, format);
+  }
+  updateBatchData(batch, rawData, instanceCount) {
+    this.batchManager.updateBatchData(batch, rawData, instanceCount);
+  }
+  createTextureBindGroup(batch, textureView, sampler, extraEntries = [], groupIndex = 1) {
+    return this.batchManager.createTextureBindGroup(batch, textureView, sampler, extraEntries, groupIndex);
+  }
+  /**
+   * Binds custom data exclusively to a RenderBatch's graphics pipeline.
+   */
+  setRenderPassBindGroup(batch, entries, groupIndex = 1) {
+    return this.batchManager.setRenderPassBindGroup(batch, entries, groupIndex);
+  }
+  /**
+   * NEW: Binds custom data exclusively to a standalone ComputeStageNode.
+   */
+  setComputePassBindGroup(stage, entries, groupIndex = 0) {
+    return this.batchManager.setComputePassBindGroup(stage, entries, groupIndex);
+  }
+  updateCamera(camera) {
+    this.device.queue.writeBuffer(
+      this.ctx.cameraUniformBuffer,
+      0,
+      camera.bufferData.buffer,
+      camera.bufferData.byteOffset,
+      camera.bufferData.byteLength
+      // <--- USE THIS INSTEAD OF 20 * 4
+    );
+  }
+  //----------
+  // =========================================================
+  // EXECUTION
+  // =========================================================
+  /**
+   * Executes the WebGPU render loop.
+   * @param pipelineSequence An explicit, linear array of compute and render stages.
+   */
+  render(pipelineSequence) {
+    if (this.isDestroyed) return;
+    const sequenceToRender = pipelineSequence || this.passes;
+    this.renderPipeline.render(sequenceToRender);
+  }
+};
 
-                @fragment
-                fn fs_main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
-                    return vec4<f32>(color, 1.0);
-                }
-            `});this.pipeline=this.device.createRenderPipeline({layout:"auto",vertex:{module:i,entryPoint:"vs_main"},fragment:{module:i,entryPoint:"fs_main",targets:[{format:n}]},primitive:{topology:"triangle-list"}});let v=5e4;this.entityStorageBuffer=this.device.createBuffer({size:v*this.STRIDE_FLOATS*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST}),this.cameraUniformBuffer=this.device.createBuffer({size:64,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}),this.bindGroup=this.device.createBindGroup({layout:this.pipeline.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:this.cameraUniformBuffer}},{binding:1,resource:{buffer:this.entityStorageBuffer}}]})}updateCamera(e){this.device.queue.writeBuffer(this.cameraUniformBuffer,0,e.bufferData.buffer,e.bufferData.byteOffset,64)}updateEntities(e,a){this.currentEntityCount=a,this.device.queue.writeBuffer(this.entityStorageBuffer,0,e.buffer,e.byteOffset,a*this.STRIDE_FLOATS*4)}render(){if(this.currentEntityCount===0)return;let e=this.device.createCommandEncoder(),a=e.beginRenderPass({colorAttachments:[{view:this.context.getCurrentTexture().createView(),clearValue:{r:.05,g:.05,b:.05,a:1},loadOp:"clear",storeOp:"store"}]});a.setPipeline(this.pipeline),a.setBindGroup(0,this.bindGroup),a.draw(3,this.currentEntityCount,0,0),a.end(),this.device.queue.submit([e.finish()])}};var L=1e-6,Y=typeof Float32Array<"u"?Float32Array:Array;var k1=Math.PI/180,Q1=180/Math.PI;var U={};K(U,{add:()=>B1,adjoint:()=>i1,clone:()=>o,copy:()=>u,create:()=>_,decompose:()=>z1,determinant:()=>v1,equals:()=>F1,exactEquals:()=>C1,frob:()=>Y1,fromQuat:()=>S1,fromQuat2:()=>b1,fromRotation:()=>m1,fromRotationTranslation:()=>X,fromRotationTranslationScale:()=>I1,fromRotationTranslationScaleOrigin:()=>w1,fromScaling:()=>l1,fromTranslation:()=>M1,fromValues:()=>r1,fromXRotation:()=>d1,fromYRotation:()=>y1,fromZRotation:()=>g1,frustum:()=>E1,getRotation:()=>t1,getScaling:()=>k,getTranslation:()=>P1,identity:()=>j,invert:()=>n1,lookAt:()=>L1,mul:()=>V1,multiply:()=>Z,multiplyScalar:()=>G1,multiplyScalarAndAdd:()=>q1,ortho:()=>T1,orthoNO:()=>H,orthoZO:()=>D1,perspective:()=>O1,perspectiveFromFieldOfView:()=>R1,perspectiveNO:()=>Q,perspectiveZO:()=>A1,rotate:()=>x1,rotateX:()=>f1,rotateY:()=>h1,rotateZ:()=>p1,scale:()=>c1,set:()=>e1,str:()=>U1,sub:()=>j1,subtract:()=>W,targetTo:()=>N1,translate:()=>s1,transpose:()=>a1});function _(){var r=new Y(16);return Y!=Float32Array&&(r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[11]=0,r[12]=0,r[13]=0,r[14]=0),r[0]=1,r[5]=1,r[10]=1,r[15]=1,r}function o(r){var e=new Y(16);return e[0]=r[0],e[1]=r[1],e[2]=r[2],e[3]=r[3],e[4]=r[4],e[5]=r[5],e[6]=r[6],e[7]=r[7],e[8]=r[8],e[9]=r[9],e[10]=r[10],e[11]=r[11],e[12]=r[12],e[13]=r[13],e[14]=r[14],e[15]=r[15],e}function u(r,e){return r[0]=e[0],r[1]=e[1],r[2]=e[2],r[3]=e[3],r[4]=e[4],r[5]=e[5],r[6]=e[6],r[7]=e[7],r[8]=e[8],r[9]=e[9],r[10]=e[10],r[11]=e[11],r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15],r}function r1(r,e,a,n,i,v,s,c,f,x,h,M,m,l,d,y){var p=new Y(16);return p[0]=r,p[1]=e,p[2]=a,p[3]=n,p[4]=i,p[5]=v,p[6]=s,p[7]=c,p[8]=f,p[9]=x,p[10]=h,p[11]=M,p[12]=m,p[13]=l,p[14]=d,p[15]=y,p}function e1(r,e,a,n,i,v,s,c,f,x,h,M,m,l,d,y,p){return r[0]=e,r[1]=a,r[2]=n,r[3]=i,r[4]=v,r[5]=s,r[6]=c,r[7]=f,r[8]=x,r[9]=h,r[10]=M,r[11]=m,r[12]=l,r[13]=d,r[14]=y,r[15]=p,r}function j(r){return r[0]=1,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=1,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=1,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function a1(r,e){if(r===e){var a=e[1],n=e[2],i=e[3],v=e[6],s=e[7],c=e[11];r[1]=e[4],r[2]=e[8],r[3]=e[12],r[4]=a,r[6]=e[9],r[7]=e[13],r[8]=n,r[9]=v,r[11]=e[14],r[12]=i,r[13]=s,r[14]=c}else r[0]=e[0],r[1]=e[4],r[2]=e[8],r[3]=e[12],r[4]=e[1],r[5]=e[5],r[6]=e[9],r[7]=e[13],r[8]=e[2],r[9]=e[6],r[10]=e[10],r[11]=e[14],r[12]=e[3],r[13]=e[7],r[14]=e[11],r[15]=e[15];return r}function n1(r,e){var a=e[0],n=e[1],i=e[2],v=e[3],s=e[4],c=e[5],f=e[6],x=e[7],h=e[8],M=e[9],m=e[10],l=e[11],d=e[12],y=e[13],p=e[14],z=e[15],w=a*c-n*s,t=a*f-i*s,g=a*x-v*s,b=n*f-i*c,P=n*x-v*c,O=i*x-v*f,S=h*y-M*d,A=h*p-m*d,I=h*z-l*d,R=M*p-m*y,T=M*z-l*y,D=m*z-l*p,E=w*D-t*T+g*R+b*I-P*A+O*S;return E?(E=1/E,r[0]=(c*D-f*T+x*R)*E,r[1]=(i*T-n*D-v*R)*E,r[2]=(y*O-p*P+z*b)*E,r[3]=(m*P-M*O-l*b)*E,r[4]=(f*I-s*D-x*A)*E,r[5]=(a*D-i*I+v*A)*E,r[6]=(p*g-d*O-z*t)*E,r[7]=(h*O-m*g+l*t)*E,r[8]=(s*T-c*I+x*S)*E,r[9]=(n*I-a*T-v*S)*E,r[10]=(d*P-y*g+z*w)*E,r[11]=(M*g-h*P-l*w)*E,r[12]=(c*A-s*R-f*S)*E,r[13]=(a*R-n*A+i*S)*E,r[14]=(y*t-d*b-p*w)*E,r[15]=(h*b-M*t+m*w)*E,r):null}function i1(r,e){var a=e[0],n=e[1],i=e[2],v=e[3],s=e[4],c=e[5],f=e[6],x=e[7],h=e[8],M=e[9],m=e[10],l=e[11],d=e[12],y=e[13],p=e[14],z=e[15],w=a*c-n*s,t=a*f-i*s,g=a*x-v*s,b=n*f-i*c,P=n*x-v*c,O=i*x-v*f,S=h*y-M*d,A=h*p-m*d,I=h*z-l*d,R=M*p-m*y,T=M*z-l*y,D=m*z-l*p;return r[0]=c*D-f*T+x*R,r[1]=i*T-n*D-v*R,r[2]=y*O-p*P+z*b,r[3]=m*P-M*O-l*b,r[4]=f*I-s*D-x*A,r[5]=a*D-i*I+v*A,r[6]=p*g-d*O-z*t,r[7]=h*O-m*g+l*t,r[8]=s*T-c*I+x*S,r[9]=n*I-a*T-v*S,r[10]=d*P-y*g+z*w,r[11]=M*g-h*P-l*w,r[12]=c*A-s*R-f*S,r[13]=a*R-n*A+i*S,r[14]=y*t-d*b-p*w,r[15]=h*b-M*t+m*w,r}function v1(r){var e=r[0],a=r[1],n=r[2],i=r[3],v=r[4],s=r[5],c=r[6],f=r[7],x=r[8],h=r[9],M=r[10],m=r[11],l=r[12],d=r[13],y=r[14],p=r[15],z=e*s-a*v,w=e*c-n*v,t=a*c-n*s,g=x*d-h*l,b=x*y-M*l,P=h*y-M*d,O=e*P-a*b+n*g,S=v*P-s*b+c*g,A=x*t-h*w+M*z,I=l*t-d*w+y*z;return f*O-i*S+p*A-m*I}function Z(r,e,a){var n=e[0],i=e[1],v=e[2],s=e[3],c=e[4],f=e[5],x=e[6],h=e[7],M=e[8],m=e[9],l=e[10],d=e[11],y=e[12],p=e[13],z=e[14],w=e[15],t=a[0],g=a[1],b=a[2],P=a[3];return r[0]=t*n+g*c+b*M+P*y,r[1]=t*i+g*f+b*m+P*p,r[2]=t*v+g*x+b*l+P*z,r[3]=t*s+g*h+b*d+P*w,t=a[4],g=a[5],b=a[6],P=a[7],r[4]=t*n+g*c+b*M+P*y,r[5]=t*i+g*f+b*m+P*p,r[6]=t*v+g*x+b*l+P*z,r[7]=t*s+g*h+b*d+P*w,t=a[8],g=a[9],b=a[10],P=a[11],r[8]=t*n+g*c+b*M+P*y,r[9]=t*i+g*f+b*m+P*p,r[10]=t*v+g*x+b*l+P*z,r[11]=t*s+g*h+b*d+P*w,t=a[12],g=a[13],b=a[14],P=a[15],r[12]=t*n+g*c+b*M+P*y,r[13]=t*i+g*f+b*m+P*p,r[14]=t*v+g*x+b*l+P*z,r[15]=t*s+g*h+b*d+P*w,r}function s1(r,e,a){var n=a[0],i=a[1],v=a[2],s,c,f,x,h,M,m,l,d,y,p,z;return e===r?(r[12]=e[0]*n+e[4]*i+e[8]*v+e[12],r[13]=e[1]*n+e[5]*i+e[9]*v+e[13],r[14]=e[2]*n+e[6]*i+e[10]*v+e[14],r[15]=e[3]*n+e[7]*i+e[11]*v+e[15]):(s=e[0],c=e[1],f=e[2],x=e[3],h=e[4],M=e[5],m=e[6],l=e[7],d=e[8],y=e[9],p=e[10],z=e[11],r[0]=s,r[1]=c,r[2]=f,r[3]=x,r[4]=h,r[5]=M,r[6]=m,r[7]=l,r[8]=d,r[9]=y,r[10]=p,r[11]=z,r[12]=s*n+h*i+d*v+e[12],r[13]=c*n+M*i+y*v+e[13],r[14]=f*n+m*i+p*v+e[14],r[15]=x*n+l*i+z*v+e[15]),r}function c1(r,e,a){var n=a[0],i=a[1],v=a[2];return r[0]=e[0]*n,r[1]=e[1]*n,r[2]=e[2]*n,r[3]=e[3]*n,r[4]=e[4]*i,r[5]=e[5]*i,r[6]=e[6]*i,r[7]=e[7]*i,r[8]=e[8]*v,r[9]=e[9]*v,r[10]=e[10]*v,r[11]=e[11]*v,r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15],r}function x1(r,e,a,n){var i=n[0],v=n[1],s=n[2],c=Math.sqrt(i*i+v*v+s*s),f,x,h,M,m,l,d,y,p,z,w,t,g,b,P,O,S,A,I,R,T,D,E,N;return c<L?null:(c=1/c,i*=c,v*=c,s*=c,f=Math.sin(a),x=Math.cos(a),h=1-x,M=e[0],m=e[1],l=e[2],d=e[3],y=e[4],p=e[5],z=e[6],w=e[7],t=e[8],g=e[9],b=e[10],P=e[11],O=i*i*h+x,S=v*i*h+s*f,A=s*i*h-v*f,I=i*v*h-s*f,R=v*v*h+x,T=s*v*h+i*f,D=i*s*h+v*f,E=v*s*h-i*f,N=s*s*h+x,r[0]=M*O+y*S+t*A,r[1]=m*O+p*S+g*A,r[2]=l*O+z*S+b*A,r[3]=d*O+w*S+P*A,r[4]=M*I+y*R+t*T,r[5]=m*I+p*R+g*T,r[6]=l*I+z*R+b*T,r[7]=d*I+w*R+P*T,r[8]=M*D+y*E+t*N,r[9]=m*D+p*E+g*N,r[10]=l*D+z*E+b*N,r[11]=d*D+w*E+P*N,e!==r&&(r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15]),r)}function f1(r,e,a){var n=Math.sin(a),i=Math.cos(a),v=e[4],s=e[5],c=e[6],f=e[7],x=e[8],h=e[9],M=e[10],m=e[11];return e!==r&&(r[0]=e[0],r[1]=e[1],r[2]=e[2],r[3]=e[3],r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15]),r[4]=v*i+x*n,r[5]=s*i+h*n,r[6]=c*i+M*n,r[7]=f*i+m*n,r[8]=x*i-v*n,r[9]=h*i-s*n,r[10]=M*i-c*n,r[11]=m*i-f*n,r}function h1(r,e,a){var n=Math.sin(a),i=Math.cos(a),v=e[0],s=e[1],c=e[2],f=e[3],x=e[8],h=e[9],M=e[10],m=e[11];return e!==r&&(r[4]=e[4],r[5]=e[5],r[6]=e[6],r[7]=e[7],r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15]),r[0]=v*i-x*n,r[1]=s*i-h*n,r[2]=c*i-M*n,r[3]=f*i-m*n,r[8]=v*n+x*i,r[9]=s*n+h*i,r[10]=c*n+M*i,r[11]=f*n+m*i,r}function p1(r,e,a){var n=Math.sin(a),i=Math.cos(a),v=e[0],s=e[1],c=e[2],f=e[3],x=e[4],h=e[5],M=e[6],m=e[7];return e!==r&&(r[8]=e[8],r[9]=e[9],r[10]=e[10],r[11]=e[11],r[12]=e[12],r[13]=e[13],r[14]=e[14],r[15]=e[15]),r[0]=v*i+x*n,r[1]=s*i+h*n,r[2]=c*i+M*n,r[3]=f*i+m*n,r[4]=x*i-v*n,r[5]=h*i-s*n,r[6]=M*i-c*n,r[7]=m*i-f*n,r}function M1(r,e){return r[0]=1,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=1,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=1,r[11]=0,r[12]=e[0],r[13]=e[1],r[14]=e[2],r[15]=1,r}function l1(r,e){return r[0]=e[0],r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=e[1],r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=e[2],r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function m1(r,e,a){var n=a[0],i=a[1],v=a[2],s=Math.sqrt(n*n+i*i+v*v),c,f,x;return s<L?null:(s=1/s,n*=s,i*=s,v*=s,c=Math.sin(e),f=Math.cos(e),x=1-f,r[0]=n*n*x+f,r[1]=i*n*x+v*c,r[2]=v*n*x-i*c,r[3]=0,r[4]=n*i*x-v*c,r[5]=i*i*x+f,r[6]=v*i*x+n*c,r[7]=0,r[8]=n*v*x+i*c,r[9]=i*v*x-n*c,r[10]=v*v*x+f,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r)}function d1(r,e){var a=Math.sin(e),n=Math.cos(e);return r[0]=1,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=n,r[6]=a,r[7]=0,r[8]=0,r[9]=-a,r[10]=n,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function y1(r,e){var a=Math.sin(e),n=Math.cos(e);return r[0]=n,r[1]=0,r[2]=-a,r[3]=0,r[4]=0,r[5]=1,r[6]=0,r[7]=0,r[8]=a,r[9]=0,r[10]=n,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function g1(r,e){var a=Math.sin(e),n=Math.cos(e);return r[0]=n,r[1]=a,r[2]=0,r[3]=0,r[4]=-a,r[5]=n,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=1,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function X(r,e,a){var n=e[0],i=e[1],v=e[2],s=e[3],c=n+n,f=i+i,x=v+v,h=n*c,M=n*f,m=n*x,l=i*f,d=i*x,y=v*x,p=s*c,z=s*f,w=s*x;return r[0]=1-(l+y),r[1]=M+w,r[2]=m-z,r[3]=0,r[4]=M-w,r[5]=1-(h+y),r[6]=d+p,r[7]=0,r[8]=m+z,r[9]=d-p,r[10]=1-(h+l),r[11]=0,r[12]=a[0],r[13]=a[1],r[14]=a[2],r[15]=1,r}function b1(r,e){var a=new Y(3),n=-e[0],i=-e[1],v=-e[2],s=e[3],c=e[4],f=e[5],x=e[6],h=e[7],M=n*n+i*i+v*v+s*s;return M>0?(a[0]=(c*s+h*n+f*v-x*i)*2/M,a[1]=(f*s+h*i+x*n-c*v)*2/M,a[2]=(x*s+h*v+c*i-f*n)*2/M):(a[0]=(c*s+h*n+f*v-x*i)*2,a[1]=(f*s+h*i+x*n-c*v)*2,a[2]=(x*s+h*v+c*i-f*n)*2),X(r,e,a),r}function P1(r,e){return r[0]=e[12],r[1]=e[13],r[2]=e[14],r}function k(r,e){var a=e[0],n=e[1],i=e[2],v=e[4],s=e[5],c=e[6],f=e[8],x=e[9],h=e[10];return r[0]=Math.sqrt(a*a+n*n+i*i),r[1]=Math.sqrt(v*v+s*s+c*c),r[2]=Math.sqrt(f*f+x*x+h*h),r}function t1(r,e){var a=new Y(3);k(a,e);var n=1/a[0],i=1/a[1],v=1/a[2],s=e[0]*n,c=e[1]*i,f=e[2]*v,x=e[4]*n,h=e[5]*i,M=e[6]*v,m=e[8]*n,l=e[9]*i,d=e[10]*v,y=s+h+d,p=0;return y>0?(p=Math.sqrt(y+1)*2,r[3]=.25*p,r[0]=(M-l)/p,r[1]=(m-f)/p,r[2]=(c-x)/p):s>h&&s>d?(p=Math.sqrt(1+s-h-d)*2,r[3]=(M-l)/p,r[0]=.25*p,r[1]=(c+x)/p,r[2]=(m+f)/p):h>d?(p=Math.sqrt(1+h-s-d)*2,r[3]=(m-f)/p,r[0]=(c+x)/p,r[1]=.25*p,r[2]=(M+l)/p):(p=Math.sqrt(1+d-s-h)*2,r[3]=(c-x)/p,r[0]=(m+f)/p,r[1]=(M+l)/p,r[2]=.25*p),r}function z1(r,e,a,n){e[0]=n[12],e[1]=n[13],e[2]=n[14];var i=n[0],v=n[1],s=n[2],c=n[4],f=n[5],x=n[6],h=n[8],M=n[9],m=n[10];a[0]=Math.sqrt(i*i+v*v+s*s),a[1]=Math.sqrt(c*c+f*f+x*x),a[2]=Math.sqrt(h*h+M*M+m*m);var l=1/a[0],d=1/a[1],y=1/a[2],p=i*l,z=v*d,w=s*y,t=c*l,g=f*d,b=x*y,P=h*l,O=M*d,S=m*y,A=p+g+S,I=0;return A>0?(I=Math.sqrt(A+1)*2,r[3]=.25*I,r[0]=(b-O)/I,r[1]=(P-w)/I,r[2]=(z-t)/I):p>g&&p>S?(I=Math.sqrt(1+p-g-S)*2,r[3]=(b-O)/I,r[0]=.25*I,r[1]=(z+t)/I,r[2]=(P+w)/I):g>S?(I=Math.sqrt(1+g-p-S)*2,r[3]=(P-w)/I,r[0]=(z+t)/I,r[1]=.25*I,r[2]=(b+O)/I):(I=Math.sqrt(1+S-p-g)*2,r[3]=(z-t)/I,r[0]=(P+w)/I,r[1]=(b+O)/I,r[2]=.25*I),r}function I1(r,e,a,n){var i=e[0],v=e[1],s=e[2],c=e[3],f=i+i,x=v+v,h=s+s,M=i*f,m=i*x,l=i*h,d=v*x,y=v*h,p=s*h,z=c*f,w=c*x,t=c*h,g=n[0],b=n[1],P=n[2];return r[0]=(1-(d+p))*g,r[1]=(m+t)*g,r[2]=(l-w)*g,r[3]=0,r[4]=(m-t)*b,r[5]=(1-(M+p))*b,r[6]=(y+z)*b,r[7]=0,r[8]=(l+w)*P,r[9]=(y-z)*P,r[10]=(1-(M+d))*P,r[11]=0,r[12]=a[0],r[13]=a[1],r[14]=a[2],r[15]=1,r}function w1(r,e,a,n,i){var v=e[0],s=e[1],c=e[2],f=e[3],x=v+v,h=s+s,M=c+c,m=v*x,l=v*h,d=v*M,y=s*h,p=s*M,z=c*M,w=f*x,t=f*h,g=f*M,b=n[0],P=n[1],O=n[2],S=i[0],A=i[1],I=i[2],R=(1-(y+z))*b,T=(l+g)*b,D=(d-t)*b,E=(l-g)*P,N=(1-(m+z))*P,B=(p+w)*P,G=(d+t)*O,F=(p-w)*O,V=(1-(m+y))*O;return r[0]=R,r[1]=T,r[2]=D,r[3]=0,r[4]=E,r[5]=N,r[6]=B,r[7]=0,r[8]=G,r[9]=F,r[10]=V,r[11]=0,r[12]=a[0]+S-(R*S+E*A+G*I),r[13]=a[1]+A-(T*S+N*A+F*I),r[14]=a[2]+I-(D*S+B*A+V*I),r[15]=1,r}function S1(r,e){var a=e[0],n=e[1],i=e[2],v=e[3],s=a+a,c=n+n,f=i+i,x=a*s,h=n*s,M=n*c,m=i*s,l=i*c,d=i*f,y=v*s,p=v*c,z=v*f;return r[0]=1-M-d,r[1]=h+z,r[2]=m-p,r[3]=0,r[4]=h-z,r[5]=1-x-d,r[6]=l+y,r[7]=0,r[8]=m+p,r[9]=l-y,r[10]=1-x-M,r[11]=0,r[12]=0,r[13]=0,r[14]=0,r[15]=1,r}function E1(r,e,a,n,i,v,s){var c=1/(a-e),f=1/(i-n),x=1/(v-s);return r[0]=v*2*c,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=v*2*f,r[6]=0,r[7]=0,r[8]=(a+e)*c,r[9]=(i+n)*f,r[10]=(s+v)*x,r[11]=-1,r[12]=0,r[13]=0,r[14]=s*v*2*x,r[15]=0,r}function Q(r,e,a,n,i){var v=1/Math.tan(e/2);if(r[0]=v/a,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=v,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[11]=-1,r[12]=0,r[13]=0,r[15]=0,i!=null&&i!==1/0){var s=1/(n-i);r[10]=(i+n)*s,r[14]=2*i*n*s}else r[10]=-1,r[14]=-2*n;return r}var O1=Q;function A1(r,e,a,n,i){var v=1/Math.tan(e/2);if(r[0]=v/a,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=v,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[11]=-1,r[12]=0,r[13]=0,r[15]=0,i!=null&&i!==1/0){var s=1/(n-i);r[10]=i*s,r[14]=i*n*s}else r[10]=-1,r[14]=-n;return r}function R1(r,e,a,n){var i=Math.tan(e.upDegrees*Math.PI/180),v=Math.tan(e.downDegrees*Math.PI/180),s=Math.tan(e.leftDegrees*Math.PI/180),c=Math.tan(e.rightDegrees*Math.PI/180),f=2/(s+c),x=2/(i+v);return r[0]=f,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=x,r[6]=0,r[7]=0,r[8]=-((s-c)*f*.5),r[9]=(i-v)*x*.5,r[10]=n/(a-n),r[11]=-1,r[12]=0,r[13]=0,r[14]=n*a/(a-n),r[15]=0,r}function H(r,e,a,n,i,v,s){var c=1/(e-a),f=1/(n-i),x=1/(v-s);return r[0]=-2*c,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=-2*f,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=2*x,r[11]=0,r[12]=(e+a)*c,r[13]=(i+n)*f,r[14]=(s+v)*x,r[15]=1,r}var T1=H;function D1(r,e,a,n,i,v,s){var c=1/(e-a),f=1/(n-i),x=1/(v-s);return r[0]=-2*c,r[1]=0,r[2]=0,r[3]=0,r[4]=0,r[5]=-2*f,r[6]=0,r[7]=0,r[8]=0,r[9]=0,r[10]=x,r[11]=0,r[12]=(e+a)*c,r[13]=(i+n)*f,r[14]=v*x,r[15]=1,r}function L1(r,e,a,n){var i,v,s,c,f,x,h,M,m,l,d=e[0],y=e[1],p=e[2],z=n[0],w=n[1],t=n[2],g=a[0],b=a[1],P=a[2];return Math.abs(d-g)<L&&Math.abs(y-b)<L&&Math.abs(p-P)<L?j(r):(h=d-g,M=y-b,m=p-P,l=1/Math.sqrt(h*h+M*M+m*m),h*=l,M*=l,m*=l,i=w*m-t*M,v=t*h-z*m,s=z*M-w*h,l=Math.sqrt(i*i+v*v+s*s),l?(l=1/l,i*=l,v*=l,s*=l):(i=0,v=0,s=0),c=M*s-m*v,f=m*i-h*s,x=h*v-M*i,l=Math.sqrt(c*c+f*f+x*x),l?(l=1/l,c*=l,f*=l,x*=l):(c=0,f=0,x=0),r[0]=i,r[1]=c,r[2]=h,r[3]=0,r[4]=v,r[5]=f,r[6]=M,r[7]=0,r[8]=s,r[9]=x,r[10]=m,r[11]=0,r[12]=-(i*d+v*y+s*p),r[13]=-(c*d+f*y+x*p),r[14]=-(h*d+M*y+m*p),r[15]=1,r)}function N1(r,e,a,n){var i=e[0],v=e[1],s=e[2],c=n[0],f=n[1],x=n[2],h=i-a[0],M=v-a[1],m=s-a[2],l=h*h+M*M+m*m;l>0&&(l=1/Math.sqrt(l),h*=l,M*=l,m*=l);var d=f*m-x*M,y=x*h-c*m,p=c*M-f*h;return l=d*d+y*y+p*p,l>0&&(l=1/Math.sqrt(l),d*=l,y*=l,p*=l),r[0]=d,r[1]=y,r[2]=p,r[3]=0,r[4]=M*p-m*y,r[5]=m*d-h*p,r[6]=h*y-M*d,r[7]=0,r[8]=h,r[9]=M,r[10]=m,r[11]=0,r[12]=i,r[13]=v,r[14]=s,r[15]=1,r}function U1(r){return"mat4("+r[0]+", "+r[1]+", "+r[2]+", "+r[3]+", "+r[4]+", "+r[5]+", "+r[6]+", "+r[7]+", "+r[8]+", "+r[9]+", "+r[10]+", "+r[11]+", "+r[12]+", "+r[13]+", "+r[14]+", "+r[15]+")"}function Y1(r){return Math.sqrt(r[0]*r[0]+r[1]*r[1]+r[2]*r[2]+r[3]*r[3]+r[4]*r[4]+r[5]*r[5]+r[6]*r[6]+r[7]*r[7]+r[8]*r[8]+r[9]*r[9]+r[10]*r[10]+r[11]*r[11]+r[12]*r[12]+r[13]*r[13]+r[14]*r[14]+r[15]*r[15])}function B1(r,e,a){return r[0]=e[0]+a[0],r[1]=e[1]+a[1],r[2]=e[2]+a[2],r[3]=e[3]+a[3],r[4]=e[4]+a[4],r[5]=e[5]+a[5],r[6]=e[6]+a[6],r[7]=e[7]+a[7],r[8]=e[8]+a[8],r[9]=e[9]+a[9],r[10]=e[10]+a[10],r[11]=e[11]+a[11],r[12]=e[12]+a[12],r[13]=e[13]+a[13],r[14]=e[14]+a[14],r[15]=e[15]+a[15],r}function W(r,e,a){return r[0]=e[0]-a[0],r[1]=e[1]-a[1],r[2]=e[2]-a[2],r[3]=e[3]-a[3],r[4]=e[4]-a[4],r[5]=e[5]-a[5],r[6]=e[6]-a[6],r[7]=e[7]-a[7],r[8]=e[8]-a[8],r[9]=e[9]-a[9],r[10]=e[10]-a[10],r[11]=e[11]-a[11],r[12]=e[12]-a[12],r[13]=e[13]-a[13],r[14]=e[14]-a[14],r[15]=e[15]-a[15],r}function G1(r,e,a){return r[0]=e[0]*a,r[1]=e[1]*a,r[2]=e[2]*a,r[3]=e[3]*a,r[4]=e[4]*a,r[5]=e[5]*a,r[6]=e[6]*a,r[7]=e[7]*a,r[8]=e[8]*a,r[9]=e[9]*a,r[10]=e[10]*a,r[11]=e[11]*a,r[12]=e[12]*a,r[13]=e[13]*a,r[14]=e[14]*a,r[15]=e[15]*a,r}function q1(r,e,a,n){return r[0]=e[0]+a[0]*n,r[1]=e[1]+a[1]*n,r[2]=e[2]+a[2]*n,r[3]=e[3]+a[3]*n,r[4]=e[4]+a[4]*n,r[5]=e[5]+a[5]*n,r[6]=e[6]+a[6]*n,r[7]=e[7]+a[7]*n,r[8]=e[8]+a[8]*n,r[9]=e[9]+a[9]*n,r[10]=e[10]+a[10]*n,r[11]=e[11]+a[11]*n,r[12]=e[12]+a[12]*n,r[13]=e[13]+a[13]*n,r[14]=e[14]+a[14]*n,r[15]=e[15]+a[15]*n,r}function C1(r,e){return r[0]===e[0]&&r[1]===e[1]&&r[2]===e[2]&&r[3]===e[3]&&r[4]===e[4]&&r[5]===e[5]&&r[6]===e[6]&&r[7]===e[7]&&r[8]===e[8]&&r[9]===e[9]&&r[10]===e[10]&&r[11]===e[11]&&r[12]===e[12]&&r[13]===e[13]&&r[14]===e[14]&&r[15]===e[15]}function F1(r,e){var a=r[0],n=r[1],i=r[2],v=r[3],s=r[4],c=r[5],f=r[6],x=r[7],h=r[8],M=r[9],m=r[10],l=r[11],d=r[12],y=r[13],p=r[14],z=r[15],w=e[0],t=e[1],g=e[2],b=e[3],P=e[4],O=e[5],S=e[6],A=e[7],I=e[8],R=e[9],T=e[10],D=e[11],E=e[12],N=e[13],B=e[14],G=e[15];return Math.abs(a-w)<=L*Math.max(1,Math.abs(a),Math.abs(w))&&Math.abs(n-t)<=L*Math.max(1,Math.abs(n),Math.abs(t))&&Math.abs(i-g)<=L*Math.max(1,Math.abs(i),Math.abs(g))&&Math.abs(v-b)<=L*Math.max(1,Math.abs(v),Math.abs(b))&&Math.abs(s-P)<=L*Math.max(1,Math.abs(s),Math.abs(P))&&Math.abs(c-O)<=L*Math.max(1,Math.abs(c),Math.abs(O))&&Math.abs(f-S)<=L*Math.max(1,Math.abs(f),Math.abs(S))&&Math.abs(x-A)<=L*Math.max(1,Math.abs(x),Math.abs(A))&&Math.abs(h-I)<=L*Math.max(1,Math.abs(h),Math.abs(I))&&Math.abs(M-R)<=L*Math.max(1,Math.abs(M),Math.abs(R))&&Math.abs(m-T)<=L*Math.max(1,Math.abs(m),Math.abs(T))&&Math.abs(l-D)<=L*Math.max(1,Math.abs(l),Math.abs(D))&&Math.abs(d-E)<=L*Math.max(1,Math.abs(d),Math.abs(E))&&Math.abs(y-N)<=L*Math.max(1,Math.abs(y),Math.abs(N))&&Math.abs(p-B)<=L*Math.max(1,Math.abs(p),Math.abs(B))&&Math.abs(z-G)<=L*Math.max(1,Math.abs(z),Math.abs(G))}var V1=Z,j1=W;var C=class{projectionMatrix=U.create();viewMatrix=U.create();viewProjectionMatrix=U.create();bufferData=new Float32Array(16);constructor(e,a,n,i){let v=e*Math.PI/180;U.perspective(this.projectionMatrix,v,a,n,i)}updateView(e,a,n=[0,1,0]){U.lookAt(this.viewMatrix,e,a,n),U.multiply(this.viewProjectionMatrix,this.projectionMatrix,this.viewMatrix),this.bufferData.set(this.viewProjectionMatrix)}};export{C as Camera,q as NullGraph};
+// src/core/Camera.ts
+import { mat4 } from "gl-matrix";
+var Camera = class {
+  // Core Matrices
+  viewProjectionMatrix = mat4.create();
+  viewMatrix = mat4.create();
+  projectionMatrix = mat4.create();
+  // Inverse Matrices (The Future-Proofing)
+  inverseViewProjectionMatrix = mat4.create();
+  inverseViewMatrix = mat4.create();
+  inverseProjectionMatrix = mat4.create();
+  // The single, contiguous memory block (108 floats = 432 bytes)
+  bufferData = new Float32Array(108);
+  fovDegrees;
+  near;
+  far;
+  currentAspect;
+  constructor(fovDegrees, aspect, near, far) {
+    this.fovDegrees = fovDegrees;
+    this.near = near;
+    this.far = far;
+    this.currentAspect = aspect;
+    this.updateProjection(aspect);
+  }
+  /*
+  to update time in the padding slot directly call this,it sets in camera buffer
+   */
+  updateTime(simTime) {
+    this.bufferData[99] = simTime;
+  }
+  updateProjection(aspect) {
+    this.currentAspect = aspect;
+    const fovRads = this.fovDegrees * Math.PI / 180;
+    mat4.perspectiveZO(this.projectionMatrix, fovRads, aspect, this.near, this.far);
+    mat4.invert(this.inverseProjectionMatrix, this.projectionMatrix);
+    mat4.multiply(this.viewProjectionMatrix, this.projectionMatrix, this.viewMatrix);
+    mat4.invert(this.inverseViewProjectionMatrix, this.viewProjectionMatrix);
+    this.bufferData.set(this.viewProjectionMatrix, 0);
+    this.bufferData.set(this.projectionMatrix, 32);
+    this.bufferData.set(this.inverseViewProjectionMatrix, 48);
+    this.bufferData.set(this.inverseProjectionMatrix, 80);
+    this.bufferData[100] = this.near;
+    this.bufferData[101] = this.far;
+    this.bufferData[102] = fovRads;
+    this.bufferData[103] = aspect;
+  }
+  updateView(eye, target, up = [0, 1, 0]) {
+    mat4.lookAt(this.viewMatrix, eye, target, up);
+    mat4.invert(this.inverseViewMatrix, this.viewMatrix);
+    mat4.multiply(this.viewProjectionMatrix, this.projectionMatrix, this.viewMatrix);
+    mat4.invert(this.inverseViewProjectionMatrix, this.viewProjectionMatrix);
+    this.bufferData.set(this.viewProjectionMatrix, 0);
+    this.bufferData.set(this.viewMatrix, 16);
+    this.bufferData.set(this.inverseViewProjectionMatrix, 48);
+    this.bufferData.set(this.inverseViewMatrix, 64);
+    this.bufferData.set(eye, 96);
+  }
+};
+export {
+  Camera,
+  ComputeStageNode,
+  NullGraph,
+  RenderBatch,
+  RenderPassNode
+};
 //# sourceMappingURL=index.js.map
