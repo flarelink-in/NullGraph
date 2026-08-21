@@ -23,7 +23,11 @@ import {
     buildSourceCubeWGSL, buildCubeMipWGSL, buildPrefilterWGSL, buildBRDFLUTWGSL,
     buildSHProjectWGSL, buildIndirectStructsWGSL, buildIndirectLogicWGSL, buildSkyWGSL,
 } from './envShaders';
-import type { EnvironmentConfig, ProceduralSkyConfig, SkyParams } from './types';
+import { SKY_PARAM_FLOATS } from './skyMath';
+import { GradientSky, EquirectSky } from './SkySource';
+import type {
+    EnvironmentConfig, ProceduralSkyConfig, SkyParams, SkySource, ShaderSkyLayout,
+} from './types';
 
 /** The `{ wgslStructs, wgslLogic }` pair materials compose — the sibling of ShaderLightingLayout. */
 export interface ShaderIndirectLayout {
@@ -37,12 +41,6 @@ export interface ShaderIndirectLayout {
  * coexist without one overwriting the other.
  */
 const SH_PACKED_FLOATS = 36;
-
-/** Floats in the procedural-sky uniform. vec3 aligns to 16 in WGSL, so this is 16, not 13. */
-const SKY_UNIFORM_FLOATS = 16;
-
-/** Floats the sky batch's storage buffer carries: [exposure, yaw, blurMip, _] (§8.2). */
-const SKY_PARAM_FLOATS = 4;
 
 export class EnvironmentSystem {
     private readonly engine: NullGraph;
@@ -59,7 +57,20 @@ export class EnvironmentSystem {
     private envSampler!: GPUSampler;
     private envParamsBuffer!: GPUBuffer;
     private shBuffer!: GPUBuffer;                     // 27 f32, written by the SH projection
-    private skyUniform: GPUBuffer | null = null;      // procedural sky only
+    /**
+     * The Stage-A params buffer: the same `[header + source params]` layout as the sky batch's
+     * storage buffer, so the injected evaluator reads identical indices in BOTH consumers
+     * (environment-sky-design.md §6.1–6.2). Rebuilt by setSky when the source's size changes.
+     */
+    private bakeParamsBuffer: GPUBuffer | null = null;
+    /** Lifetime owner of the equirect texture `setEquirect` loads (its view rides in the source). */
+    private equirectTexture: GPUTexture | null = null;
+
+    // --- the sky source (environment-sky-design.md §4) ---
+    private skySource: SkySource | null = null;
+    private skyLayout: ShaderSkyLayout | null = null;       // skybox site
+    private skyBakeLayout: ShaderSkyLayout | null = null;   // bake site (== skyLayout unless overridden)
+    private skyStrideFloats: number = SKY_PARAM_FLOATS;
 
     // --- bake stages ---
     private bakeStages: ComputeStageNode[] = [];
@@ -69,15 +80,18 @@ export class EnvironmentSystem {
     private baked: boolean = false;
     private frame: number = 0;
     private amortizeCursor: number = 0;
+    /** Remaining mixed-age prefilter slices after declared invalidation (Phase 2 time of day §6). */
+    private invalidatedSlices: number = 0;
 
     // --- sky pass ---
     private skyPass: RenderPassNode | null = null;
     private skyBatch: RenderBatch | null = null;
+    private skyPassTargetFormat: GPUTextureFormat = 'rgba16float';
 
     // --- per-frame staging (persistent — the frame path allocates nothing) ---
     private readonly envParamsF32 = new Float32Array(ENV_PARAMS_FLOATS);
-    private readonly skyParamsF32 = new Float32Array(SKY_PARAM_FLOATS);
-    private readonly skyUniformF32 = new Float32Array(SKY_UNIFORM_FLOATS);
+    /** Widened by setSky to SKY_PARAM_FLOATS + source.paramFloats. */
+    private skyParamsF32: Float32Array = new Float32Array(SKY_PARAM_FLOATS);
     /** SH coefficients as the CPU last knew them. The GPU owns the authoritative copy. */
     private readonly shCoeffs = new Float32Array(27);
 
@@ -178,43 +192,106 @@ export class EnvironmentSystem {
     }
 
     // ---------------------------------------------------------------------------
-    // Sources (§6.1)
+    // Sources (environment-sky-design.md §4, §7)
     // ---------------------------------------------------------------------------
 
     /**
+     * The current sky source — the object, not a method call (design §7). Typed per source, so
+     * `env.sky.setSunDirection(dir)` needs no cast on the sun-bearing ones.
+     */
+    public get sky(): SkySource {
+        if (!this.skySource) {
+            throw new Error(
+                `EnvironmentSystem: sky accessed before a source was set; call setSky() first.`);
+        }
+        return this.skySource;
+    }
+
+    /**
+     * Install a sky source. A source is data, not a code path (design principle 2): this method
+     * never branches on the source's type — it injects the source's layout into the bake kernel
+     * and the skybox, sizes the params buffers by demand, and rebuilds the bake chain.
+     *
+     * All failures are build-time and name the offender (§9): a source whose logic lacks
+     * `sampleSky`, a backtick in generated WGSL, a cube-backed source on a system that releases
+     * the cube, or a source swap after the skybox pipeline was compiled.
+     */
+    public setSky(source: SkySource): void {
+        if (this.skyBatch) {
+            throw new Error(
+                `EnvironmentSystem: setSky(${source.name}) must be called before the first ` +
+                `getSkyPass(); the compiled skybox pipeline has the previous source layout.`);
+        }
+
+        const base = SKY_PARAM_FLOATS;
+        const layout = source.getShaderLayout(base);
+        const bakeLayout = source.getBakeShaderLayout?.(base) ?? layout;
+        for (const [which, l] of [['skybox', layout], ['bake', bakeLayout]] as const) {
+            if (!l.wgslLogic.includes('fn sampleSky(')) {
+                throw new Error(
+                    `SkySource "${source.name}" does not define sampleSky(dir: vec3<f32>) -> ` +
+                    `vec3<f32> (its ${which} wgslLogic lacks it).`);
+            }
+            if (l.wgslLogic.includes('`') || l.wgslStructs.includes('`')) {
+                throw new Error(
+                    `SkySource "${source.name}" emitted a backtick, which terminates the template ` +
+                    `literal carrying it. Use single quotes in WGSL comments.`);
+            }
+        }
+        // A cube-backed skybox reads the source cube after the bake; if this system releases it,
+        // the background is black — fail loud, naming the flag, instead (§5.2, §9).
+        if (source.needsSourceCube && !this.cfg.keepSourceCube) {
+            throw new Error(
+                `EnvironmentSystem: ${source.name} samples the source cube, but keepSourceCube ` +
+                `is false — the cube is released after the bake. Construct with { keepSourceCube: true }.`);
+        }
+
+        this.skySource = source;
+        this.skyLayout = layout;
+        this.skyBakeLayout = bakeLayout;
+
+        // Size the shared params staging + the Stage-A buffer by demand, not by a cap (§4.5).
+        const stride = SKY_PARAM_FLOATS + source.paramFloats;
+        this.skyStrideFloats = stride;
+        this.skyParamsF32 = new Float32Array(stride);
+        this.skyParamsF32[0] = 1.0;                    // exposure
+        this.skyParamsF32[1] = this.yaw;               // yaw
+        this.skyParamsF32[2] = 0.0;                    // blurMip (cheapSky mode only)
+        // cheapSky 0 — the skybox EVALUATES sampleSky per pixel. This is the phase's deliverable
+        // (§1): the visible sky is no longer capped at the prefiltered cube's 0.70°/texel, so a
+        // true 0.266° sun disc is representable. `setSkyParams({ cheapSky: 1 })` restores the
+        // pre-Phase-1 cube lookup, which is what `blurMip` blurs and the right answer for a
+        // deliberately soft backdrop.
+        this.skyParamsF32[3] = 0.0;
+        source.writeParams(this.skyParamsF32, base);
+
+        if (this.bakeParamsBuffer) this.bakeParamsBuffer.destroy();
+        this.bakeParamsBuffer = this.device.createBuffer({
+            label: 'NullGraph_EnvSkyBakeParams',
+            size: stride * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(this.bakeParamsBuffer, 0,
+            this.skyParamsF32 as Float32Array<ArrayBuffer>);
+
+        this.buildBakeChain();
+        this.sourceSet = true;
+    }
+
+    /**
      * Analytic gradient sky + sun disc. The zero-asset path: the whole bake chain is exercisable
-     * without finding an HDR file, which is what keeps IBL from being blocked on asset sourcing.
+     * without finding an HDR file. Forwards to `setSky(new GradientSky(cfg))` — the convenience
+     * layer, not the mechanism (design §7).
      */
     public setProceduralSky(sky: ProceduralSkyConfig): void {
-        const u = this.skyUniformF32;
-        const d = sky.sunDir;
-        const l = Math.hypot(d[0], d[1], d[2]) || 1;
-        // WGSL uniform layout: each vec3 aligns to 16 bytes, so the scalars ride in the gaps.
-        u[0] = sky.zenith[0];  u[1] = sky.zenith[1];  u[2] = sky.zenith[2];
-        u[3] = sky.sunCos ?? 0.9995;
-        u[4] = sky.horizon[0]; u[5] = sky.horizon[1]; u[6] = sky.horizon[2];
-        u[7] = sky.sunIntensity;
-        u[8] = sky.ground[0];  u[9] = sky.ground[1];  u[10] = sky.ground[2];
-        u[11] = 0;
-        u[12] = d[0] / l; u[13] = d[1] / l; u[14] = d[2] / l;
-        u[15] = 0;
-
-        if (!this.skyUniform) {
-            this.skyUniform = this.device.createBuffer({
-                label: 'NullGraph_EnvProceduralSky',
-                size: SKY_UNIFORM_FLOATS * 4,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-        }
-        this.device.queue.writeBuffer(this.skyUniform, 0, u as Float32Array<ArrayBuffer>);
-        this.buildBakeChain({ procedural: true });
-        this.sourceSet = true;
+        this.setSky(new GradientSky(sky));
     }
 
     /**
      * Load an equirectangular HDR/LDR image and convert it to the source cube. Rejects loudly on
      * failure — silently falling back would ship a black environment attributed to the wrong
-     * subsystem (§11).
+     * subsystem (§11). Forwards to `setSky(new EquirectSky(...))`; an equirect sky needs
+     * `keepSourceCube: true` — its skybox samples the source cube (§5.2).
      */
     public async setEquirect(url: string, options: { sRGB?: boolean } = {}): Promise<void> {
         let bitmap: ImageBitmap;
@@ -235,34 +312,39 @@ export class EnvironmentSystem {
         });
         this.device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: tex },
             [bitmap.width, bitmap.height]);
-        this.buildBakeChain({ procedural: false, equirect: tex.createView() });
-        this.sourceSet = true;
+        this.equirectTexture?.destroy();
+        this.equirectTexture = tex;
+        this.setSky(new EquirectSky({ equirect: tex.createView() }));
     }
 
     // ---------------------------------------------------------------------------
     // The bake chain (§6)
     // ---------------------------------------------------------------------------
 
-    private buildBakeChain(src: { procedural: boolean; equirect?: GPUTextureView }): void {
+    private buildBakeChain(): void {
         const size = this.cfg.sourceSize;
         const sourceMips = Math.log2(size) + 1;
         const stages: ComputeStageNode[] = [];
 
-        // --- Stage A: source cube mip 0 ---
+        // --- Stage A: source cube mip 0, from the source's injected evaluator (§6.1) ---
         const stageA = this.engine.createComputeStage({
             name: 'Env: source cube',
-            shaderCode: buildSourceCubeWGSL({ procedural: src.procedural }),
+            shaderCode: buildSourceCubeWGSL(this.skyBakeLayout!),
             dispatchCount: [Math.ceil(size / 8), Math.ceil(size / 8), 6],
         });
         const dst0 = this.sourceCube.createView({
             dimension: '2d-array', baseMipLevel: 0, mipLevelCount: 1,
         });
-        this.engine.setComputePassBindGroup(stageA, src.procedural
-            ? [{ binding: 0, resource: { buffer: this.skyUniform! } },
-               { binding: 2, resource: dst0 }]
-            : [{ binding: 0, resource: src.equirect! },
-               { binding: 1, resource: this.envSampler },
-               { binding: 2, resource: dst0 }], 0);
+        // layout:'auto' prunes unread bindings: the params buffer is supplied only when the
+        // source reads it (paramFloats > 0 — the documented SkySource contract).
+        const entries: GPUBindGroupEntry[] = [];
+        if (this.skySource!.paramFloats > 0) {
+            entries.push({ binding: 0, resource: { buffer: this.bakeParamsBuffer! } });
+        }
+        entries.push({ binding: 2, resource: dst0 });
+        const bakeExtras = this.skySource!.getBakeBindEntries?.(this);
+        if (bakeExtras) entries.push(...bakeExtras);
+        this.engine.setComputePassBindGroup(stageA, entries, 0);
         stages.push(stageA);
 
         // --- Stage B: the source mip chain (box average) ---
@@ -334,6 +416,7 @@ export class EnvironmentSystem {
         this.baked = false;
         this.frame = 0;
         this.amortizeCursor = 0;
+        this.invalidatedSlices = 0;
     }
 
     /**
@@ -351,13 +434,15 @@ export class EnvironmentSystem {
         if (!this.baked) {
             this.baked = true;
             this.frame++;
+            this.invalidatedSlices = 0;
             return this.bakeStages;
         }
-        if (this.cfg.updateMode !== 'amortized') return EMPTY_STAGES;
+        if (this.cfg.updateMode !== 'amortized' || this.invalidatedSlices === 0) return EMPTY_STAGES;
 
         // Amortized: the source cube + one prefilter mip + the SH projection.
         const mip = this.prefilterStages[this.amortizeCursor % this.prefilterStages.length];
         this.amortizeCursor++;
+        this.invalidatedSlices--;
         this.amortizedSlice[0] = this.bakeStages[0];      // stage A — the source, in case it moved
         this.amortizedSlice[1] = mip;
         this.amortizedSlice[2] = this.shStage!;
@@ -365,6 +450,25 @@ export class EnvironmentSystem {
     }
 
     private readonly amortizedSlice: ComputeStageNode[] = new Array(3);
+
+    /**
+     * Declare that source parameters changed. Amortized mode refreshes every prefilter mip over a
+     * bounded cycle; once mode re-arms the full bake. Repeated calls coalesce rather than extending
+     * the cycle indefinitely.
+     */
+    public invalidateBake(): void {
+        if (!this.baked) return;
+        if (this.cfg.updateMode === 'amortized') {
+            if (this.invalidatedSlices === 0) this.invalidatedSlices = this.cfg.prefilterMips;
+        } else {
+            this.baked = false;
+        }
+    }
+
+    /** True while a declared source change still has bake work outstanding. */
+    public get bakeInvalidated(): boolean {
+        return !this.baked || this.invalidatedSlices > 0;
+    }
 
     // ---------------------------------------------------------------------------
     // The material bridge (§5)
@@ -393,8 +497,14 @@ export class EnvironmentSystem {
      * Taking the `LightSystem` is deliberate and slightly unusual: group 2 has two owners (three
      * once probes land) and core WebGPU guarantees only four bind groups, so exactly one call must
      * build the whole group or they overwrite each other (§3, §9).
+     *
+     * `extra` is for later contributors at higher bindings — sky sources at 14–17,
+     * `AerialPerspective.getBindGroupEntries()` at 18–19. One optional parameter rather than
+     * another N-argument escalation of who-owns-the-group; the rule that exactly one call builds
+     * it is unchanged.
      */
-    public applyToBatch(batch: RenderBatch, lights: LightSystem): void {
+    public applyToBatch(batch: RenderBatch, lights: LightSystem,
+        extra: GPUBindGroupEntry[] = EMPTY_ENTRIES): void {
         const g = this.cfg.environmentGroup;
         if (batch.customBindGroups[g] && !this.boundBatches.has(batch)) {
             throw new Error(
@@ -408,6 +518,7 @@ export class EnvironmentSystem {
             { binding: 4, resource: this.specularCubeView },
             { binding: 5, resource: this.brdfLUTView },
             { binding: 6, resource: { buffer: this.envParamsBuffer } },
+            ...extra,
         ], g);
         this.boundBatches.add(batch);
     }
@@ -427,6 +538,11 @@ export class EnvironmentSystem {
         targetFormat?: GPUTextureFormat;
     }): RenderPassNode {
         if (this.skyPass) return this.skyPass;
+        if (!this.skySource || !this.skyLayout) {
+            throw new Error(
+                `EnvironmentSystem: getSkyPass() called before a sky source was set; ` +
+                `call setSky() (or setProceduralSky/setEquirect) first.`);
+        }
 
         const skyColorAttachments: GPURenderPassColorAttachment[] = target.colorAttachments.map(att => ({
             ...att,
@@ -440,6 +556,18 @@ export class EnvironmentSystem {
             depthStoreOp: 'store',
         } : undefined;
 
+        // The stride was fixed by setSky and is about to be frozen into the batch. A source that
+        // changed its paramFloats since then would have writeParams run off the end of a staging
+        // array that is silently bounds-clipped — the worst kind of failure, so name it (§9).
+        const declared = SKY_PARAM_FLOATS + this.skySource.paramFloats;
+        if (declared !== this.skyStrideFloats) {
+            throw new Error(
+                `SkySource "${this.skySource.name}" declares paramFloats=` +
+                `${this.skySource.paramFloats}, but the sky batch was created with strideFloats=` +
+                `${this.skyStrideFloats}. The stride is fixed at batch creation — paramFloats must ` +
+                `not change after setSky().`);
+        }
+
         this.skyPass = this.engine.createPass({
             name: 'Env: Sky',
             isMainScreenPass: false,
@@ -447,31 +575,66 @@ export class EnvironmentSystem {
             depthStencilAttachment: skyDepthAttachment,
             size: target.size,
         });
+        this.skyPassTargetFormat = target.targetFormat ?? 'rgba16float';
         this.skyBatch = this.engine.createBatch(this.skyPass, {
-            shaderCode: buildSkyWGSL({ environmentGroup: this.cfg.environmentGroup }),
-            strideFloats: SKY_PARAM_FLOATS,
+            shaderCode: buildSkyWGSL({ environmentGroup: this.cfg.environmentGroup, sky: this.skyLayout }),
+            strideFloats: this.skyStrideFloats,
             maxInstances: 1,
             targetFormat: target.targetFormat ?? 'rgba16float',
             depthWriteEnabled: false,
             depthCompare: 'less-equal',   // only where nothing was drawn (cleared depth = 1.0)
         });
-        // Group 2 for the sky needs only the sampler + the cube; it does not read the lights.
-        this.engine.setRenderPassBindGroup(this.skyBatch, [
+        // Group 2 for the sky needs the sampler + prefiltered cube (the cheapSky fallback), plus
+        // any source-owned resources in the RESERVED 14–17 range (EquirectSky's source cube,
+        // §4.3); it never reads the lights, so none of bindings 0–2 are touched.
+        const group2: GPUBindGroupEntry[] = [
             { binding: 3, resource: this.envSampler },
             { binding: 4, resource: this.specularCubeView },
-        ], this.cfg.environmentGroup);
+        ];
+        const skyboxExtras = this.skySource.getSkyboxBindEntries?.(this);
+        if (skyboxExtras) group2.push(...skyboxExtras);
+        this.engine.setRenderPassBindGroup(this.skyBatch, group2, this.cfg.environmentGroup);
         this.setSkyParams({});
         return this.skyPass;
     }
 
-    /** Exposure / yaw / blur mip for the sky, written through the batch's storage buffer (§8.2). */
+    /** Existing sky pass for additive decorators such as StarField; enforces build order loudly. */
+    public getCreatedSkyPass(): RenderPassNode {
+        if (!this.skyPass) {
+            throw new Error('EnvironmentSystem: no sky pass exists yet; call getSkyPass(target) before attaching a StarField, or pass target to StarField.attach().');
+        }
+        return this.skyPass;
+    }
+
+    /** Colour format frozen into every pipeline attached to the cached sky pass. */
+    public get skyTargetFormat(): GPUTextureFormat { return this.skyPassTargetFormat; }
+
+    /**
+     * Exposure / yaw / blur mip / cheapSky for the sky, written through the batch's storage
+     * buffer (§8.2) AND the Stage-A params buffer, so both consumers of the evaluator see the
+     * same header. Also re-serializes the source's own params (so a `setSunDirection` before
+     * this call lands without a rebuild).
+     */
     public setSkyParams(p: SkyParams): void {
+        // `yaw` is the ENVIRONMENT's rotation, not a sky-local knob — it turns the diffuse SH and
+        // the specular lookup as well (api/environment.md §1.5, "the three cannot drift apart").
+        // Routing it through the one owner is what keeps them locked AND what makes it persist:
+        // exposure, blurMip and cheapSky already survive a later call that omits them, and a yaw
+        // that silently reverted to `this.yaw` on the next call was a rotation nobody could keep.
+        if (p.yaw !== undefined && p.yaw !== this.yaw) {
+            this.yaw = p.yaw;
+            this.writeEnvParams();
+        }
         const s = this.skyParamsF32;
         s[0] = p.exposure ?? (s[0] || 1.0);
-        s[1] = p.yaw ?? this.yaw;
+        s[1] = this.yaw;
         s[2] = p.blurMip ?? (s[2] || 0);
-        s[3] = 0;
+        s[3] = p.cheapSky ?? s[3];
+        if (this.skySource) this.skySource.writeParams(s, SKY_PARAM_FLOATS);
         if (this.skyBatch) this.engine.updateBatchData(this.skyBatch, s, 1);
+        if (this.bakeParamsBuffer) {
+            this.device.queue.writeBuffer(this.bakeParamsBuffer, 0, s as Float32Array<ArrayBuffer>);
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -558,6 +721,9 @@ export class EnvironmentSystem {
     /** The configured HDR intensity — probe capture reads it to scale its sky term
      *  (lighting-probes-design.md §7.2: a capture ray that hits nothing sees the environment). */
     public get intensity(): number { return this.cfg.intensity; }
+    /** The SOURCE cube view at full resolution — EquirectSky's skybox samples it at mip 0
+     *  (environment-sky-design.md §5.2); valid only while `keepSourceCube` is true. */
+    public get sourceView(): GPUTextureView { return this.sourceCubeView; }
     /** The `EnvParams` uniform buffer. */
     public get paramsBuffer(): GPUBuffer { return this.envParamsBuffer; }
     /** The raw SH storage buffer the projection kernel writes (27 f32). */
@@ -571,7 +737,8 @@ export class EnvironmentSystem {
         this.brdfLUT.destroy();
         this.envParamsBuffer.destroy();
         this.shBuffer.destroy();
-        this.skyUniform?.destroy();
+        this.bakeParamsBuffer?.destroy();
+        this.equirectTexture?.destroy();
         this.bakeStages = [];
         this.prefilterStages = [];
         this.shStage = null;
@@ -580,3 +747,6 @@ export class EnvironmentSystem {
 
 /** Shared empty array — returning a fresh `[]` per frame would allocate (constraint #2). */
 const EMPTY_STAGES: ComputeStageNode[] = [];
+
+/** Default for `applyToBatch`'s `extra` — a shared empty, for the same reason. */
+const EMPTY_ENTRIES: GPUBindGroupEntry[] = [];

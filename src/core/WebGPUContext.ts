@@ -20,6 +20,21 @@ export class WebGPUContext {
     public depthTexture!: GPUTexture;
     public cameraUniformBuffer!: GPUBuffer;
 
+    /**
+     * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
+     * (environment-aerial-design.md §9.1). Opt in at {@link init} with `{ samplableDepth: true }`.
+     *
+     * Off by default, and the default is the point: adding `TEXTURE_BINDING` can disable some
+     * drivers' depth-compression fast paths for that texture, and it costs that on EVERY frame
+     * whether or not anything samples it. Paying at construction for what you use beats paying
+     * per frame for what you might.
+     *
+     * Three consumers want it, which is why it is one flag and not three: aerial perspective's
+     * apply pass, `HiZPyramid` (which allocates a separate r32float pyramid today precisely
+     * because this is unsampleable), and a depth pre-pass.
+     */
+    public depthSamplable: boolean = false;
+
     /** Negotiated optional-feature snapshot, populated during {@link init}. */
     public capabilities!: GPUCapabilities;
 
@@ -39,7 +54,13 @@ export class WebGPUContext {
             /** Opportunistically enable supported {@link PROGRESSION_FEATURES}. Default `true`. */
             autoNegotiate?: boolean,
             width?: number,
-            height?: number
+            height?: number,
+            /**
+             * Create the depth texture with `TEXTURE_BINDING` so it can be sampled — see
+             * {@link depthSamplable}. Required by `AerialPerspective.getApplyPass()` on the
+             * main-screen path. Default `false`.
+             */
+            samplableDepth?: boolean
         } = {}
     ): Promise<void> {
         if (!navigator.gpu) {
@@ -137,6 +158,10 @@ export class WebGPUContext {
         this.width = options.width ?? canvas.width ?? 1;
         this.height = options.height ?? canvas.height ?? 1;
 
+        // Stored, not just applied: resize() recreates the texture, and a flag that survived only
+        // until the first window resize would fail exactly once, later, in someone else's session.
+        this.depthSamplable = options.samplableDepth ?? false;
+
         this.setupDepthTexture(canvas.width, canvas.height);
     }
 
@@ -156,10 +181,14 @@ export class WebGPUContext {
         const dWidth = Math.max(1, width);
         const dHeight = Math.max(1, height);
 
+        // Sampling `depth24plus` needs a `texture_depth_2d` binding with a NON-FILTERING sampler,
+        // or `textureLoad`. Both are core WebGPU — no feature flag, no format change.
         this.depthTexture = this.device.createTexture({
             size: [dWidth, dHeight],
             format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: this.depthSamplable
+                ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                : GPUTextureUsage.RENDER_ATTACHMENT,
         });
     }
 }

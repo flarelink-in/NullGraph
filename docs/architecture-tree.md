@@ -30,7 +30,7 @@ has without being squeezed into a single page-wide diagram.
 | [5](#5-materials) | Materials | `null-graph/materials` | ✅ |
 | [6](#6-shadows) | Shadows | `null-graph/shadows` | ✅ |
 | [7](#7-lighting) | Lighting | `null-graph/lights` | ✅ |
-| [8](#8-environment) | Environment | `null-graph/environment` | ◐ |
+| [8](#8-environment) | Environment | `null-graph/environment` | ◐ · sky Phases 1–5 ✅, clouds/weather/wind ◻ |
 | [9](#9-effects) | Effects | `null-graph/effects` | ◻ |
 | [10](#10-physics) | **Physics** | `null-graph/physics` | ◻ 🔌 |
 | [11](#11-animation) | Animation | `null-graph/loaders` | ◐ |
@@ -57,7 +57,7 @@ Core
 │   │   ├── Capability snapshot (`engine.capabilities`)           ✅
 │   │   └── Subgroup min/max size reporting                       ✅
 │   ├── Canvas configure + resize                                 ✅
-│   ├── Depth texture (RENDER_ATTACHMENT only)                    ◐   not samplable — Hi-Z needs its own
+│   ├── Depth texture (samplableDepth: true opts into sampling)   ✅  opt-in TEXTURE_BINDING; off by default
 │   ├── Error scopes / validation surfacing                       ◻ v1.3
 │   └── Device-loss + context-restore                             ◻ v1.3  rebuild pipelines, reupload
 │
@@ -447,25 +447,60 @@ material edits later.
 **Spec:** [`lighting-ibl-design.md`](./lighting-ibl-design.md) (the bake) ·
 **Brief:** [`roadmap-modules.md`](./roadmap-modules.md) §6
 
+**The sky series** — five phases; **Phases 1–3 are shipped**, 4–5 ✍ designed. Phase 1 draws the seam every later phase drops into;
+each doc states what the one before it retires:
+
+| Phase | Spec | Ships | Rel |
+|---|---|---|---|
+| 1 | [`environment-sky-design.md`](./environment-sky-design.md) | the `SkySource` / `sampleSky` seam; per-pixel skybox; Preetham | ✅ 1.1 |
+| 2 | [`environment-timeofday-design.md`](./environment-timeofday-design.md) | the clock; sun/moon → lights, shadows, sky, exposure; the re-bake gate | ✅ v1.3 |
+| 3 | [`environment-night-design.md`](./environment-night-design.md) | stars, moon, twilight, `SkyComposite` | ✅ v1.3 |
+| 4 | [`environment-atmosphere-design.md`](./environment-atmosphere-design.md) | Rayleigh/Mie/ozone LUT chain, as one more source | v2.0 |
+| 5 | [`environment-aerial-design.md`](./environment-aerial-design.md) | froxel aerial perspective + media unification | v2.0 |
+
+**The finding that ordered them:** the visible sky is a **128²-per-face** GGX-convolved cube
+(`EnvironmentSystem.ts:136`, `envShaders.ts:603`) — **0.70° per texel**. The shipped `sunCos`
+default draws a disc 6.8× the sun's true angular size because a real one would be sub-texel.
+Nothing after Phase 1 is possible until the skybox stops sampling the bake.
+
 ```
 Environment
 │
-├── Sky ───────────────────────────────────────────────────────── ◻
+├── Sky ───────────────────────────────────────────────────────── ◐ P1 ✅ 1.1
 │   ├── Skybox pass
 │   │   ├── Fullscreen triangle, no geometry                      ✅ v1.2  the draw(3,n) path
 │   │   ├── Ray reconstruction from invViewProj                   ✅ v1.2
 │   │   ├── depthCompare 'less-equal', no depth write             ✅ v1.2  drawn after opaque
-│   │   └── Params in the batch storage buffer                    ✅ v1.2  exposure / yaw / blur mip
+│   │   ├── Params in the batch storage buffer                    ✅ v1.2  exposure / yaw / blur mip
+│   │   └── Per-pixel sampleSky (not the prefiltered cube)        ✅ 1.1  DEFAULT; 0.266° disc measured back (T1)
+│   ├── The evaluator seam ─────────────────────────── ✅ 1.1  sky §4
+│   │   ├── ShaderSkyLayout (sibling of lighting/indirect)        ✅  one fn, bake + skybox consumers
+│   │   ├── ONE sampleSky, injected twice                         ✅  byte-identical bodies (U2) + on-device (T2)
+│   │   ├── skySunRadiance — the CPU-mirror seam                  ✅  drawn before Phase 2 needs it; U6
+│   │   └── Zero material bindings                                ✅  group 2 is 0–13 spent already; U11
 │   ├── Sources
 │   │   ├── Equirect HDR import → cube                            ✅ v1.2
 │   │   ├── Procedural gradient (zenith/horizon/ground + sun)     ✅ v1.2  works with NO asset
-│   │   ├── Analytic model (Preetham / Hosek-Wilkie)              ◻ v1.3
+│   │   ├── Both moved behind the seam, numerically inert         ✅ 1.1  U1 pins it to 1e-6
+│   │   ├── Analytic daylight (Preetham)                          ✅ 1.1  30 constants; Hosek is data, not design
+│   │   ├── SkyComposite (day ↔ night ↔ weather)                  ✅ v1.3  night §6 — the wrapLighting pattern
 │   │   └── Scene capture (reuses probe capture)                  ◻ v2.0
-│   ├── Physical atmosphere
-│   │   ├── Rayleigh + Mie transmittance LUT                      ◻ v2.0
-│   │   ├── Multi-scatter LUT                                     ◻ v2.0
-│   │   └── Sky-view LUT                                          ◻ v2.0
-│   └── Night sky (stars, moon, galactic band)                    ◻ v2.0
+│   ├── Physical atmosphere ──────────────────────────── ✍ v2.0  atmosphere §5
+│   │   ├── Rayleigh + Mie transmittance LUT (256×64)             ✍ v2.0  baked once
+│   │   ├── Multi-scatter LUT (32×32)                             ✍ v2.0  the SH-projection kernel shape
+│   │   ├── Sky-view LUT (192×108, per frame)                     ✍ v2.0  100× fewer evals than per-pixel
+│   │   ├── Ozone (the reason twilight is blue, not grey)         ✍ v2.0  absorption only; deletes the §3 ramp
+│   │   ├── Altitude support (falls out, not implemented)         ✍ v2.0
+│   │   └── ~298 KB total                                         ✍ v2.0
+│   └── Night sky ───────────────────────────────────── ✅ v1.3  night §4–5
+│       ├── Stars — instanced draw(3,n), ONE call                 ✅  ~9,100-record capacity, caller data adopted
+│       ├── Flux conservation, not radiance                       ✅  fixed-pixel radial sprite
+│       ├── Scintillation from Phase 2's air mass                 ✅  one shared constant, not two
+│       ├── Moon in sampleSky → free in the IBL bake              ✅  resolved (0.52° ≈ 3 source texels)
+│       ├── Lommel-Seeliger limb + earthshine + opposition surge  ✅  a Lambert moon is visibly wrong
+│       ├── Milky Way (baked band, celestial coords)              ✅
+│       ├── Twilight ramp                                         ✅  dayFactor blend; authored, replaced by Phase 4
+│       └── Purkinje shift (named artistic choice, on)            ✅  moonlight is not physically blue
 │
 ├── IBL bake ──────────────────────────────────────── ✅ v1.2  (owned here, consumed by §7)
 │   ├── Source cube + mip chain                                   ✅
@@ -474,20 +509,31 @@ Environment
 │   ├── SH-L2 projection                                          ✅
 │   └── Amortized refresh for a moving sun                        ✅
 │
-├── Time of day ───────────────────────────────────────────────── ◻ v1.3
-│   ├── Sun / moon orbit → direction + colour                     ◻  writes the existing light record
+├── Time of day ───────────────────────────────────────────────── ✅ v1.3  timeofday
+│   ├── The four-copy problem it exists to end                    ✅  sky/light/shadow/IBL each hold a sunDir
+│   ├── Zero GPU resources — a pure producer                      ✅  no buffer, no stage, no bind group
+│   ├── Clocks
+│   │   ├── 'artistic' — a 0–24 dial, no geography                ✅  the default
+│   │   └── 'astronomical' — NOAA solar (~0.01°), Meeus lunar     ✅
+│   ├── Sun / moon orbit → direction + colour                     ✅  writes the existing light record
 │   ├── Sky ↔ IBL coupling (re-bake on change)                    ✅ v1.2
-│   ├── Exposure coupling                                         ◐  AutoExposure ships, uncoupled
-│   └── Day/night light switching                                 ◻ v1.3
+│   ├── Re-bake gate on ANGULAR motion, not frames                ✅  sun + night-weighted moon motion
+│   ├── Day/night shadow-slot handoff (one holder, ever)          ✅  slot + direction + invalidate, one call
+│   ├── Exposure coupling                                         ✅  AutoExposure clamp or Tonemap absolute
+│   └── GMST + dayFactor — consumed by Phase 3                    ✅  full celestial-state handoff
 │
-├── Fog & aerial perspective ──────────────────────────────────── ◻
-│   ├── Exponential height fog                                    ◻ v1.2  fragment-side, cheap
-│   ├── Aerial perspective (depth-based tint)                     ◻ v1.3
+├── Fog & aerial perspective ─────────────────────────────────── ◐ v2.0  aerial; light injection deferred
+│   ├── Exponential height fog (HeightFog, closed form)           ✅  fragment-side, cheap, ships alone
+│   ├── Aerial perspective (froxel 32³, 256 KB)                   ✅  color*T + inScatter, one shared body
+│   │   ├── Fullscreen apply over opaque                          ✅  1×/pixel, toggleable, depth-aware
+│   │   ├── Injected layout for TRANSPARENTS only                 ✅  they have no single depth; U8 refuses both
+│   │   └── samplable depth texture                               ✅  init({ samplableDepth: true }), opt-in
+│   ├── Media unification (fog IS a row, not a system)            ✅  the two paths refuse each other
 │   └── Froxel volumetric fog
-│       ├── Froxel grid (the clustered shape again)               ◻ v2.0
+│       ├── Froxel grid (the clustered shape again)               ✅  built by aerial perspective
 │       ├── Light scattering injection                            ◻ v2.0
-│       ├── Shadowed volumetrics                                  ◻ v2.0
-│       └── Temporal reprojection                                 ◻ v2.0
+│       ├── Shadowed volumetrics                                  ◻ v2.0  one binding + a loop; atlas exists
+│       └── Temporal reprojection                                 ◻ v2.0  TransientPool history: 2 exists
 │
 ├── Clouds ────────────────────────────────────────────────────── ◻
 │   ├── 2D scrolling layer                                        ◻ v1.3
@@ -521,8 +567,13 @@ Environment
     └── Heightfield shared with physics                           ◻ v2.0 🔌
 ```
 
-**Next up:** the procedural sky (v1.2) — it makes the whole IBL bake chain testable with no asset,
-which is what keeps §7's indirect lighting from being blocked on finding an HDR file.
+**Next up:** [sky Phase 2](./environment-timeofday-design.md) — the clock.
+
+[Phase 1](./environment-sky-design.md) shipped in 1.1 and unblocked the rest of this section. It
+landed in the order its §11 specifies: step 1 moved the existing gradient behind the seam with a
+test proving the image byte-identical, and *nothing improved* at that step — which was the point,
+since a refactor is provably inert before it is asked to carry anything. The skybox is no longer a
+128² lookup, so every other branch here now has somewhere to land.
 
 ---
 
@@ -892,10 +943,14 @@ clustered + deferred decals · transparency ordering (OIT preferred) · inline-t
 ### v1.3 — Authoring, quality, and the world
 
 Compute skinning + morphs + bounds refit · offline asset pipeline · KTX2/Basis, Draco, meshopt ·
-analytic sky + time of day + weather blending · wind field + foliage · flat water · 2D clouds ·
-PCSS + filtered-moment shadows · area lights (LTC) + cookies/IES · tangent generation · parallax +
-clear coat + sheen + anisotropy · frame-graph visualizer + shader dump · MSAA · reverse-Z ·
-device-loss handling · pipeline warmup · explicit bind-group layouts
+**sky Phases 2–3** ([Phase 1](./environment-sky-design.md) — seam + per-pixel skybox + Preetham —
+shipped early, in 1.1;
+[time of day](./environment-timeofday-design.md) + the re-bake gate + shadow handoff,
+[night sky](./environment-night-design.md) + `SkyComposite`) · weather blending · wind field +
+foliage · flat water · 2D clouds · PCSS + filtered-moment shadows · area lights (LTC) +
+cookies/IES · tangent generation · parallax + clear coat + sheen + anisotropy · frame-graph
+visualizer + shader dump · MSAA · reverse-Z · device-loss handling · pipeline warmup · explicit
+bind-group layouts
 
 ### v1.4 — Motion & behaviour
 
@@ -906,9 +961,16 @@ territory, listed so the boundary is an explicit decision rather than an omissio
 
 Virtual geometry (DAG cluster-LOD + streaming) · virtual shadow maps · static/dynamic split maps ·
 DDGI per-probe visibility · streamed probe volumes · TAA + motion blur + temporal upscaling ·
-froxel volumetric fog · volumetric clouds · physical atmosphere · night sky · FFT ocean · terrain
-clipmaps · triplanar · transmission/refraction · SSGI · screen-space shadows · persistent GPU scene
-+ chunk residency · render bundles
+**sky Phases 4–5** ([physical atmosphere](./environment-atmosphere-design.md),
+[aerial perspective](./environment-aerial-design.md) + media unification — and with them the froxel
+grid that volumetric fog needs) · light injection + shadowed volumetrics · volumetric clouds · FFT
+ocean · terrain clipmaps · triplanar · transmission/refraction · SSGI · screen-space shadows ·
+persistent GPU scene + chunk residency · render bundles
+
+**Sequencing note.** Sky Phase 5 was the one item in this list gated on a *core* change — a samplable
+depth texture. It landed as opt-in `init({ samplableDepth: true })`, off by default because
+`TEXTURE_BINDING` can cost depth-compression fast paths every frame. `HiZPyramid` and the depth
+pre-pass (§4) want the same flag and can now adopt it without a further core change.
 
 ### 🔌 Physics plugin — any time
 
@@ -923,7 +985,6 @@ Every partial entry, with what is actually missing:
 
 | Entry | § | Works | Missing |
 |---|---|---|---|
-| Core depth texture | 1 | render attachment | not samplable — Hi-Z allocates its own |
 | LOD simplification | 2 | LOD chains + error | no built-in simplifier; caller supplies levels |
 | Vertex colours | 2 | the layout carries them | no stock material reads them |
 | Derivative TBN | 2, 5 | robust normal mapping | wrong on mirrored UVs; no authored tangents |
@@ -932,7 +993,8 @@ Every partial entry, with what is actually missing:
 | Transparency | 4 | blend states | **no ordering model at all** |
 | Inline tonemap | 5 | tonemap + gamma in-material | double-applies with PostChain's Tonemap |
 | Shadow filtering | 6 | PCF + tap clamp | PCSS, filtered moments |
-| Exposure coupling | 8 | AutoExposure in Post | not coupled to sky / time-of-day |
+| Exposure coupling | 8 | AutoExposure in Post | not coupled to sky / time-of-day — ✍ [timeofday §8](./environment-timeofday-design.md) |
+| The sky | 8 | skybox pass, three sources behind one evaluator, the IBL bake | ✅ resolved in 1.1: the skybox evaluates `sampleSky` per pixel ([sky §1](./environment-sky-design.md)) |
 | SSR | 9 | screen-space effects exist | no dedicated SSR effect |
 | Animation sampling | 11 | CPU keyframe interpolation | no blending, no worker path |
 | Depth of field | 12 | Bokeh effect | no true CoC from linear depth |

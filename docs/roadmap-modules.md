@@ -18,7 +18,7 @@ matching reality, the brief is wrong and the release is riskier than it looks.
 | 3 | Rendering → indirect / multi-draw / deferred | v1.1 ◐ | — |
 | 4 | Shadows → CSM & atlas | v1.1 / v1.2 ✅ | [shadows-design.md](./shadows-design.md) · [shadows-atlas-design.md](./shadows-atlas-design.md) |
 | 5 | Lighting → IBL & probes | v1.2 ✅ | [lighting-ibl-design.md](./lighting-ibl-design.md) · [lighting-probes-design.md](./lighting-probes-design.md) |
-| 6 | **Environment → sky, atmosphere, ambient context** | v1.2 ◐ (IBL + capture ✅) | [lighting-ibl-design.md](./lighting-ibl-design.md) (the bake) |
+| 6 | **Environment → sky, atmosphere, ambient context** | v1.2 ◐ (IBL + capture ✅, sky seam ✅ 1.1) | [lighting-ibl-design.md](./lighting-ibl-design.md) (the bake) · [environment-sky-design.md](./environment-sky-design.md) (the seam) |
 | 7 | Materials → the shared fragment contract | ✅ ongoing | — |
 | 8 | Effects → particles & decals | v1.2 ◻ | — |
 | 9 | Animation → GPU skinning & morphs | v1.3 ◻ | — |
@@ -163,6 +163,26 @@ that assumes the main view now breaks four consumers.
 
 ## 6. Environment → sky, atmosphere, and the world's ambient context — **`null-graph/environment`** ✅ shipped (IBL + sky)
 
+**The sky branch** — five phases, all ✅ shipped.
+[1 · sources & the seam](./environment-sky-design.md) (in 1.1) →
+[2 · time of day](./environment-timeofday-design.md) →
+[3 · night sky](./environment-night-design.md) →
+[4 · physical atmosphere](./environment-atmosphere-design.md) →
+[5 · aerial perspective](./environment-aerial-design.md).
+
+Phase 5 carried the branch's only core-engine change, and it is one usage flag: the depth texture
+is now created with `TEXTURE_BINDING` when the caller opts in via
+`engine.init(canvas, { samplableDepth: true })`. It is off by default because the flag can cost a
+driver's depth-compression fast path on every frame whether or not anything samples the texture, and
+because the zero-change fallback — an offscreen pass with a caller-supplied depth attachment — is
+what a scene using `PostChain` already does.
+
+Phase 1 was a prerequisite for all four others, for a reason that was not stylistic: the sky you
+*saw* was the prefiltered IBL cube at 128² per face — 0.70° per texel — so nothing with angular
+detail (a real sun, the moon, a star, a horizon gradient) was representable while the skybox
+sampled the bake. It now evaluates one injected `sampleSky(dir)` per pixel, the same function the
+bake is lit by; the GPU suite measures a 0.266° sun disc back at 0.2647°.
+
 - **Goal.** Own everything that makes a world feel like a *place* rather than a set of objects: the
   sky, the light it throws, the air between the camera and the geometry, and the large-scale
   systems (weather, wind, water, terrain) that the rest of the engine reads as context.
@@ -211,9 +231,13 @@ either: **Environment owns the ambient context; Effects owns discrete visual eve
 - **Fog after deferred, or before?** Exponential height fog is a fragment-side term and can ship in
   the forward path immediately (v1.2). Froxel volumetric fog (v2.0) wants the clustered grid shape
   and a depth buffer, so it follows the deferred work.
-- **Time-of-day forces the amortized bake.** A static sky bakes once; a moving sun invalidates the
-  prefiltered cube every frame. `updateMode: 'amortized'` (one mip per frame, full refresh in six)
-  exists precisely so this is a config change rather than a redesign.
+- **Time-of-day forces the amortized bake — and then has to gate it.** A static sky bakes once; a
+  moving sun invalidates the prefiltered cube. `updateMode: 'amortized'` (one mip per frame, full
+  refresh in six) exists precisely so this is a config change rather than a redesign. What that mode
+  cannot know is *whether the sun moved*: it re-runs unconditionally, which at real-time rates
+  re-derives a 512²×6 sky that changed by 0.00007°. [Phase 2](./environment-timeofday-design.md) §6
+  gates it on **accumulated angular motion** instead — one rule that is correct at 1× and at 1000×,
+  where a frame-counter heuristic is wrong at both ends.
 - **Water and terrain are v2.0 and should be designed together.** Both want a heightfield the
   physics plugin can also read (§11), and designing either alone will get that interface wrong.
 

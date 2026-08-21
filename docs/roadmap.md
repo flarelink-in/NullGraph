@@ -14,7 +14,9 @@ hook, the clustered `LightSystem` compute pattern, and the "detect capabilities,
 stance. Every future module is mapped onto those primitives rather than onto a generic engine
 architecture, because that is what makes the plan buildable instead of aspirational.
 
-**Specs that exist today** (all implementation-ready; the first four are implemented):
+**Specs that exist today** — all implementation-ready. `✅` is shipped and exported; `✍` is designed
+and not yet built. The five `environment-*` docs are one series, read in order, and each states what
+the phase before it retires:
 
 | Spec | Covers | Status |
 |---|---|---|
@@ -24,6 +26,11 @@ architecture, because that is what makes the plan buildable instead of aspiratio
 | [`shadows-atlas-design.md`](./shadows-atlas-design.md) | atlas, punctual shadows, tile caching | ✅ `null-graph/shadows` |
 | [`lighting-ibl-design.md`](./lighting-ibl-design.md) | prefiltered env, BRDF LUT, SH irradiance | ✅ `null-graph/environment` |
 | [`lighting-probes-design.md`](./lighting-probes-design.md) | irradiance volumes, probe capture, reflection probes | ✅ `null-graph/environment` |
+| [`environment-sky-design.md`](./environment-sky-design.md) | the `SkySource` seam, per-pixel skybox, analytic daylight | ✅ 1.1 |
+| [`environment-timeofday-design.md`](./environment-timeofday-design.md) | the clock; sun/moon → lights, shadows, sky, exposure | ✅ `null-graph/environment` |
+| [`environment-night-design.md`](./environment-night-design.md) | stars, moon, twilight, `SkyComposite` | ✅ `null-graph/environment` |
+| [`environment-atmosphere-design.md`](./environment-atmosphere-design.md) | Rayleigh/Mie/ozone LUT chain | ✅ `null-graph/environment` |
+| [`environment-aerial-design.md`](./environment-aerial-design.md) | froxel aerial perspective, media unification | ✅ `null-graph/environment` |
 | [`post-processing-design.md`](./post-processing-design.md) · [`transient-pool.md`](./transient-pool.md) | the `PostChain` and its allocator | ✅ `null-graph/post` |
 
 ---

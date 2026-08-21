@@ -50,5 +50,7 @@ export {
 } from './presets';
 export type { ChainPresetName } from './presets';
 export { EFFECT_ORDER, orderChain } from './chainOrder';
+export { GodRays } from './GodRays';
+export type { GodRaysOptions } from './GodRays';
 export { CustomEffect } from './CustomEffect';
 export type { CustomEffectConfig } from './CustomEffect';

@@ -15,6 +15,7 @@ export const EFFECT_ORDER: readonly string[] = [
     'Bokeh',                // depth of field on scene radiance
     'Bloom',                // light scatter
     'Halation',
+    'GodRays',
     'LensFlare',
     'ColorGrade',           // creative grade, still linear
     // ---- the boundary ----

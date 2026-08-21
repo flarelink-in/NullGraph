@@ -9,6 +9,7 @@
 // cullMath.ts ↔ visibilityShaders.ts pair.
 
 import { ENV_PARAMS_FLOATS, SH_SOURCE_SIZE } from './envMath';
+import type { ShaderSkyLayout } from './types';
 
 // ---------------------------------------------------------------------------
 // Shared chunks
@@ -117,46 +118,29 @@ fn distributionGGXEnv(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
 `;
 
 // ---------------------------------------------------------------------------
-// Stage A — source cube from equirect or procedural sky (§6.1)
+// Stage A — source cube from the sky source's evaluator (§6.1)
 // ---------------------------------------------------------------------------
 
 /**
- * Fill the source cube's mip 0. `procedural: false` samples an equirectangular HDR texture;
- * `true` evaluates an analytic gradient + sun disc, so the module works with NO asset at all.
+ * Fill the source cube's mip 0 from ONE injected evaluator. `sky.wgslLogic` supplies
+ * `fn sampleSky(dir)`; the kernel shape is the same for every source — authored, photographed,
+ * or computed (environment-sky-design.md §6.1). The `procedural: boolean` it replaces grew a
+ * third state with every model; the seam cannot (design principle 2).
+ *
+ * Bindings (group 0): `0` = the sky params storage buffer (declared always; `layout: 'auto'`
+ * prunes it when the source never reads it — sources with `paramFloats === 0` must not),
+ * `2` = the destination cube, `3+` = source-owned resources (EquirectSky's equirect + sampler).
  * Dispatch (size/8, size/8, 6); gid.z is the cube face.
  */
-export function buildSourceCubeWGSL(opts: { procedural: boolean }): string {
-    const body = opts.procedural ? /* wgsl */ `
-struct SkyParams {
-    zenith: vec3<f32>,
-    sunCos: f32,
-    horizon: vec3<f32>,
-    sunIntensity: f32,
-    ground: vec3<f32>,
-    sunDir: vec3<f32>,          // TRAVEL direction (where the light goes)
-};
-@group(0) @binding(0) var<uniform> sky: SkyParams;
-@group(0) @binding(2) var dstCube: texture_storage_2d_array<rgba16float, write>;
-
-fn skyColor(dir: vec3<f32>) -> vec3<f32> {
-    let t = clamp(dir.y, -1.0, 1.0);
-    var c = mix(sky.horizon, sky.zenith, pow(max(t, 0.0), 0.6));
-    c = mix(c, sky.ground, pow(max(-t, 0.0), 0.5));
-    let sunAmt = smoothstep(sky.sunCos, sky.sunCos + 0.0003, dot(dir, -sky.sunDir));
-    return c + sky.sunIntensity * sunAmt * vec3<f32>(1.0, 0.98, 0.95);
-}
-` : /* wgsl */ `
-@group(0) @binding(0) var equirect: texture_2d<f32>;
-@group(0) @binding(1) var srcSamp: sampler;
-@group(0) @binding(2) var dstCube: texture_storage_2d_array<rgba16float, write>;
-`;
-    const sample = opts.procedural
-        ? `textureStore(dstCube, gid.xy, gid.z, vec4<f32>(skyColor(dir), 1.0));`
-        : `textureStore(dstCube, gid.xy, gid.z, vec4<f32>(textureSampleLevel(equirect, srcSamp, dirToEquirectUV(dir), 0.0).rgb, 1.0));`;
-
+export function buildSourceCubeWGSL(sky: ShaderSkyLayout): string {
     return /* wgsl */ `
+@group(0) @binding(0) var<storage, read> skyParams: array<f32>;
+@group(0) @binding(2) var dstCube: texture_storage_2d_array<rgba16float, write>;
+
 ${ENV_MATH_WGSL}
-${body}
+${sky.wgslStructs}
+${sky.wgslLogic}
+
 @compute @workgroup_size(8, 8, 1)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Directly on the binding: WGSL has no constructible texture type, so a function cannot
@@ -164,8 +148,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dim = textureDimensions(dstCube);
     if (gid.x >= dim.x || gid.y >= dim.y) { return; }
     let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dim);
-    let dir = faceDirection(gid.z, uv);
-    ${sample}
+    textureStore(dstCube, gid.xy, gid.z, vec4<f32>(sampleSky(faceDirection(gid.z, uv)), 1.0));
 }
 `;
 }
@@ -542,14 +525,57 @@ fn getIndirectSpecular(worldPos: vec3<f32>, N: vec3<f32>, V: vec3<f32>,
 
 /**
  * A fullscreen triangle drawn AFTER the opaque pass, reconstructing a view ray per pixel from
- * `camera.invViewProj` and sampling the prefiltered cube at `blurMip`. No vertex buffer —
- * `RenderPipeline` takes its `draw(3, instanceCount)` path. The batch's group-0 storage buffer
- * (bound unconditionally by `createBatch`) genuinely carries the sky params `[exposure, yaw,
- * blurMip, _]`, written through `updateBatchData` — so the binding is used, not an anti-prune
- * trick (§8.2).
+ * `camera.invViewProj`. No vertex buffer — `RenderPipeline` takes its `draw(3, instanceCount)`
+ * path. The batch's group-0 storage buffer (bound unconditionally by `createBatch`) genuinely
+ * carries the sky params `[exposure, yaw, blurMip, cheapSky, ...source]`, written through
+ * `updateBatchData` — so the binding is used, not an anti-prune trick (§8.2).
+ *
+ * **With a `sky` layout** (environment-sky-design.md §6.2) the fragment evaluates the source's
+ * `sampleSky` PER PIXEL — the sky you see is the same function the bake is lit by (principle 1).
+ * `skyParams[3]` (cheapSky) falls back to the prefiltered-cube lookup: the pre-Phase-1 image,
+ * and the right answer for a blurred backdrop. **Without** `sky`, the module is byte-identical
+ * to the pre-Phase-1 skybox (kept for T4 and for callers that want only the cube lookup).
  */
-export function buildSkyWGSL(opts: { environmentGroup: number }): string {
+export function buildSkyWGSL(opts: { environmentGroup: number; sky?: ShaderSkyLayout }): string {
     const g = opts.environmentGroup;
+    const evaluator = opts.sky
+        ? /* wgsl */ `
+${opts.sky.wgslStructs}
+// Environment yaw about +Y — same rotation the bake/SH/specular path applies, so the sky you
+// see and the light you receive stay aligned (api/environment.md §1.5).
+fn rotateYSky(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return vec3<f32>(c * v.x - s * v.z, v.y, s * v.x + c * v.z);
+}
+
+${opts.sky.wgslLogic}
+`
+        : '';
+    const color = opts.sky
+        ? /* wgsl */ `
+    let R = rotateYSky(dir, skyParams[1]);
+    let exposure = skyParams[0];
+    var color: vec3<f32>;
+    if (skyParams[3] > 0.5) {
+        // cheapSky: the old prefiltered-cube lookup — reachable, and right for blurred backdrops.
+        color = textureSampleLevel(envSpecular, envSampler, R, skyParams[2]).rgb;
+    } else {
+        color = sampleSky(R);
+    }
+    return vec4<f32>(color * exposure, 1.0);
+`
+        : /* wgsl */ `
+    let yaw = skyParams[1];
+    let c = cos(yaw);
+    let s = sin(yaw);
+    let R = vec3<f32>(c * dir.x - s * dir.z, dir.y, s * dir.x + c * dir.z);
+
+    let exposure = skyParams[0];
+    let blurMip = skyParams[2];
+    let color = textureSampleLevel(envSpecular, envSampler, R, blurMip).rgb * exposure;
+    return vec4<f32>(color, 1.0);
+`;
     return /* wgsl */ `
 struct Camera {
     viewProj: mat4x4<f32>,
@@ -567,12 +593,12 @@ struct Camera {
     _padEnd: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
-// The batch storage buffer, honestly used (§8.2): [exposure, yaw, blurMip, _].
+// The batch storage buffer, honestly used (§8.2): [exposure, yaw, blurMip, cheapSky, ...source].
 @group(0) @binding(1) var<storage, read> skyParams: array<f32>;
 
 @group(${g}) @binding(3) var envSampler: sampler;
 @group(${g}) @binding(4) var envSpecular: texture_cube<f32>;
-
+${evaluator}
 struct VSOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) ndc: vec2<f32>,
@@ -592,16 +618,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Reconstruct the world-space view ray through this pixel.
     let far = camera.invViewProj * vec4<f32>(in.ndc, 1.0, 1.0);
     let dir = normalize(far.xyz / far.w - camera.eyePos);
-
-    let yaw = skyParams[1];
-    let c = cos(yaw);
-    let s = sin(yaw);
-    let R = vec3<f32>(c * dir.x - s * dir.z, dir.y, s * dir.x + c * dir.z);
-
-    let exposure = skyParams[0];
-    let blurMip = skyParams[2];
-    let color = textureSampleLevel(envSpecular, envSampler, R, blurMip).rgb * exposure;
-    return vec4<f32>(color, 1.0);
+${color}
 }
 `;
 }

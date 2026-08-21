@@ -97,12 +97,15 @@ export class RenderPipeline {
                 let narrowed = false;
                 const passSize: [number, number] | undefined = node.isMainScreenPass
                     ? [this.ctx.width, this.ctx.height]
-                    : node.size;
+                    : (node.size ?? [this.ctx.width, this.ctx.height]);
 
                 // Iterate through the geometric render batches assigned to this pass
                 for (const batch of node.batches) {
                     // If it's not indirect and has no instances, bypass it entirely
                     if (!batch.isIndirect && batch.currentInstanceCount === 0) continue;
+
+                    // If a per-batch viewport is suppressed / zero-area, skip drawing to avoid corrupting scissor/rasterizer state
+                    if (batch.viewport && (batch.viewport[2] <= 0 || batch.viewport[3] <= 0)) continue;
 
                     passEncoder.setPipeline(batch.pipeline);
                     passEncoder.setBindGroup(0, batch.bindGroup);

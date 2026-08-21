@@ -5,6 +5,7 @@ layout of every buffer and texture, the WGSL functions the material bridge injec
 conventions a custom shader has to match to interoperate.
 
 Usage-level docs: [`environment.md`](./environment.md) ·
+Physical atmosphere: [`atmosphere.md`](./atmosphere.md) ·
 Architecture: [`lighting-ibl-design.md`](../lighting-ibl-design.md)
 
 ---
@@ -132,31 +133,61 @@ without it — which would break the roughness-mip interpolation. The config thr
 `mipmapFilter: 'linear'` is load-bearing — the specular lookup interpolates **between roughness
 mips**, and with `'nearest'` a roughness sweep steps visibly at each mip boundary.
 
-### 2.5 The procedural-sky uniform — 16 floats, 64 bytes
+### 2.5 The sky params array — `4 + source.paramFloats` floats
+
+One flat `array<f32>` layout, read at **identical indices** by both consumers of the sky
+([`environment-sky-design.md`](../environment-sky-design.md) §4.5). The 16-float
+`SkyParams` *uniform* this replaced is gone: it described one hardcoded gradient, and a second sky
+model would have needed a second struct.
+
+| Float | Field | Notes |
+|---|---|---|
+| 0 | `exposure` | multiplies the skybox only, never the bake |
+| 1 | `yaw` | the environment rotation — the same one the SH and specular lookups use (§4.5) |
+| 2 | `blurMip` | prefiltered-cube mip. **Read only when `cheapSky` is 1** |
+| 3 | `cheapSky` | `0` (default) evaluate `sampleSky` per pixel · `1` sample the prefiltered cube |
+| 4..N | source params | written by `SkySource.writeParams(out, base)` with `base == 4` |
+
+The stride comes from `source.paramFloats` — sized by demand, not by a cap
+(design-principles §10). It is fixed when the sky batch is created; a source that changes
+`paramFloats` after `setSky` is a named error (§8 of [`environment.md`](./environment.md)).
+
+Two buffers carry this same layout, which is the point:
 
 ```wgsl
-struct SkyParams {
-    zenith: vec3<f32>,       // floats  0..2
-    sunCos: f32,             // float   3      cos(angular radius), default 0.9995
-    horizon: vec3<f32>,      // floats  4..6
-    sunIntensity: f32,       // float   7
-    ground: vec3<f32>,       // floats  8..10
-    sunDir: vec3<f32>,       // floats 12..14  TRAVEL direction, normalized
-};
-```
+// skybox fragment — the batch storage buffer, bound by createBatch at group 0 binding 1
+@group(0) @binding(1) var<storage, read> skyParams: array<f32>;
 
-16 floats, not 13: every `vec3` aligns to 16 bytes in WGSL, so the scalars ride in the gaps and
-float 11 / 15 are padding. Getting this wrong shifts every field after the first `vec3`.
-
-### 2.6 Sky batch storage buffer — 4 floats
-
-```wgsl
-@group(0) @binding(1) var<storage, read> skyParams: array<f32>;   // [exposure, yaw, blurMip, _]
+// Stage-A bake kernel — a system-owned buffer with the identical contents
+@group(0) @binding(0) var<storage, read> skyParams: array<f32>;
 ```
 
 `createBatch` binds `batch.storageBuffer` at group 0 binding 1 unconditionally, and `layout:'auto'`
 prunes unused bindings — so a shader that ignores it makes `createBindGroup` throw. The skybox
 therefore puts its actual parameters there. The binding is genuinely used, not an anti-prune trick.
+On the bake side the mirror image applies: a source with `paramFloats === 0` must not reference
+`skyParams` at all, and the system then omits the binding.
+
+### 2.6 Sky-batch group 2 — and the reserved source range
+
+The skybox batch has its **own** group-2 bind group: no lights, no probes, no BRDF LUT.
+
+```wgsl
+@group(2) @binding(3)  var envSampler:  sampler;              // always
+@group(2) @binding(4)  var envSpecular: texture_cube<f32>;    // always — the cheapSky lookup
+@group(2) @binding(14) var skySrcCube:  texture_cube<f32>;    // EquirectSky, via getSkyboxBindEntries
+@group(2) @binding(15) var skySrcSampler: sampler;
+
+// AtmosphereSky uses the same reserved source range instead:
+@group(2) @binding(14) var sky_atm_trans:   texture_2d<f32>;
+@group(2) @binding(15) var sky_atm_view:    texture_2d<f32>;
+@group(2) @binding(16) var sky_atm_sampler: sampler;
+```
+
+**Bindings 14–17 are reserved for sky sources** and collide with nothing, because bindings 0–13 of
+a fully-featured *material* (lights, IBL, probes) are never present on this batch. That separation
+is why the evaluator costs **zero** material bindings — the constraint the whole seam is built
+around ([`environment-sky-design.md`](../environment-sky-design.md) §4.3). Pinned by U11.
 
 ---
 
@@ -207,6 +238,61 @@ because it is composed into a material module that does *not* include `ENV_MATH_
 
 If you write a custom fragment that composes this layout, you must supply `PI` and a `VertexOut`
 with `worldPos` / `worldNormal` / `uv` / `ecsColor`.
+
+### 3.4 The sky contract — `ShaderSkyLayout`
+
+A third `{ wgslStructs, wgslLogic }` pair, injected into the **bake kernel** and the **skybox
+fragment** rather than into a material. `SkySource.getShaderLayout(base)` returns it, and its logic
+half must declare exactly these two:
+
+```wgsl
+/** Radiance from world-space direction `dir` (normalized), linear HDR, in the scene-relative
+ *  unit where 1.0 is a white Lambertian surface in direct midday sun. Must be finite and
+ *  non-negative for EVERY unit vector — including straight down. */
+fn sampleSky(dir: vec3<f32>) -> vec3<f32>;
+
+/** The sun disc's colour at solar elevation `elevDeg`, WITHOUT its angular extent — what a
+ *  directional light matching this sky should be tinted. Phase 2's CPU clock mirrors this
+ *  function and nothing else; Phase 4 replaces the body with a transmittance LUT. */
+fn skySunRadiance(elevDeg: f32) -> vec3<f32>;
+```
+
+**One evaluator, both consumers.** The same `wgslLogic` string goes into `buildSourceCubeWGSL` and
+`buildSkyWGSL`, so the sky you are *lit by* and the sky you *see* are the same function by
+construction rather than by review. U2 asserts the two carry byte-identical bodies; T2 asserts the
+device agrees.
+
+Three rules, each pinned by a test because each has bitten someone:
+
+| Rule | Why | Test |
+|---|---|---|
+| Do not declare `PI` | the bake preamble (`ENV_MATH_WGSL`) and the material chunks both own it | U7 |
+| Prefix every helper `sky_` | so a Phase 3 composite can rename without collision | U7 |
+| No backtick anywhere | it terminates the JS template literal carrying it (§6) | U8 |
+
+**The one sanctioned divergence.** A source backed by the source cube cannot sample the cube it is
+writing, so `EquirectSky` supplies `getBakeShaderLayout()` — the bake facet reads the 2D equirect
+through `dirToEquirectUV`, the skybox facet reads the baked cube at mip 0. Analytic sources omit it
+and share a single body. Any *other* divergence between the two facets is a bug the seam exists to
+prevent.
+
+Params are addressed relative to `base` (always `4`, past the header of §2.5):
+
+```ts
+class MySky implements SkySource {
+    readonly name = 'MySky';
+    readonly paramFloats = 8;
+    getShaderLayout(base: number) {
+        return { wgslStructs: '', wgslLogic: `
+fn sampleSky(dir: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(skyParams[${base}], skyParams[${base + 1}], skyParams[${base + 2}]);
+}
+fn skySunRadiance(elevDeg: f32) -> vec3<f32> { return vec3<f32>(1.0); }
+` };
+    }
+    writeParams(out: Float32Array, base: number) { out[base] = this.r; /* no allocation (U10) */ }
+}
+```
 
 ---
 
@@ -283,7 +369,7 @@ same yaw from its own params so all three agree.
 
 | Stage | Entry | Dispatch | Bindings (group 0) |
 |---|---|---|---|
-| A source cube | `buildSourceCubeWGSL({procedural})` | `(size/8, size/8, 6)` | procedural: `0` sky uniform, `2` dst · equirect: `0` texture, `1` sampler, `2` dst |
+| A source cube | `buildSourceCubeWGSL(skyLayout)` | `(size/8, size/8, 6)` | `0` sky params (omitted when `paramFloats === 0`), `2` dst, `3+` source-owned (EquirectSky's texture + sampler) |
 | B mip chain | `buildCubeMipWGSL()` | `(dim/8, dim/8, 6)` per mip | `0` src cube, `1` dst mip, `2` sampler |
 | C prefilter | `buildPrefilterWGSL({level, prefilterMips, samples, srcSize})` | `(dim/8, dim/8, 6)` per mip | `0` src cube, `1` sampler, `2` dst mip |
 | D BRDF LUT | `buildBRDFLUTWGSL({samples})` | `(lutSize/8, lutSize/8, 1)` | `0` dst LUT |
@@ -344,4 +430,34 @@ comments.
 | U10 | no backtick in any generated WGSL |
 | §11 | config validation error messages |
 
-`npm run test:environment`. GPU integration (T1–T6) awaits a browser harness.
+`npm run test:environment` (IBL + probes + sky).
+
+**The sky seam** — `npm run test:sky`:
+
+| Test | Pins |
+|---|---|
+| U1 | `GradientSky` matches the pre-refactor `skyColor` at 64 directions to 1e-6 — the refactor is numerically inert |
+| U2 | the bake kernel and the skybox carry byte-identical `sampleSky` bodies |
+| U3 | every shipped source's composed bake kernel and skybox module parses |
+| U4 | Preetham zenith luminance rises with turbidity and with `sin(elevation)` |
+| U5 | finite, non-negative radiance over 512 directions × 32 solar elevations (−20°..90°) |
+| U6 | the `sunRadiance` CPU mirror matches the WGSL's own constants at 32 elevations to 1e-5 |
+| U7 | no source declares `PI` or collides with `ENV_MATH_WGSL`; helpers are `sky_`-prefixed |
+| U8 | no generated sky WGSL contains a backtick |
+| U9 | `EquirectSky` on `keepSourceCube: false` throws, naming the flag |
+| U10 | `writeParams` allocates zero bytes across 1,000 calls |
+| U11 | source group-2 bindings stay inside the reserved 14–17 range |
+| U12 | the shipped `cheapSky` default is 0 — the skybox really does evaluate |
+| U13 | every sky header float survives a later partial `setSkyParams` |
+| §9 | the build-time error table, verbatim |
+
+**GPU integration** — `npm run test:sky:gpu` (headless Chrome) or open
+`/test/environment-gpu/` in a browser:
+
+| Test | Pins |
+|---|---|
+| T1 | measured sun-disc angular radius matches `sunAngularRadius` within one pixel, at 0.266° — a size the prefiltered cube cannot represent |
+| T2 | the skybox (0.5%) and the bake (2%) both reproduce the CPU mirror at 64 directions |
+| T3 | radiance is continuous across all 12 cube edges (1%), and edge directions carry the right radiance (2%) |
+| T4 | `cheapSky: 1` reproduces the pre-Phase-1 module's image, and `cheapSky: 0` differs |
+| T5 | a source swap re-arms the bake and leaves no stale prefilter mip |

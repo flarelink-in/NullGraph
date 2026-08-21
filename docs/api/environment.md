@@ -19,6 +19,10 @@ material file knows either one exists**.
 - **Architecture:** [`lighting-ibl-design.md`](../lighting-ibl-design.md)
 - **Buffer layouts, WGSL contracts, the material bridge:** [`environment-shader-reference.md`](./environment-shader-reference.md)
 - **Phase 2 (probe volumes, reflection probes):** [`probes.md`](./probes.md) · [`lighting-probes-design.md`](../lighting-probes-design.md) — ✅ shipped
+- **Sky sources (`setSky`, `PreethamSky`, per-pixel skybox):** [`environment-sky-design.md`](../environment-sky-design.md) — ✅ shipped in 1.1, §1.3b below
+- **Time of day (sun/moon → sky, lights, shadows, exposure):** [`time-of-day.md`](./time-of-day.md) · [`environment-timeofday-design.md`](../environment-timeofday-design.md) — ✅ shipped
+- **Night sky (`NightSky`, `SkyComposite`, `StarField`):** [`night-sky.md`](./night-sky.md) · [`environment-night-design.md`](../environment-night-design.md) — ✅ shipped
+- **Physical atmosphere (`Atmosphere`, `AtmosphereSky`):** [`atmosphere.md`](./atmosphere.md) · [`environment-atmosphere-design.md`](../environment-atmosphere-design.md) — ✅ shipped
 
 ```ts
 import { EnvironmentSystem } from 'null-graph/environment';
@@ -51,8 +55,9 @@ The sun disc in the source cube is what makes the prefiltered specular have a re
 the SH have a dominant direction. Turn `sunIntensity` up and the whole scene keys off it.
 
 **Point the `LightSystem`'s directional light along the same `sunDir`** and the direct and indirect
-halves agree. Nothing enforces that — the two systems do not know about each other — so it is worth
-storing the sun direction once in your own state and feeding both.
+halves agree. For a static scene, storing that direction once is enough. For an animated sun, use
+[`TimeOfDay`](./time-of-day.md): it writes one computed direction into the sky, direct-light,
+shadow, and exposure contracts so those copies cannot drift.
 
 ### 1.2 A photographed environment (HDR / LDR equirect)
 
@@ -81,21 +86,139 @@ env.setIntensity(0.6);
 
 `sunIntensity: 0` disables the disc entirely, which is the "overcast / lightbox" case.
 
-### 1.4 A day/night cycle (animated sky)
+### 1.3b Analytic daylight, and skies as objects
+
+A sky is a **`SkySource`** — an object you hand to `setSky`, not a method on the system. The source
+supplies one WGSL function, `sampleSky(dir)`, which the module injects into **both** the IBL bake
+and the skybox fragment. The sky you are lit by and the sky you see are therefore the same function
+by construction ([`environment-sky-design.md`](../environment-sky-design.md)).
 
 ```ts
+import { EnvironmentSystem, PreethamSky } from 'null-graph/environment';
+
+env.setSky(new PreethamSky({
+    turbidity: 2.8,               // 1.8 = pristine alpine, 10 = urban haze
+    groundAlbedo: [0.15, 0.14, 0.12],
+    sunDir: [-0.4, -1.0, -0.35],  // TRAVEL direction, as everywhere in the engine
+    sunAngularRadius: 0.266,      // degrees — the TRUE sun
+}));
+
+env.sky.setSunDirection(newDir);  // params only, no rebuild — call it per frame if you like
+```
+
+Preetham et al. 1999: the sky's luminance gradient, horizon brightening and circumsolar glow are
+**derived** from turbidity and a sun direction rather than authored, which is what lets one number
+drive a whole day instead of nine colour ramps. About 30 constants and 40 flops.
+
+Its failure mode is documented rather than hidden: the fit **degrades below roughly 5° solar
+elevation** and the model can dip negative near the horizon at high turbidity. The shipped path
+clamps to non-negative, and sunset fidelity is what the later phases in the series are for.
+
+**Why `sunAngularRadius: 0.266` is newly meaningful.** The real sun is 0.53° across. Until the
+skybox evaluated `sampleSky` per pixel it sampled the 128²-per-face prefiltered cube — **0.70° per
+texel** — so a physically sized disc was sub-texel and the shipped `sunCos` default drew one 6.8×
+too wide on purpose. Per-pixel evaluation is the default now, and the GPU suite measures the disc
+back at 0.265°.
+
+**Writing your own source** is the whole extension story — no engine edit, no `if (procedural)`
+branch, no new kernel:
+
+```ts
+class MySky implements SkySource {
+    readonly name = 'MySky';
+    readonly paramFloats = 8;
+    getShaderLayout(base: number): ShaderSkyLayout { /* WGSL reading skyParams[base + i] */ }
+    writeParams(out: Float32Array, base: number): void { /* out-parameter, no allocation */ }
+}
+```
+
+Hosek–Wilkie is better than Preetham at sunset and is deliberately **not** shipped — it is ~2,700
+lines of fitted coefficients, which is data rather than design. Because of this seam, you can add
+it yourself without touching the module. See
+[`environment-shader-reference.md`](./environment-shader-reference.md) §3.4 for the WGSL contract.
+
+### 1.3c Where the skybox gets its colour
+
+```ts
+env.setSkyParams({ cheapSky: 0 });   // DEFAULT — evaluate sampleSky per pixel
+env.setSkyParams({ cheapSky: 1, blurMip: 3 });   // sample the prefiltered cube instead
+```
+
+| | `cheapSky: 0` (default) | `cheapSky: 1` |
+|---|---|---|
+| Resolution | per pixel | 0.70°/texel at `prefilterMips: 6` |
+| Cost | the source's evaluator, on background pixels only | one cube sample |
+| `blurMip` | **ignored** | selects the roughness mip |
+| Use it for | anything with detail: a sun disc, a horizon, a sharp imported sky | a deliberately soft backdrop, or a source with no analytic form |
+
+The two agree to the last bit where they overlap — `cheapSky: 1` reproduces the pre-1.1 image
+exactly (GPU test T4). **`blurMip` only has meaning in cheap mode**: under the default there is no
+mip chain to select, so setting it alone does nothing. If you were using `blurMip` for a soft
+background, pass `cheapSky: 1` alongside it.
+
+`EquirectSky` benefits without any flag: its per-pixel path samples the **source** cube at mip 0
+(512² by default, 0.176°/texel) instead of the prefiltered 128², a 4× angular improvement from
+nothing but reading a different texture. That path needs `keepSourceCube: true`, and says so
+loudly if it does not have it.
+
+### 1.4 A complete day/night cycle
+
+```ts
+import {
+    EnvironmentSystem, NightSky, PreethamSky, SkyComposite, StarField, TimeOfDay,
+} from 'null-graph/environment';
+
 const env = new EnvironmentSystem(engine, {
     updateMode: 'amortized',
     keepSourceCube: true,        // required — the prefilter re-reads the source
 });
+
+env.setSky(new SkyComposite({
+    day: new PreethamSky({ turbidity: 2.8 }),
+    night: new NightSky({ latitudeDeg: 45 }),
+}));
+
+const stars = new StarField(engine, { latitudeDeg: 45, maxStars: 9100 });
+
+const tod = new TimeOfDay({
+    mode: 'artistic',
+    timeScale: 60,
+    rebakeThresholdDeg: 0.25,
+    exposureCoupling: 'off',
+});
+
+const skyPass = env.getSkyPass({
+    colorAttachments,
+    depthStencilAttachment,
+    size: [width, height],
+    targetFormat: 'rgba16float',
+});
+stars.attach(env);                    // second additive batch in the same pass
 ```
 
-`'amortized'` keeps the bake alive and rebuilds **one prefilter mip per frame**, cycling. At the
-default 6 mips the environment fully refreshes every 6 frames, which is imperceptible for a sun
-moving over minutes, and it bounds the per-frame cost to a single 128²×6 dispatch instead of the
-whole chain.
+Per frame, update the clock before asking the environment for bake stages:
 
-Per frame: call `setProceduralSky` again with the new sun direction, then splice `getBakeStages()`.
+```ts
+tod.advance(dt);
+tod.applyTo({ environment: env, stars });
+
+const bakeStages = env.getBakeStages();  // shared empty array while clean
+engine.render([...bakeStages, ...restBeforeSky, skyPass, ...post.getPassSequence()]);
+if (bakeStages.length > 0) env.copySHToParams();
+```
+
+`'amortized'` refreshes the source cube, **one prefilter mip**, and SH on each active bake frame.
+At the default 6 mips a triggered environment fully refreshes over 6 frames. It does **not** run
+unconditionally: `TimeOfDay` invalidates the bake after the sun, or a night-weighted moon, has
+accumulated `rebakeThresholdDeg` of angular motion. Daytime lunar motion is suppressed by
+`1 - dayFactor`. At the default `0.25°`, solar motion triggers roughly once per minute in real time
+and about every four frames at 1000× speed.
+
+Do not call `setProceduralSky` or `setSky` per frame. A source is installed once; `TimeOfDay`
+updates it through the optional full `SkySource.setCelestialState` handoff, re-serializes its
+parameters, and declares bake dirtiness. See [`time-of-day.md`](./time-of-day.md) for lights,
+shadows, exposure, and astronomical mode, and [`night-sky.md`](./night-sky.md) for catalogue and
+resize handling.
 
 ### 1.5 A rotatable environment
 
@@ -222,8 +345,9 @@ The SH projection is a compute shader, so it writes a *storage buffer*. The frag
 144-byte `copyBufferToBuffer`, no readback, no stall.
 
 Skip it and the **specular half works while the diffuse half is black**, which reads as "SH is
-broken" rather than "nothing copied it." Call it after `engine.render([...getBakeStages()])`, and
-every frame in `'amortized'` mode. It is a no-op before the first bake.
+broken" rather than "nothing copied it." Call it after `engine.render([...getBakeStages()])` when
+that call returned one or more stages. In amortized mode that means each **active bake frame**, not
+each clean frame. It is a no-op before the first bake.
 
 ---
 
@@ -237,7 +361,7 @@ every frame in `'amortized'` mode. It is a no-op before the first bake.
 | `lutSize` | `256` | BRDF LUT resolution. Scene-independent; 256² is plenty. |
 | `intensity` | `1.0` | Multiplies both indirect terms. |
 | `horizonFade` | `1.0` | Fades specular reflections pointing below the horizon. `0` disables. |
-| `updateMode` | `'once'` | `'once'` retires the bake; `'amortized'` refreshes one mip per frame. |
+| `updateMode` | `'once'` | `'once'` retires the bake; `'amortized'` refreshes one mip per active invalidation frame and is idle while clean. |
 | `keepSourceCube` | `false`* | Retain the source cube after baking. *Defaults `true` when `updateMode: 'amortized'`, which **requires** it. |
 | `environmentGroup` | `2` | Must equal the `LightSystem`'s group. Anything else throws (§3.2). |
 
@@ -249,20 +373,36 @@ every frame in `'amortized'` mode. It is a no-op before the first bake.
 
 | Method | Notes |
 |---|---|
-| `setProceduralSky(sky)` | Analytic gradient + sun disc. No asset. Rebuilds the bake chain. |
-| `setEquirect(url, { sRGB? })` | `async`. Loads a lat-long image. Throws loudly on failure. |
+| `setSky(source)` | Install a `SkySource`. The mechanism; the two below forward to it. Rebuilds the bake chain. Must precede the first `getSkyPass()`. |
+| `setProceduralSky(sky)` | `setSky(new GradientSky(sky))`. Analytic gradient + sun disc, no asset. |
+| `setEquirect(url, { sRGB? })` | `async`. Loads a lat-long image, then `setSky(new EquirectSky(...))`. Throws loudly on failure. Needs `keepSourceCube: true`. |
 | `setRawSH(coeffs)` | Adopt 27 precomputed SH floats, skipping projection. |
+| `sky` | The installed source, typed — `env.sky.setSunDirection(dir)`. Throws before `setSky`. |
 
-`ProceduralSkyConfig`: `zenith`, `horizon`, `ground` (linear HDR `[r,g,b]`), `sunDir` (travel
-direction, normalized internally), `sunIntensity`, optional `sunCos` (default `0.9995` ≈ 1.8°).
+**Shipped sources and decorators:**
+
+| Source | Config | Notes |
+|---|---|---|
+| `GradientSky` | `ProceduralSkyConfig` | The default. `zenith` / `horizon` / `ground` (linear HDR), `sunDir` (travel direction), `sunIntensity`, optional `sunCos` (default `0.9995` ≈ 1.8° radius). ~20 flops; numerically identical to the pre-1.1 sky. |
+| `EquirectSky` | `{ equirect: GPUTextureView }` | Bake reads the 2D asset, skybox reads the source cube at mip 0. Requires `keepSourceCube: true`. |
+| `PreethamSky` | `{ turbidity?, groundAlbedo?, sunDir?, sunAngularRadius?, sunDiscIntensity? }` | Analytic daylight (§1.3b). `setSunDirection` / `setTurbidity` rewrite params without a rebuild. |
+| `AtmosphereSky` | `(atmosphere, { sunAngularRadius?, sunDiscIntensity? })` | Physical Rayleigh/Mie/ozone daylight backed by `Atmosphere` LUTs. Splice `atmosphere.getStages()` before the environment bake and sky pass. See [`atmosphere.md`](./atmosphere.md). |
+| `NightSky` | `NightSkyConfig` | Resolved moon, earthshine, night dome, Milky Way, airglow, and horizon glow. Normally the night child of `SkyComposite`. |
+| `SkyComposite` | `{ day, night, dayFactor? }` | Renames and blends two analytic `SkySource`s into one evaluator. `TimeOfDay` drives `dayFactor`. |
+
+`StarField` is not a `SkySource`: it is the separate unresolved point-source draw. See
+[`night-sky.md`](./night-sky.md).
 
 ### Frame graph
 
 | Method | Notes |
 |---|---|
-| `getBakeStages()` | The compute stages to splice in. Empty after the first frame in `'once'` mode. Throws if no source is set. |
+| `getBakeStages()` | The compute stages to splice in. Returns a shared empty array while clean. After an amortized invalidation, emits source + one prefilter mip + SH per call until every mip is refreshed. Throws if no source is set. |
+| `invalidateBake()` | Declare that source parameters outside `TimeOfDay` changed. In `'once'` mode, re-arms the full bake; in `'amortized'`, starts one bounded all-mip refresh cycle. Repeated calls during a cycle coalesce. |
 | `copySHToParams()` | GPU copy: projected SH → `EnvParams`. Call after the bake (§3.3). |
-| `getSkyPass({ colorAttachments, depthStencilAttachment?, size? })` | The skybox pass. Created once, cached. Splice **after** the opaque pass. |
+| `getSkyPass({ colorAttachments, depthStencilAttachment?, size?, targetFormat? })` | The skybox pass. Created once, cached. Splice **after** the opaque pass. |
+| `getCreatedSkyPass()` | Return the cached pass for an additive decorator such as `StarField`; throws if it has not been created. |
+| `skyTargetFormat` | Colour format frozen into the cached sky-pass pipelines. |
 
 ### Material bridge
 
@@ -277,11 +417,32 @@ direction, normalized internally), `sunIntensity`, optional `sunCos` (default `0
 |---|---|
 | `setRotation(yawRadians)` | Rotates diffuse, specular, and sky together. |
 | `setIntensity(x)` | Scales both indirect terms. |
-| `setSkyParams({ exposure?, yaw?, blurMip? })` | Sky-only. `blurMip` samples a rougher mip for a soft backdrop. |
+| `setSkyParams({ exposure?, yaw?, blurMip?, cheapSky? })` | Every field **persists** — a later call that omits one leaves it alone. `yaw` is the environment rotation, so setting it here is equivalent to `setRotation` and keeps the SH, specular and skybox locked. `blurMip` applies only when `cheapSky` is 1 (§1.3c). |
+
+Changes outside `TimeOfDay` must declare their own bake dirtiness. For example, changing
+Preetham turbidity updates source-owned CPU state; re-serialize it and invalidate the IBL bake:
+
+```ts
+const sky = new PreethamSky({ turbidity: 2.8 });
+env.setSky(sky);
+
+sky.setTurbidity(5.0);
+env.setSkyParams({});      // upload the source's changed params
+env.invalidateBake();     // refresh source cube, prefilter mips, and SH
+```
+
+If the same sky is driven by `TimeOfDay`, its `turbidity` config should match the
+`PreethamSky` value so the directional-light radiance and visible disc use the same extinction
+curve. Runtime turbidity changes need the application to keep those two authored values aligned.
 
 ### Introspection
 
-`specularView`, `brdfView`, `sampler`, `paramsBuffer`, `shStorageBuffer`, `isBaked`, `destroy()`.
+`specularView`, `sourceView`, `brdfView`, `sampler`, `paramsBuffer`, `shStorageBuffer`, `isBaked`,
+`bakeInvalidated`, `sky`, `destroy()`.
+
+`bakeInvalidated` is true before the initial bake and while an amortized invalidation still has
+prefilter mips outstanding. `TimeOfDay.envDirty` is the celestial trigger for the current update;
+the environment flag describes the whole multi-frame refresh cycle.
 
 ---
 
@@ -324,7 +485,8 @@ material: { kind: 'pbr', instance: pbr, lighting: shadows.wrapLighting(lights), 
 |---|---|
 | Bake (`'once'`) | source cube + `log2(size)` mips + `prefilterMips` prefilter dispatches + LUT + SH. One frame, then **zero**. |
 | Frame (`'once'`) | Nothing. No dispatch, no upload, no allocation. |
-| Frame (`'amortized'`) | One source-cube fill + one prefilter mip + the SH projection. |
+| Active bake frame (`'amortized'`) | One source-cube fill + one prefilter mip + the SH projection. |
+| Clean frame (`'amortized'`) | Nothing. `getBakeStages()` returns a shared empty array until `invalidateBake()`. |
 | Shading | Two texture samples (prefiltered cube + LUT) and a 9-term SH dot product per pixel. |
 | Memory | 512² source cube ≈ 8 MB (releasable) · 128²×6 specular ≈ 200 KB · 256² LUT ≈ 256 KB · `EnvParams` 176 B |
 
@@ -344,14 +506,51 @@ Every failure names the offender and the way out.
 | Equirect failed to load | `failed to load equirect "<url>" (...); falling back would silently ship a black environment — set a procedural sky explicitly instead.` |
 | Amortized without a retained source | `updateMode "amortized" requires keepSourceCube: true; the prefilter reads the source every refresh.` |
 
+**Sky sources** — all build-time, none in the frame loop:
+
+| Condition | Message |
+|---|---|
+| A cube-backed source on a system that releases the cube | `EnvironmentSystem: EquirectSky samples the source cube, but keepSourceCube is false — the cube is released after the bake. Construct with { keepSourceCube: true }.` |
+| `setSky` after the skybox pipeline was compiled | `EnvironmentSystem: setSky(<name>) must be called before the first getSkyPass(); the compiled skybox pipeline has the previous source layout.` |
+| `paramFloats` changed since `setSky` | `SkySource "<name>" declares paramFloats=<n>, but the sky batch was created with strideFloats=<m>. The stride is fixed at batch creation — paramFloats must not change after setSky().` |
+| A source whose `wgslLogic` lacks `sampleSky` | `SkySource "<name>" does not define sampleSky(dir: vec3<f32>) -> vec3<f32> (its <site> wgslLogic lacks it).` |
+| Generated WGSL contains a backtick | `SkySource "<name>" emitted a backtick, which terminates the template literal carrying it. Use single quotes in WGSL comments.` |
+| `getSkyPass` / `env.sky` before a source | `getSkyPass() called before a sky source was set; call setSky() (or setProceduralSky/setEquirect) first.` |
+| `StarField.attach(env)` before a sky pass exists | `EnvironmentSystem: no sky pass exists yet; call getSkyPass(target) before attaching a StarField, or pass target to StarField.attach().` |
+
 ---
 
 ## 9. Testing
 
-`npm run test:environment` — 12 headless checks (U1–U10 + config validation): cube-face convention,
-equirect round-trip, solid-angle exactness, SH packing order, ringing clamp, constant-environment
-energy, rotation consistency, BRDF LUT endpoints, WGSL parse + binding budget, the material hook,
-and the backtick guard.
+`npm run test:environment` runs all six headless suites (IBL, probes, sky, time of day, night,
+physical atmosphere).
 
-GPU integration (white furnace, fireflies, mirror fidelity, rotation, sky depth test) needs a
-browser harness — see [`lighting-ibl-design.md`](../lighting-ibl-design.md) §10 T1–T6.
+- **`npm run test:sky`** — 14 headless checks (U1–U13 + the §8 error table). The gradient refactor
+  is numerically inert to 1e-6; the bake kernel and the skybox carry byte-identical `sampleSky`
+  bodies; every composed module parses; Preetham is monotone in turbidity and elevation and finite
+  over 512 directions × 32 solar elevations; the CPU sun-radiance mirror matches the WGSL's own
+  constants; `writeParams` allocates zero bytes; source bindings stay in the reserved 14–17 range.
+- **`npm run test:sky:gpu`** — 13 numeric checks on a real device (headless Chrome; or open
+  `/test/environment-gpu/` in a browser). Measured sun-disc radius vs `sunAngularRadius` within one
+  pixel, skybox and bake against the CPU mirror, cube-edge continuity, `cheapSky: 1` against the
+  pre-1.1 module, and the no-stale-mip source swap.
+- **`npm run test:tod`** — headless celestial and integration checks: solar symmetry, polar
+  day/night, the CPU radiance mirror, exclusive shadow-slot ownership and call order, sunset
+  intensity, angular re-bake cadence at 1× and 1000×, lunar phase/illumination, normalized
+  directions, zero typed-array allocation, `out` semantics, and named config errors. See
+  [`time-of-day.md`](./time-of-day.md) §10.
+- **`npm run test:night`** — celestial transforms, magnitude/flux, fixed-pixel sprite energy,
+  Lommel–Seeliger lunar photometry, composite renaming, B−V colour, air-mass scintillation,
+  by-reference catalogue upload, named errors, and WGSL parsing. See
+  [`night-sky.md`](./night-sky.md) §8.
+- **`npm run test:atmosphere`** — physical transmittance and wavelength ordering, the known vertical
+  Rayleigh integral, phase normalization, LUT mappings, sky/composite binding propagation, named
+  errors, and WGSL parsing. See [`atmosphere.md`](./atmosphere.md) §10.
+
+`npm run test:environment` — 12 headless checks for the IBL half (U1–U10 + config validation):
+cube-face convention, equirect round-trip, solid-angle exactness, SH packing order, ringing clamp,
+constant-environment energy, rotation consistency, BRDF LUT endpoints, WGSL parse + binding budget,
+the material hook, and the backtick guard.
+
+The IBL GPU integration set (white furnace, fireflies, mirror fidelity) is still unwritten — see
+[`lighting-ibl-design.md`](../lighting-ibl-design.md) §10 T1–T6.

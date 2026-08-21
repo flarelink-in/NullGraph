@@ -237,6 +237,7 @@ export class ProbeVolume {
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',   // the projection stage reads it for validity (§7.2)
             },
+            size: [this.cfg.captureAtlasSize, this.cfg.captureAtlasSize],
         });
 
         // --- capture slots: probesPerFrame × 6 faces, tiles fixed by a static grid (§7.1:
@@ -343,6 +344,7 @@ export class ProbeVolume {
     public applyToBatch(
         batch: RenderBatch, lights: LightSystem,
         env: EnvironmentSystem = this.env, refl: ReflectionProbes | null = this.refl,
+        extra: GPUBindGroupEntry[] = [],
     ): void {
         const g = 2;
         if (batch.customBindGroups[g] && !this.boundBatches.has(batch)) {
@@ -364,6 +366,7 @@ export class ProbeVolume {
             { binding: 11, resource: { buffer: this.probeParamsBuffer } },
             { binding: 12, resource: refl ? refl.cubeView : this.placeholderCubeView },
             { binding: 13, resource: { buffer: refl ? refl.probeDataBuffer : this.placeholderDataBuffer } },
+            ...extra,
         ], g);
         this.boundBatches.add(batch);
     }
@@ -600,7 +603,7 @@ export class ProbeVolume {
      * The caller moved a light or opened a door (§7.4): mark every probe inside `bounds` for
      * priority recapture, plus every reflection probe whose proxy box intersects.
      */
-    public invalidate(bounds: { min: ArrayLike<number>; max: ArrayLike<number> }): void {
+    public invalidate(bounds: { min: ArrayLike<number>; max: ArrayLike<number> }, invalidateReflection: boolean = true): void {
         const { origin, spacing, dims } = this.cfg;
         const volMin = origin;
         const volMax = [origin[0] + spacing * (dims[0] - 1), origin[1] + spacing * (dims[1] - 1), origin[2] + spacing * (dims[2] - 1)];
@@ -618,7 +621,7 @@ export class ProbeVolume {
                 this.scheduler.invalidated[i] = 1;
             }
         }
-        if (this.refl) {
+        if (this.refl && invalidateReflection) {
             for (const layer of this.refl.layers()) {
                 if (this.refl.intersects(layer, bounds.min, bounds.max)) this.refl.invalidate(layer);
             }

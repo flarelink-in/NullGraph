@@ -45,6 +45,8 @@ NullGraph takes the opposite approach — it does less, and moves what remains t
 
 - **Dynamic Global Illumination:** Not just an environment map — an **irradiance volume filled by GPU probe capture**, where each capture shades against the previous volume so bounce light accumulates into multi-bounce GI. Colour bleeding, indoor/outdoor transitions, and lighting that responds when you open a door — no ray tracing, no lightmap bake, no offline step.
 
+- **A Physical Sky, Not a Gradient:** A real participating medium — Rayleigh, Mie, ozone, and height fog — solved into lookup textures rather than evaluated per pixel. Sunrise, blue hour, stars, a true-size sun disc, and distant mountains going blue with **aerial perspective**, all driven by one clock. Sky cost is independent of render resolution.
+
 - **Multi-Pass Architecture:** Seamlessly chain offscreen render passes into screen-space post-processing pipelines (Bloom, CRT, HUD effects) by attaching textures directly to subsequent batches.
 
 ---
@@ -60,8 +62,10 @@ the CPU never iterates the scene.
 | **Visibility** | Two-tier GPU culling (instance + meshlet) · Hi-Z occlusion from an `r32float` max-pyramid · normal-cone rejection · screen-space-error LOD · per-view culling for any camera |
 | **Shadows** | Cascaded shadow maps (sphere-fit, texel-snapped, caster-extruded) · shadow atlas with importance tiles, per-tile caching, and eviction · spot + point (6-face) shadows · light-view Hi-Z |
 | **Lighting** | 7 light types · clustered-forward froxel binning (subgroup-accelerated when available) · tiled · standard |
-| **Indirect lighting** | Split-sum IBL: GGX-prefiltered cube, BRDF LUT, SH-L2 irradiance · procedural or HDR sky · skybox pass |
+| **Indirect lighting** | Split-sum IBL: GGX-prefiltered cube, BRDF LUT, SH-L2 irradiance · procedural or HDR sky · per-pixel skybox pass |
 | **Global illumination** | SH-L1 irradiance volumes · GPU probe capture · multi-bounce convergence · parallax-corrected reflection probes |
+| **Sky & atmosphere** | Pluggable `SkySource` seam · physical Rayleigh/Mie/ozone LUT chain with multiple scattering · time-of-day clock driving sun, moon, shadows and exposure · stars, moon phase, twilight |
+| **Fog & aerial perspective** | 32³ froxel volume (256 KB) · one fullscreen apply over opaque, injected layout for transparents · closed-form exponential height fog · one unified medium set, so extinction can't be double-counted |
 | **Materials** | PBR (Cook-Torrance), Lambert, Toon, Matcap, Emissive, Basic — one portable definition per family, shared by every draw path |
 | **Post** | 16 effects · lifetime-aliased render targets · zero-allocation param arena |
 | **Platform** | Worker rendering via OffscreenCanvas · capability negotiation · zero-copy buffer contracts throughout |
@@ -72,9 +76,14 @@ with no optional features required.
 
 ### Verification status
 
-Every subsystem is pinned by headless tests — **349 checks** across five suites, covering the pure
+Every subsystem is pinned by headless tests — **407 checks** across five suites, covering the pure
 math, every generated WGSL module, and system wiring through mock devices. Run with
 `npm run test:visibility · test:shadows · test:environment · test:geometry · test:post`.
+
+Environment alone is **81 checks** across seven files (`test:environment`), because most of what it
+does is math that a screenshot cannot falsify: phase functions that must integrate to 1, LUT
+parameterizations that must round-trip, a slice-accumulated volume whose segments must compose, and
+CPU mirrors of GPU kernels that are pinned against invariants rather than against each other.
 
 The **GPU integration harnesses have not been run in a browser yet**, and there is currently one only
 for shadows (`test/shadows-gpu/`). The maths is verified; the pixels are not. That is the next
@@ -82,10 +91,10 @@ milestone, not a footnote.
 
 ### Not in the box (yet)
 
-Deferred / visibility-buffer shading · TAA and motion blur · volumetric fog · virtualized geometry
-(cluster-LOD streaming) · virtual shadow maps · leak-free DDGI probe visibility · compute skinning.
-All planned and specced — see the [roadmap](./docs/roadmap.md) and
-[architecture tree](./docs/architecture-tree.md).
+Deferred / visibility-buffer shading · TAA and motion blur · clouds · light injection and shadowed
+volumetrics into the froxel volume · virtualized geometry (cluster-LOD streaming) · virtual shadow
+maps · leak-free DDGI probe visibility · compute skinning. All planned and specced — see the
+[roadmap](./docs/roadmap.md) and [architecture tree](./docs/architecture-tree.md).
 
 ---
 
@@ -149,23 +158,69 @@ the map. Bias is applied on the caster in the depth-only vertex shader. Receiver
 into `attenuation` — so Lambert, Toon and PBR all gain shadows with no material edits.
 
 ### `null-graph/environment`
-Indirect lighting — the half of the lighting equation that isn't a light. **Phase 1** replaces the
-hardcoded ambient constant with the split-sum IBL model: a GGX-prefiltered environment cube (with
-solid-angle mip selection, so a sun disc doesn't shatter into fireflies at mid roughness), a
-split-sum BRDF LUT, and an SH-L2 irradiance projection that fits in 27 floats instead of a cubemap
-— which is what leaves binding budget for Phase 2. Sources are an equirect HDR, a procedural sky
-(zero assets), or precomputed coefficients from a Worker.
+The largest module in the engine, and it covers two branches that meet in the middle: **where
+indirect light comes from**, and **what the air does to it**.
 
-**Phase 2** makes it vary through space: an SH-L1 **irradiance volume** sampled by hardware
-trilinear filtering (the 8-probe blend is one `textureSampleLevel`), filled by **GPU probe capture**
-— the shadow atlas architecture rendered in colour, amortized at `probesPerFrame`. Because each
-capture shades against the *previous* volume, bounce light accumulates: **multi-bounce global
-illumination that converges over a few refresh cycles**, with no ray tracing and no second data
-structure. Local **reflection probes** with parallax-corrected box proxies handle specular, blending
-to the global cube so a scene with no probes degrades exactly to Phase 1.
+#### Indirect lighting
 
-Both phases implement the *same* two WGSL functions, so swapping global IBL for spatial probes costs
-zero material edits.
+**IBL** replaces the hardcoded ambient constant with the split-sum model: a GGX-prefiltered
+environment cube (with solid-angle mip selection, so a sun disc doesn't shatter into fireflies at mid
+roughness), a split-sum BRDF LUT, and an SH-L2 irradiance projection that fits in 27 floats instead
+of a cubemap — which is what leaves binding budget for everything after it. Sources are an equirect
+HDR, a procedural sky (zero assets), or precomputed coefficients from a Worker.
+
+**Probes** make it vary through space: an SH-L1 **irradiance volume** sampled by hardware trilinear
+filtering (the 8-probe blend is one `textureSampleLevel`), filled by **GPU probe capture** — the
+shadow atlas architecture rendered in colour, amortized at `probesPerFrame`. Because each capture
+shades against the *previous* volume, bounce light accumulates: **multi-bounce global illumination
+that converges over a few refresh cycles**, with no ray tracing and no second data structure. Local
+**reflection probes** with parallax-corrected box proxies handle specular, blending to the global
+cube so a scene with no probes degrades exactly to the global IBL path.
+
+Both implement the *same* two WGSL functions, so swapping global IBL for spatial probes costs zero
+material edits.
+
+#### The sky, in five phases
+
+Each phase ships a working sky on its own, and each is a spec before it is code
+([1](./docs/environment-sky-design.md) · [2](./docs/environment-timeofday-design.md) ·
+[3](./docs/environment-night-design.md) · [4](./docs/environment-atmosphere-design.md) ·
+[5](./docs/environment-aerial-design.md)):
+
+1. **`SkySource` — the seam.** A sky is data, not a code path: one interface contributing a WGSL
+   `sampleSky(dir)` that is injected into **both** the IBL bake kernel and the skybox fragment. The
+   sky you are lit by and the sky you see are the same function *by construction*, and the skybox
+   evaluates it per pixel rather than sampling the 128²-per-face prefiltered cube — 0.70° per texel,
+   which is why nothing with angular detail was representable before this landed.
+2. **`TimeOfDay` — one clock.** Sun and moon positions from date, latitude and longitude, driving
+   the directional lights, the shadow cascades, the sky, and auto-exposure together. Nothing else
+   owns the time of day, so nothing can disagree about it.
+3. **Night.** A 9,100-star procedural catalogue with sidereal rotation, moon phase and earthshine,
+   and twilight blending through `SkyComposite`, which crossfades a day source into a night source
+   without either knowing the other exists.
+4. **Physical atmosphere.** Rayleigh, Mie and ozone solved into three filterable `rgba16float` LUTs
+   — transmittance, multiple scattering, and a 192×108 sky view — with an analytic true-size sun
+   disc composited on top. The visible sky is **one texture lookup**, so its cost does not scale with
+   render resolution.
+5. **Aerial perspective & participating media.** A 32³ froxel volume (**256 KB**, ~32,768 texel
+   updates per frame against ~62,000,000 for a per-pixel march at 1080p) holding in-scattered
+   radiance and transmittance from the camera. Applied as one fullscreen pass over opaque geometry —
+   once per pixel, runtime-toggleable, with depth-aware upsampling — and as an injected per-fragment
+   layout for transparents, which have no single depth to reconstruct from. Both emit the *same*
+   `color * T + inScatter` body from one string.
+
+Phase 5 also unifies the media: Rayleigh, Mie, ozone and height fog are four density profiles in
+**one** extinction and **one** in-scatter accumulation, not four systems. That matters because two
+systems each integrating their own medium double-count extinction — and the trap is that the
+transmittances still agree exactly (extinction sums in the exponent), so only the in-scatter is
+wrong, and only when both are enabled. The closed-form `HeightFog` and the froxel volume therefore
+refuse each other at construction, in either order.
+
+Phase 5 carried the branch's only core-engine change, and it is one usage flag:
+`engine.init(canvas, { samplableDepth: true })` adds `TEXTURE_BINDING` to the depth texture. It is
+opt-in because that flag can cost a driver's depth-compression fast path on every frame whether or
+not anything samples it — and because the zero-change fallback, an offscreen pass with your own
+depth attachment, is what a scene using `PostChain` already does.
 
 ### `null-graph/loaders`
 `GLBParser` with resource unpacking, `SkeletonManager`, and an `Animator` for keyframe sampling and
@@ -232,6 +287,11 @@ lists the acceptance tests up front.
 - [Shadows · Phase 2](./docs/shadows-atlas-design.md) — atlas, punctual lights, tile caching, light-view Hi-Z
 - [Lighting · Phase 1](./docs/lighting-ibl-design.md) — IBL: prefiltered env, BRDF LUT, SH irradiance
 - [Lighting · Phase 2](./docs/lighting-probes-design.md) — irradiance volumes, probe capture, reflection probes
+- [Environment · Phase 1](./docs/environment-sky-design.md) — the `SkySource` seam, per-pixel skybox, analytic daylight
+- [Environment · Phase 2](./docs/environment-timeofday-design.md) — the clock; sun/moon → lights, shadows, sky, exposure
+- [Environment · Phase 3](./docs/environment-night-design.md) — stars, moon phase, twilight, `SkyComposite`
+- [Environment · Phase 4](./docs/environment-atmosphere-design.md) — Rayleigh/Mie/ozone LUT chain, multiple scattering
+- [Environment · Phase 5](./docs/environment-aerial-design.md) — froxel aerial perspective, media unification
 - [Post-Processing](./docs/post-processing-design.md) — how the `PostChain` is architected
 - [Post-Processing Presets](./docs/post-presets.md) — ready-made Bloom / SSAO / Tonemap bundles
 - [Transient Pool](./docs/transient-pool.md) — render-target recycling internals
@@ -240,7 +300,7 @@ lists the acceptance tests up front.
 - [Core (`null-graph`)](./docs/api/core.md) · [Core Reference](./docs/api/core-reference.md)
 - [Cameras (`null-graph/cameras`)](./docs/api/cameras.md)
 - [Debug UI (`null-graph/debug-ui`)](./docs/api/debug-ui.md)
-- [Environment (`null-graph/environment`)](./docs/api/environment.md) · [Shader & Buffer Reference](./docs/api/environment-shader-reference.md)
+- [Environment (`null-graph/environment`)](./docs/api/environment.md) · [Physical Atmosphere](./docs/api/atmosphere.md) · [Aerial Perspective & Fog](./docs/api/aerial-perspective.md) · [Time of Day](./docs/api/time-of-day.md) · [Night Sky](./docs/api/night-sky.md) · [Shader & Buffer Reference](./docs/api/environment-shader-reference.md)
 - [Geometry (`null-graph/geometry`)](./docs/api/geometry.md)
 - [Lights (`null-graph/lights`)](./docs/api/lights.md) · [Shader & Compute Reference](./docs/api/lights-shader-reference.md)
 - [Loaders (`null-graph/loaders`)](./docs/api/loaders.md)
@@ -320,9 +380,17 @@ NullGraph is the high-performance rendering backbone for the Axion Engine.
 
 - [x] **Dynamic Global Illumination** — SH-L1 irradiance volumes, GPU probe capture, multi-bounce convergence, parallax-corrected reflection probes
 
+- [x] **Physical Atmosphere** — Rayleigh/Mie/ozone LUT chain, multiple scattering, true-size sun disc, one lookup per sky pixel
+
+- [x] **Time of Day & Night Sky** — astronomical sun/moon, 9,100-star procedural catalogue, moon phase, twilight compositing
+
+- [x] **Aerial Perspective & Participating Media** — 32³ froxel volume, unified height fog, opaque + transparent application paths
+
 - [ ] DDGI per-probe visibility (leak-free probes) — needs bind-group budget reclaimed
 
-- [ ] Volumetric fog & atmospheric scattering
+- [ ] Light injection & shadowed volumetrics into the froxel volume — one binding and a loop; the atlas already exists
+
+- [ ] Clouds — 2D scrolling layer, then volumetric raymarch
 ---
 
 ## Showcase

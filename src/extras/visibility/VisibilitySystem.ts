@@ -432,6 +432,7 @@ export class VisibilitySystem {
             groupIndex,
             lighting: material.lighting,
             indirect: material.indirect,
+            aerial: material.aerial,
             useHalfLambert: material.useHalfLambert,
             useSmoothRamp: material.useSmoothRamp,
         });
