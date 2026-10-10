@@ -32,6 +32,38 @@ var BufferManager = class {
     buffer.unmap();
     return buffer;
   }
+  /**
+   * A `dispatchWorkgroupsIndirect` argument buffer — `count` triples of `[x, y, z]` u32,
+   * writable by a compute stage and readable as dispatch arguments.
+   *
+   * Exists so the correct usage mask is the default path rather than something to remember:
+   * `INDIRECT` alone cannot be filled, `STORAGE` alone cannot be dispatched from, and getting
+   * either wrong fails as a dropped dispatch with no error and a symptom two subsystems away.
+   * `COPY_DST` is included so `preClearBuffers` can reset the triple, which is the ordinary way
+   * a counter-driven stage starts its frame.
+   *
+   * Initialized to `[0, 0, 0]` — a stage whose producer has not run yet dispatches nothing,
+   * which is the safe direction. The alternative, uninitialized memory read as a workgroup
+   * count, is a hang.
+   *
+   * **The producing kernel must clamp.** Nothing here can validate a value the GPU wrote, so
+   * keeping each component at or below `device.limits.maxComputeWorkgroupsPerDimension` is the
+   * kernel's job — `min(computed, cap)` in the shader that writes the triple.
+   */
+  createDispatchIndirectBuffer(count = 1, label) {
+    if (!Number.isInteger(count) || count < 1) {
+      throw new Error(`BufferManager: createDispatchIndirectBuffer count ${count} must be a positive integer.`);
+    }
+    const buffer = this.device.createBuffer({
+      label: label ?? "NullGraph_DispatchIndirect",
+      size: count * 12,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint32Array(buffer.getMappedRange()).fill(0);
+    buffer.unmap();
+    return buffer;
+  }
 };
 
 // src/core/RenderPass.ts
@@ -103,11 +135,25 @@ var ComputeStageNode = class {
    * stage runs exactly as before.
    */
   enabled = true;
+  /**
+   * Buffer holding `[x, y, z]` workgroup counts — see {@link ComputeStageConfig.indirectBuffer}.
+   * Mutable, so a system can retarget a stage at a different count buffer without rebuilding the
+   * pipeline (the same reason `RenderBatch.viewport` is mutable).
+   */
+  indirectBuffer;
+  /** Byte offset into {@link indirectBuffer}. */
+  indirectOffset = 0;
   _dispatchCount;
   constructor(config) {
     this.name = config.name;
     this._dispatchCount = config.dispatchCount || [1, 1, 1];
+    this.indirectBuffer = config.indirectBuffer;
+    this.indirectOffset = config.indirectOffset ?? 0;
     this.preClearBuffers = config.preClearBuffers || [];
+  }
+  /** True when this stage takes its workgroup count from a buffer rather than from the CPU. */
+  get isIndirect() {
+    return this.indirectBuffer !== void 0;
   }
   get dispatchCount() {
     if (typeof this._dispatchCount === "function") {
@@ -124,12 +170,31 @@ var PROGRESSION_FEATURES = [
   "bgra8unorm-storage",
   "dual-source-blending"
 ];
+var HEADLESS_SCREEN_FORMAT = "rgba8unorm";
 var WebGPUContext = class {
   device;
+  /**
+   * The canvas context — `undefined` when the engine was initialised without a canvas, in which
+   * case the main-screen pass renders into {@link screenTexture} instead. Read the frame's
+   * target through {@link getScreenView}, which covers both.
+   */
   context;
   format;
   depthTexture;
   cameraUniformBuffer;
+  /**
+   * The offscreen main-screen target when there is no canvas; `undefined` otherwise. Usage is
+   * `RENDER_ATTACHMENT | COPY_SRC`, so a test or a render-to-PNG tool can read the frame back —
+   * readback itself stays out of the engine (it is legal in a test, forbidden in the frame loop).
+   */
+  screenTexture;
+  screenView;
+  /**
+   * `false` when the device was adopted through `init(…, { device })`. NullGraph never destroys
+   * a device it did not create — the owner (ONNX Runtime, another renderer, a test harness)
+   * still has work on it.
+   */
+  ownsDevice = true;
   /**
    * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
    * (environment-aerial-design.md §9.1). Opt in at {@link init} with `{ samplableDepth: true }`.
@@ -148,41 +213,95 @@ var WebGPUContext = class {
   capabilities;
   width = 1;
   height = 1;
+  /** True when the main-screen pass renders into {@link screenTexture} rather than a canvas. */
+  get isHeadless() {
+    return this.context === void 0;
+  }
   /**
    * Initializes the WebGPU context with fallback-safe feature negotiation.
-   * @param canvas
-   * @param options
+   *
+   * @param canvas The canvas to present to, or `null` to render the main-screen pass into an
+   *   offscreen {@link screenTexture} (Node/Dawn, tests, render-to-PNG). `null` needs
+   *   `options.width` and `options.height`.
+   * @param options See {@link EngineInitOptions}. `options.device` adopts an existing device.
    */
   async init(canvas, options = {}) {
-    if (!navigator.gpu) {
-      throw new Error("WebGPU is not supported on this browser.");
+    validateInitOptions(canvas, options);
+    if (options.device) {
+      this.adoptDevice(options.device, options.desiredFeatures);
+    } else {
+      await this.requestDevice(options);
+    }
+    this.cameraUniformBuffer = this.device.createBuffer({
+      label: "Global Camera Uniform",
+      size: 432,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.width = options.width ?? canvas?.width ?? 1;
+    this.height = options.height ?? canvas?.height ?? 1;
+    this.depthSamplable = options.samplableDepth ?? false;
+    if (canvas) {
+      this.context = canvas.getContext("webgpu");
+      this.format = options.format ?? navigator.gpu.getPreferredCanvasFormat();
+      this.context.configure({
+        device: this.device,
+        format: this.format,
+        alphaMode: "premultiplied"
+      });
+      this.setupDepthTexture(canvas.width, canvas.height);
+    } else {
+      this.format = options.format ?? HEADLESS_SCREEN_FORMAT;
+      this.setupScreenTexture(this.width, this.height);
+      this.setupDepthTexture(this.width, this.height);
+    }
+  }
+  /**
+   * The view the main-screen pass renders into this frame: the canvas's current texture, or the
+   * offscreen {@link screenTexture} when there is no canvas. The offscreen view is created once
+   * per size, so the headless frame path allocates nothing here.
+   */
+  getScreenView() {
+    if (this.context) return this.context.getCurrentTexture().createView();
+    return this.screenView;
+  }
+  resize(width, height) {
+    if (this.device) {
+      this.width = width;
+      this.height = height;
+      if (this.isHeadless) this.setupScreenTexture(width, height);
+      this.setupDepthTexture(width, height);
+    }
+  }
+  /** Request an adapter and a device, negotiating optional features. The canvas-era path, unchanged. */
+  async requestDevice(options) {
+    const gpu = globalThis.navigator?.gpu;
+    if (!gpu) {
+      throw new Error("WebGPU unavailable: navigator.gpu is missing. Install one (Node: Dawn) or pass init(\u2026, { device }).");
     }
     let adapter = null;
     const powerPref = options.powerPreference ?? "high-performance";
     try {
-      adapter = await navigator.gpu.requestAdapter({
+      adapter = await gpu.requestAdapter({
         powerPreference: powerPref
       });
       if (!adapter) {
         console.warn(
           `NullGraph: No adapter found with powerPreference "${powerPref}". Falling back to default.`
         );
-        adapter = await navigator.gpu.requestAdapter();
+        adapter = await gpu.requestAdapter();
       }
     } catch (e) {
       console.warn(
         `NullGraph: Adapter request failed with powerPreference. Falling back to default. Error:`,
         e
       );
-      adapter = await navigator.gpu.requestAdapter();
+      adapter = await gpu.requestAdapter();
     }
     if (!adapter) {
       throw new Error("No appropriate GPU adapter found.");
     }
     const info = adapter.info;
-    console.log(
-      `NullGraph: Using GPU \u2014 ${[info.vendor, info.architecture, info.description].filter(Boolean).join(" ") || "unknown adapter"}`
-    );
+    console.log(`NullGraph: Using GPU \u2014 ${describeAdapter(info)}`);
     const requested = /* @__PURE__ */ new Set();
     if (options.desiredFeatures) {
       for (const feature of options.desiredFeatures) {
@@ -203,30 +322,39 @@ var WebGPUContext = class {
     this.device = await adapter.requestDevice({
       requiredFeatures: [...requested]
     });
+    this.ownsDevice = true;
     this.capabilities = buildCapabilities(this.device, info);
-    this.context = canvas.getContext("webgpu");
-    this.format = navigator.gpu.getPreferredCanvasFormat();
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "premultiplied"
-    });
-    this.cameraUniformBuffer = this.device.createBuffer({
-      label: "Global Camera Uniform",
-      size: 432,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    this.width = options.width ?? canvas.width ?? 1;
-    this.height = options.height ?? canvas.height ?? 1;
-    this.depthSamplable = options.samplableDepth ?? false;
-    this.setupDepthTexture(canvas.width, canvas.height);
   }
-  resize(width, height) {
-    if (this.device) {
-      this.width = width;
-      this.height = height;
-      this.setupDepthTexture(width, height);
+  /**
+   * Adopt a device another library created (ONNX Runtime Web, a test harness, another
+   * renderer). Nothing is negotiated — features were fixed when its owner created it — so the
+   * capability snapshot is simply what the device has. The baseline path needs no optional
+   * feature, so whatever the owner requested is enough to render; it only decides which
+   * accelerated paths light up.
+   */
+  adoptDevice(device, desiredFeatures) {
+    this.device = device;
+    this.ownsDevice = false;
+    if (desiredFeatures) {
+      for (const feature of desiredFeatures) {
+        if (!device.features.has(feature)) {
+          console.warn(`NullGraph: Optional feature "${feature}" is not enabled on the adopted device \u2014 its owner must request it.`);
+        }
+      }
     }
+    const info = device.adapterInfo;
+    console.log(`NullGraph: Adopted an existing GPU device \u2014 ${describeAdapter(info)}`);
+    this.capabilities = buildCapabilities(device, info);
+  }
+  setupScreenTexture(width, height) {
+    if (this.screenTexture) this.screenTexture.destroy();
+    this.screenTexture = this.device.createTexture({
+      label: "NullGraph_Screen",
+      size: [Math.max(1, width), Math.max(1, height)],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+    });
+    this.screenView = this.screenTexture.createView();
   }
   setupDepthTexture(width, height) {
     if (this.depthTexture) this.depthTexture.destroy();
@@ -239,6 +367,31 @@ var WebGPUContext = class {
     });
   }
 };
+function validateInitOptions(canvas, options) {
+  if (options.device) {
+    if (options.powerPreference !== void 0) {
+      throw new Error("NullGraph.init: powerPreference does nothing on an adopted device \u2014 set it where the device is requested.");
+    }
+    if (options.autoNegotiate !== void 0) {
+      throw new Error("NullGraph.init: autoNegotiate does nothing on an adopted device \u2014 its features are fixed; read engine.capabilities.");
+    }
+  }
+  if (!canvas) {
+    const { width, height } = options;
+    if (width === void 0 || height === void 0) {
+      throw new Error("NullGraph.init: headless init (canvas = null) needs options.width and options.height.");
+    }
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new Error(
+        `NullGraph.init: headless screen size must be positive integers, got ${width} x ${height}.`
+      );
+    }
+  }
+}
+function describeAdapter(info) {
+  if (!info) return "unknown adapter";
+  return [info.vendor, info.architecture, info.description].filter(Boolean).join(" ") || "unknown adapter";
+}
 function buildCapabilities(device, info) {
   const enabled = /* @__PURE__ */ new Set();
   for (const f of device.features) enabled.add(f);
@@ -251,13 +404,46 @@ function buildCapabilities(device, info) {
     dualSourceBlending: enabled.has("dual-source-blending"),
     // subgroupMinSize/MaxSize live on GPUAdapterInfo and stay optional until every
     // browser reports them; treat "subgroups off" or "unreported" as 0.
-    subgroupMinSize: subgroups ? info.subgroupMinSize ?? 0 : 0,
-    subgroupMaxSize: subgroups ? info.subgroupMaxSize ?? 0 : 0,
+    subgroupMinSize: subgroups ? info?.subgroupMinSize ?? 0 : 0,
+    subgroupMaxSize: subgroups ? info?.subgroupMaxSize ?? 0 : 0,
     has: (feature) => enabled.has(feature)
   };
 }
 
 // src/core/BatchManager.ts
+var DISPATCH_INDIRECT_BYTES = 12;
+function validateIndirectDispatch(config) {
+  const buffer = config.indirectBuffer;
+  if (!buffer) {
+    if (config.indirectOffset !== void 0) {
+      throw new Error(
+        `ComputeStage "${config.name}": indirectOffset was set without an indirectBuffer. The offset addresses a buffer that does not exist; the stage would dispatch from dispatchCount and silently ignore it.`
+      );
+    }
+    return;
+  }
+  const offset = config.indirectOffset ?? 0;
+  if (!Number.isInteger(offset) || offset < 0 || offset % 4 !== 0) {
+    throw new Error(
+      `ComputeStage "${config.name}": indirectOffset ${offset} must be a non-negative multiple of 4 \u2014 the dispatch arguments are three u32.`
+    );
+  }
+  if ((buffer.usage & GPUBufferUsage.INDIRECT) === 0) {
+    throw new Error(
+      `ComputeStage "${config.name}": indirectBuffer lacks GPUBufferUsage.INDIRECT, so the dispatch cannot read its workgroup count. Allocate it with bufferManager.createDispatchIndirectBuffer(), or add INDIRECT | STORAGE to its usage.`
+    );
+  }
+  if ((buffer.usage & GPUBufferUsage.STORAGE) === 0 && (buffer.usage & GPUBufferUsage.COPY_DST) === 0) {
+    throw new Error(
+      `ComputeStage "${config.name}": indirectBuffer has neither STORAGE nor COPY_DST usage, so nothing can ever write its workgroup count and the dispatch is permanently zero. Add STORAGE for a compute stage to fill it, or COPY_DST to write it from the CPU.`
+    );
+  }
+  if (buffer.size < offset + DISPATCH_INDIRECT_BYTES) {
+    throw new Error(
+      `ComputeStage "${config.name}": indirectBuffer is ${buffer.size} bytes; reading three u32 at offset ${offset} needs ${offset + DISPATCH_INDIRECT_BYTES}.`
+    );
+  }
+}
 var BatchManager = class {
   constructor(ctx) {
     this.ctx = ctx;
@@ -278,7 +464,8 @@ var BatchManager = class {
         );
       }
     }
-    const shaderModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+    const label = config.label ?? `${pass.name} #${pass.batches.length}`;
+    const shaderModule = this.ctx.device.createShaderModule({ label, code: config.shaderCode });
     const formats = config.depthOnly ? [] : config.targetFormats || [config.targetFormat || this.ctx.format];
     const colorTargets = formats.map((fmt) => {
       const target = { format: fmt };
@@ -289,6 +476,7 @@ var BatchManager = class {
     });
     const expectsDepth = pass.depthStencilAttachment !== void 0 || pass.isMainScreenPass;
     batch.pipeline = this.ctx.device.createRenderPipeline({
+      label,
       layout: "auto",
       vertex: {
         module: shaderModule,
@@ -345,9 +533,11 @@ var BatchManager = class {
    * NEW: Explicitly create a separate, global compute execution stage.
    */
   createComputeStage(config) {
+    validateIndirectDispatch(config);
     const stage = new ComputeStageNode(config);
-    const computeModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+    const computeModule = this.ctx.device.createShaderModule({ label: config.name, code: config.shaderCode });
     stage.computePipeline = this.ctx.device.createComputePipeline({
+      label: config.name,
       layout: "auto",
       compute: { module: computeModule, entryPoint: "cs_main" }
     });
@@ -443,8 +633,12 @@ var RenderPipeline = class {
           const index = parseInt(groupIndexStr, 10);
           activeComputePass.setBindGroup(index, node.customBindGroups[index]);
         }
-        const counts = node.dispatchCount;
-        activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
+        if (node.indirectBuffer) {
+          activeComputePass.dispatchWorkgroupsIndirect(node.indirectBuffer, node.indirectOffset);
+        } else {
+          const counts = node.dispatchCount;
+          activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
+        }
       } else if (node instanceof RenderPassNode) {
         if (activeComputePass) {
           activeComputePass.end();
@@ -454,7 +648,7 @@ var RenderPipeline = class {
         let depthStencilAttachment = node.depthStencilAttachment;
         if (node.isMainScreenPass) {
           colorAttachments = [{
-            view: this.ctx.context.getCurrentTexture().createView(),
+            view: this.ctx.getScreenView(),
             clearValue: { r: 0.05, g: 0.05, b: 0.05, a: 1 },
             loadOp: "clear",
             storeOp: "store"
@@ -632,13 +826,25 @@ var NullGraph = class {
   passes = [];
   batches = [];
   computeStages = [];
-  canvas;
+  /** The canvas being presented to, or `null` when the engine renders headless. */
+  canvas = null;
   // Engine State
   isDestroyed = false;
+  /**
+   * Acquire (or adopt) a device and set up the main-screen target.
+   *
+   * @param canvas The canvas to present to, or `null` to render headless — the main-screen pass
+   *   then draws into {@link screenTexture}, which is how the engine runs in Node (Dawn), in
+   *   tests, and in render-to-PNG tooling. `null` needs `options.width` and `options.height`.
+   * @param options See {@link EngineInitOptions}. `{ device }` adopts an existing device (e.g.
+   *   ONNX Runtime Web's `await ort.env.webgpu.device`) so the two share buffers with no copy.
+   *   `samplableDepth` is required by `AerialPerspective.getApplyPass()` when it uses the
+   *   engine's own depth buffer.
+   */
   async init(canvas, options = {}) {
     try {
       this.canvas = canvas;
-      const initInfo = await this.ctx.init(canvas, options);
+      await this.ctx.init(canvas, options);
       this.device = this.ctx.device;
       this.bufferManager = new BufferManager(this.device);
       this.batchManager = new BatchManager(this.ctx);
@@ -674,6 +880,15 @@ var NullGraph = class {
    */
   get capabilities() {
     return this.ctx.capabilities;
+  }
+  /**
+   * The offscreen texture the main-screen pass renders into when the engine was initialised
+   * without a canvas (`init(null, …)`); `undefined` with a canvas. `RENDER_ATTACHMENT |
+   * COPY_SRC`, in `engine.ctx.format` (`'rgba8unorm'` unless `options.format` said otherwise),
+   * so a test can `copyTextureToBuffer` the finished frame.
+   */
+  get screenTexture() {
+    return this.ctx.screenTexture;
   }
   clearPasses() {
     this.passes = [];
@@ -816,10 +1031,17 @@ var Camera = class {
   }
 };
 export {
+  BatchManager,
+  BufferManager,
   Camera,
   ComputeStageNode,
+  DISPATCH_INDIRECT_BYTES,
+  HEADLESS_SCREEN_FORMAT,
   NullGraph,
+  PROGRESSION_FEATURES,
   RenderBatch,
-  RenderPassNode
+  RenderPassNode,
+  RenderPipeline,
+  WebGPUContext
 };
 //# sourceMappingURL=index.js.map
