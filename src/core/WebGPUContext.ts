@@ -1,4 +1,4 @@
-import type { GPUCapabilities } from './types';
+import type { EngineInitOptions, GPUCapabilities } from './types';
 
 /**
  * The curated set of forward-looking WebGPU features NullGraph opportunistically enables
@@ -13,12 +13,39 @@ export const PROGRESSION_FEATURES: readonly GPUFeatureName[] = [
     'dual-source-blending',
 ];
 
+/**
+ * Main-screen format when there is no canvas (`init(null, …)`). `rgba8unorm` because it is
+ * core-renderable everywhere and its bytes are already in PNG order — `bgra8unorm`, the usual
+ * canvas preference, would need a swizzle in every readback.
+ */
+export const HEADLESS_SCREEN_FORMAT: GPUTextureFormat = 'rgba8unorm';
+
 export class WebGPUContext {
     public device!: GPUDevice;
-    public context!: GPUCanvasContext;
+    /**
+     * The canvas context — `undefined` when the engine was initialised without a canvas, in which
+     * case the main-screen pass renders into {@link screenTexture} instead. Read the frame's
+     * target through {@link getScreenView}, which covers both.
+     */
+    public context?: GPUCanvasContext;
     public format!: GPUTextureFormat;
     public depthTexture!: GPUTexture;
     public cameraUniformBuffer!: GPUBuffer;
+
+    /**
+     * The offscreen main-screen target when there is no canvas; `undefined` otherwise. Usage is
+     * `RENDER_ATTACHMENT | COPY_SRC`, so a test or a render-to-PNG tool can read the frame back —
+     * readback itself stays out of the engine (it is legal in a test, forbidden in the frame loop).
+     */
+    public screenTexture?: GPUTexture;
+    private screenView?: GPUTextureView;
+
+    /**
+     * `false` when the device was adopted through `init(…, { device })`. NullGraph never destroys
+     * a device it did not create — the owner (ONNX Runtime, another renderer, a test harness)
+     * still has work on it.
+     */
+    public ownsDevice: boolean = true;
 
     /**
      * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
@@ -41,30 +68,94 @@ export class WebGPUContext {
     public width: number = 1;
     public height: number = 1;
 
+    /** True when the main-screen pass renders into {@link screenTexture} rather than a canvas. */
+    public get isHeadless(): boolean {
+        return this.context === undefined;
+    }
+
     /**
      * Initializes the WebGPU context with fallback-safe feature negotiation.
-     * @param canvas
-     * @param options
+     *
+     * @param canvas The canvas to present to, or `null` to render the main-screen pass into an
+     *   offscreen {@link screenTexture} (Node/Dawn, tests, render-to-PNG). `null` needs
+     *   `options.width` and `options.height`.
+     * @param options See {@link EngineInitOptions}. `options.device` adopts an existing device.
      */
     public async init(
-        canvas: HTMLCanvasElement | OffscreenCanvas,
-        options: {
-            desiredFeatures?: GPUFeatureName[],
-            powerPreference?: 'low-power' | 'high-performance',
-            /** Opportunistically enable supported {@link PROGRESSION_FEATURES}. Default `true`. */
-            autoNegotiate?: boolean,
-            width?: number,
-            height?: number,
-            /**
-             * Create the depth texture with `TEXTURE_BINDING` so it can be sampled — see
-             * {@link depthSamplable}. Required by `AerialPerspective.getApplyPass()` on the
-             * main-screen path. Default `false`.
-             */
-            samplableDepth?: boolean
-        } = {}
+        canvas: HTMLCanvasElement | OffscreenCanvas | null,
+        options: EngineInitOptions = {}
     ): Promise<void> {
-        if (!navigator.gpu) {
-            throw new Error("WebGPU is not supported on this browser.");
+        validateInitOptions(canvas, options);
+
+        if (options.device) {
+            this.adoptDevice(options.device, options.desiredFeatures);
+        } else {
+            await this.requestDevice(options);
+        }
+
+        this.cameraUniformBuffer = this.device.createBuffer({
+            label: 'Global Camera Uniform',
+            size: 432,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+
+        this.width = options.width ?? canvas?.width ?? 1;
+        this.height = options.height ?? canvas?.height ?? 1;
+
+        // Stored, not just applied: resize() recreates the texture, and a flag that survived only
+        // until the first window resize would fail exactly once, later, in someone else's session.
+        this.depthSamplable = options.samplableDepth ?? false;
+
+        if (canvas) {
+            this.context = canvas.getContext('webgpu') as GPUCanvasContext;
+            this.format = options.format ?? navigator.gpu.getPreferredCanvasFormat();
+
+            this.context.configure({
+                device: this.device,
+                format: this.format,
+                alphaMode: 'premultiplied'
+            });
+
+            // The canvas's own size, not options.width/height: the depth attachment has to match
+            // the texture getCurrentTexture() returns, and that is sized by the canvas element.
+            this.setupDepthTexture(canvas.width, canvas.height);
+        } else {
+            this.format = options.format ?? HEADLESS_SCREEN_FORMAT;
+            this.setupScreenTexture(this.width, this.height);
+            this.setupDepthTexture(this.width, this.height);
+        }
+    }
+
+    /**
+     * The view the main-screen pass renders into this frame: the canvas's current texture, or the
+     * offscreen {@link screenTexture} when there is no canvas. The offscreen view is created once
+     * per size, so the headless frame path allocates nothing here.
+     */
+    public getScreenView(): GPUTextureView {
+        if (this.context) return this.context.getCurrentTexture().createView();
+        return this.screenView!;
+    }
+
+    public resize(width: number, height: number): void {
+        // Only resize if the device exists (avoids errors during early resize events)
+        if (this.device) {
+            this.width = width;
+            this.height = height;
+            if (this.isHeadless) this.setupScreenTexture(width, height);
+            this.setupDepthTexture(width, height);
+        }
+    }
+
+    /** Request an adapter and a device, negotiating optional features. The canvas-era path, unchanged. */
+    private async requestDevice(options: EngineInitOptions): Promise<void> {
+        // `globalThis.navigator`, not `navigator`: Node before 21 has no navigator at all, and a
+        // bare reference would throw a ReferenceError instead of this message.
+        const gpu = globalThis.navigator?.gpu;
+        // Node: install a WebGPU implementation as navigator.gpu first — test/gpu/node-gpu.mjs
+        // does it with Dawn — or adopt a device. The message names both ways out, briefly: every
+        // byte of a thrown string ships in the bundle.
+        if (!gpu) {
+            throw new Error("WebGPU unavailable: navigator.gpu is missing. Install one (Node: Dawn) or pass init(…, { device }).");
         }
 
         // --- ADAPTER REQUEST WITH POWER PREFERENCE ---
@@ -74,7 +165,7 @@ export class WebGPUContext {
 
         try {
             // Request with power preference hint
-            adapter = await navigator.gpu.requestAdapter({
+            adapter = await gpu.requestAdapter({
                 powerPreference: powerPref
             });
 
@@ -84,7 +175,7 @@ export class WebGPUContext {
                     `NullGraph: No adapter found with powerPreference "${powerPref}". ` +
                     `Falling back to default.`
                 );
-                adapter = await navigator.gpu.requestAdapter();
+                adapter = await gpu.requestAdapter();
             }
         } catch (e) {
             // If requestAdapter itself throws, try without options
@@ -92,7 +183,7 @@ export class WebGPUContext {
                 `NullGraph: Adapter request failed with powerPreference. ` +
                 `Falling back to default. Error:`, e
             );
-            adapter = await navigator.gpu.requestAdapter();
+            adapter = await gpu.requestAdapter();
         }
 
         if (!adapter) {
@@ -102,10 +193,7 @@ export class WebGPUContext {
         // Log which GPU we got for debugging. adapter.info is a structured object;
         // interpolating it directly yields "[object Object]", so read its fields.
         const info = adapter.info;
-        console.log(
-            `NullGraph: Using GPU — ${[info.vendor, info.architecture, info.description]
-                .filter(Boolean).join(' ') || 'unknown adapter'}`
-        );
+        console.log(`NullGraph: Using GPU — ${describeAdapter(info)}`);
 
         // --- FEATURE NEGOTIATION ---
         // Union the caller's explicit desiredFeatures with the modern "progression" set the
@@ -135,43 +223,51 @@ export class WebGPUContext {
         this.device = await adapter.requestDevice({
             requiredFeatures: [...requested]
         });
+        this.ownsDevice = true;
 
         // Snapshot what the device actually granted so downstream systems (e.g. the
         // clustered LightSystem) can select modern code paths without re-probing.
         this.capabilities = buildCapabilities(this.device, info);
-
-        this.context = canvas.getContext('webgpu') as GPUCanvasContext;
-        this.format = navigator.gpu.getPreferredCanvasFormat();
-
-        this.context.configure({
-            device: this.device,
-            format: this.format,
-            alphaMode: 'premultiplied'
-        });
-
-        this.cameraUniformBuffer = this.device.createBuffer({
-            label: 'Global Camera Uniform',
-            size: 432,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
-
-        this.width = options.width ?? canvas.width ?? 1;
-        this.height = options.height ?? canvas.height ?? 1;
-
-        // Stored, not just applied: resize() recreates the texture, and a flag that survived only
-        // until the first window resize would fail exactly once, later, in someone else's session.
-        this.depthSamplable = options.samplableDepth ?? false;
-
-        this.setupDepthTexture(canvas.width, canvas.height);
     }
 
-    public resize(width: number, height: number): void {
-        // Only resize if the device exists (avoids errors during early resize events)
-        if (this.device) {
-            this.width = width;
-            this.height = height;
-            this.setupDepthTexture(width, height);
+    /**
+     * Adopt a device another library created (ONNX Runtime Web, a test harness, another
+     * renderer). Nothing is negotiated — features were fixed when its owner created it — so the
+     * capability snapshot is simply what the device has. The baseline path needs no optional
+     * feature, so whatever the owner requested is enough to render; it only decides which
+     * accelerated paths light up.
+     */
+    private adoptDevice(device: GPUDevice, desiredFeatures?: GPUFeatureName[]): void {
+        this.device = device;
+        this.ownsDevice = false;
+
+        // Same non-fatal policy as the request path: a desired feature is optional by definition.
+        // Features are fixed at device creation, so only the owner can add one.
+        if (desiredFeatures) {
+            for (const feature of desiredFeatures) {
+                if (!device.features.has(feature)) {
+                    console.warn(`NullGraph: Optional feature "${feature}" is not enabled on the adopted device — its owner must request it.`);
+                }
+            }
         }
+
+        // GPUDevice.adapterInfo is how an adopter learns the subgroup sizes it would otherwise
+        // read off the adapter. Where a browser does not expose it yet, subgroup sizes report 0 —
+        // the same "unreported" value buildCapabilities already uses.
+        const info = (device as { adapterInfo?: GPUAdapterInfo }).adapterInfo;
+        console.log(`NullGraph: Adopted an existing GPU device — ${describeAdapter(info)}`);
+        this.capabilities = buildCapabilities(device, info);
+    }
+
+    private setupScreenTexture(width: number, height: number): void {
+        if (this.screenTexture) this.screenTexture.destroy();
+        this.screenTexture = this.device.createTexture({
+            label: 'NullGraph_Screen',
+            size: [Math.max(1, width), Math.max(1, height)],
+            format: this.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+        this.screenView = this.screenTexture.createView();
     }
 
     private setupDepthTexture(width: number, height: number): void {
@@ -194,10 +290,49 @@ export class WebGPUContext {
 }
 
 /**
+ * Refuse option combinations that cannot mean what the caller thinks, naming the option and the
+ * way out (design-principles §2). Every one of these would otherwise be silently ignored.
+ */
+function validateInitOptions(
+    canvas: HTMLCanvasElement | OffscreenCanvas | null,
+    options: EngineInitOptions
+): void {
+    // Kept short on purpose — thrown strings ship in the bundle. The reasoning lives here:
+    // powerPreference only steers an adapter request, and an adopted device's owner already made
+    // it; features are fixed at device creation, so autoNegotiate cannot apply to an adopted one
+    // (engine.capabilities reports what it has); without a canvas nothing gives a screen size.
+    if (options.device) {
+        if (options.powerPreference !== undefined) {
+            throw new Error('NullGraph.init: powerPreference does nothing on an adopted device — set it where the device is requested.');
+        }
+        if (options.autoNegotiate !== undefined) {
+            throw new Error('NullGraph.init: autoNegotiate does nothing on an adopted device — its features are fixed; read engine.capabilities.');
+        }
+    }
+
+    if (!canvas) {
+        const { width, height } = options;
+        if (width === undefined || height === undefined) {
+            throw new Error('NullGraph.init: headless init (canvas = null) needs options.width and options.height.');
+        }
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+            throw new Error(
+                `NullGraph.init: headless screen size must be positive integers, got ` +
+                `${width} x ${height}.`);
+        }
+    }
+}
+
+function describeAdapter(info: GPUAdapterInfo | undefined): string {
+    if (!info) return 'unknown adapter';
+    return [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'unknown adapter';
+}
+
+/**
  * Distills the raw device feature set and adapter subgroup sizes into the structured,
  * queryable {@link GPUCapabilities} snapshot consumed across the engine.
  */
-function buildCapabilities(device: GPUDevice, info: GPUAdapterInfo): GPUCapabilities {
+function buildCapabilities(device: GPUDevice, info: GPUAdapterInfo | undefined): GPUCapabilities {
     const enabled = new Set<GPUFeatureName>();
     for (const f of device.features) enabled.add(f as GPUFeatureName);
 
@@ -210,8 +345,8 @@ function buildCapabilities(device: GPUDevice, info: GPUAdapterInfo): GPUCapabili
         dualSourceBlending: enabled.has('dual-source-blending'),
         // subgroupMinSize/MaxSize live on GPUAdapterInfo and stay optional until every
         // browser reports them; treat "subgroups off" or "unreported" as 0.
-        subgroupMinSize: subgroups ? (info.subgroupMinSize ?? 0) : 0,
-        subgroupMaxSize: subgroups ? (info.subgroupMaxSize ?? 0) : 0,
+        subgroupMinSize: subgroups ? (info?.subgroupMinSize ?? 0) : 0,
+        subgroupMaxSize: subgroups ? (info?.subgroupMaxSize ?? 0) : 0,
         has: (feature) => enabled.has(feature),
     };
 }

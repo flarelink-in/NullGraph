@@ -1,7 +1,7 @@
 import { Camera } from './Camera';
 import { BufferManager } from './BufferManager';
 import { RenderPassConfig, RenderPassNode } from "./RenderPass";
-import { EngineInitResult, PipelineConfig, RenderBatch, ComputeStageConfig, ComputeStageNode, GPUCapabilities } from "./types";
+import { EngineInitOptions, EngineInitResult, PipelineConfig, RenderBatch, ComputeStageConfig, ComputeStageNode, GPUCapabilities } from "./types";
 export * from "./types";
 
 // Internal Modules
@@ -28,34 +28,31 @@ export class NullGraph {
     private batches: RenderBatch[] = [];
     private computeStages: ComputeStageNode[] = [];
 
-    public canvas!: HTMLCanvasElement | OffscreenCanvas;
+    /** The canvas being presented to, or `null` when the engine renders headless. */
+    public canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
     // Engine State
     public isDestroyed: boolean = false;
 
+    /**
+     * Acquire (or adopt) a device and set up the main-screen target.
+     *
+     * @param canvas The canvas to present to, or `null` to render headless — the main-screen pass
+     *   then draws into {@link screenTexture}, which is how the engine runs in Node (Dawn), in
+     *   tests, and in render-to-PNG tooling. `null` needs `options.width` and `options.height`.
+     * @param options See {@link EngineInitOptions}. `{ device }` adopts an existing device (e.g.
+     *   ONNX Runtime Web's `await ort.env.webgpu.device`) so the two share buffers with no copy.
+     *   `samplableDepth` is required by `AerialPerspective.getApplyPass()` when it uses the
+     *   engine's own depth buffer.
+     */
     public async init(
-        canvas: HTMLCanvasElement | OffscreenCanvas,
-        options: {
-            desiredFeatures?: GPUFeatureName[],
-            powerPreference?: 'low-power' | 'high-performance',
-            width?: number,
-            height?: number,
-            /**
-             * Create the depth texture with `TEXTURE_BINDING` so it can be sampled
-             * (environment-aerial-design.md §9.1). Required by
-             * `AerialPerspective.getApplyPass()` when it uses the engine's own depth buffer;
-             * a scene that renders offscreen with its own depth attachment needs nothing here.
-             * Default `false`, because the flag can cost depth-compression fast paths every
-             * frame whether or not anything samples the texture.
-             */
-            samplableDepth?: boolean
-        } = {},
+        canvas: HTMLCanvasElement | OffscreenCanvas | null,
+        options: EngineInitOptions = {},
     ): Promise<EngineInitResult> {
         try {
             this.canvas = canvas;
 
-            // Pass powerPreference through to the WebGPU context
-            const initInfo = await this.ctx.init(canvas, options);
+            await this.ctx.init(canvas, options);
 
             this.device = this.ctx.device;
             this.bufferManager = new BufferManager(this.device);
@@ -98,6 +95,16 @@ export class NullGraph {
      */
     public get capabilities(): GPUCapabilities {
         return this.ctx.capabilities;
+    }
+
+    /**
+     * The offscreen texture the main-screen pass renders into when the engine was initialised
+     * without a canvas (`init(null, …)`); `undefined` with a canvas. `RENDER_ATTACHMENT |
+     * COPY_SRC`, in `engine.ctx.format` (`'rgba8unorm'` unless `options.format` said otherwise),
+     * so a test can `copyTextureToBuffer` the finished frame.
+     */
+    public get screenTexture(): GPUTexture | undefined {
+        return this.ctx.screenTexture;
     }
 
     public clearPasses(): void {
