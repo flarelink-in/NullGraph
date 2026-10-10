@@ -312,7 +312,18 @@ either: **Environment owns the ambient context; Effects owns discrete visual eve
 
 ## 11. Physics → the plugin — **🔌 `null-graph/physics`**
 
-**Status:** brief only. Deliberately *not* scheduled into the core release train.
+**Status:** brief, plus ✍ implementation-ready specs for the first three phases in
+[`docs/physics/`](./physics/) — [P1 · transform bridge](./physics/physics-p1-transform-bridge-design.md) ·
+[P2 · GPU broadphase](./physics/physics-p2-broadphase-design.md) ·
+[P3 · GPU solver](./physics/physics-p3-solver-design.md). Everything past P3 is deferred to its own
+later document ([index](./physics/README.md)). Deliberately *not* scheduled into the core release
+train.
+
+> **One correction the P1 spec makes to this brief.** §11.2 below reads as though the instance
+> record's bounding sphere needs per-frame syncing. It does not: bounds are **object-space** and the
+> cull transforms them itself, scaling the radius by the max axis scale
+> (`visibilityShaders.ts:113-119`). For a rigid body they are a spawn-time write, which makes P1's
+> per-frame path interpolation and nothing else.
 
 ### 11.1 Why physics is a plugin, not a subsystem
 

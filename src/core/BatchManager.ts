@@ -2,6 +2,57 @@ import { RenderPassNode } from "./RenderPass";
 import { Material, PipelineConfig, RenderBatch, ComputeStageConfig, ComputeStageNode } from "./types";
 import { WebGPUContext } from "./WebGPUContext";
 
+/** Bytes in a `dispatchWorkgroupsIndirect` argument triple: three `u32`. */
+export const DISPATCH_INDIRECT_BYTES = 12;
+
+/**
+ * Refuse an indirect dispatch that cannot work, at stage creation, naming the offender.
+ *
+ * Every condition here fails the same silent way at runtime — the dispatch is dropped, the buffer
+ * the kernel was supposed to fill stays at whatever it was, and the symptom appears in whatever
+ * *reads* that buffer, one or two subsystems downstream. "Nothing is drawn" does not point at a
+ * missing usage flag on a dispatch-args buffer.
+ */
+function validateIndirectDispatch(config: ComputeStageConfig): void {
+    const buffer = config.indirectBuffer;
+    if (!buffer) {
+        if (config.indirectOffset !== undefined) {
+            throw new Error(
+                `ComputeStage "${config.name}": indirectOffset was set without an indirectBuffer. ` +
+                `The offset addresses a buffer that does not exist; the stage would dispatch from ` +
+                `dispatchCount and silently ignore it.`);
+        }
+        return;
+    }
+
+    const offset = config.indirectOffset ?? 0;
+    if (!Number.isInteger(offset) || offset < 0 || offset % 4 !== 0) {
+        throw new Error(
+            `ComputeStage "${config.name}": indirectOffset ${offset} must be a non-negative ` +
+            `multiple of 4 — the dispatch arguments are three u32.`);
+    }
+    if ((buffer.usage & GPUBufferUsage.INDIRECT) === 0) {
+        throw new Error(
+            `ComputeStage "${config.name}": indirectBuffer lacks GPUBufferUsage.INDIRECT, so the ` +
+            `dispatch cannot read its workgroup count. Allocate it with ` +
+            `bufferManager.createDispatchIndirectBuffer(), or add INDIRECT | STORAGE to its usage.`);
+    }
+    // Not fatal on its own — a caller may fill the triple with writeBuffer — but a stage taking its
+    // count from a buffer no shader can write is almost always a wiring mistake, and saying so
+    // costs nothing.
+    if ((buffer.usage & GPUBufferUsage.STORAGE) === 0 && (buffer.usage & GPUBufferUsage.COPY_DST) === 0) {
+        throw new Error(
+            `ComputeStage "${config.name}": indirectBuffer has neither STORAGE nor COPY_DST usage, ` +
+            `so nothing can ever write its workgroup count and the dispatch is permanently zero. ` +
+            `Add STORAGE for a compute stage to fill it, or COPY_DST to write it from the CPU.`);
+    }
+    if (buffer.size < offset + DISPATCH_INDIRECT_BYTES) {
+        throw new Error(
+            `ComputeStage "${config.name}": indirectBuffer is ${buffer.size} bytes; reading three ` +
+            `u32 at offset ${offset} needs ${offset + DISPATCH_INDIRECT_BYTES}.`);
+    }
+}
+
 export class BatchManager {
     constructor(private ctx: WebGPUContext) {}
 
@@ -115,6 +166,7 @@ export class BatchManager {
      * NEW: Explicitly create a separate, global compute execution stage.
      */
     public createComputeStage(config: ComputeStageConfig): ComputeStageNode {
+        validateIndirectDispatch(config);
         const stage = new ComputeStageNode(config);
 
         const computeModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
