@@ -213,6 +213,28 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
 6. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 7. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
+### After Cycle B — the ONNX/AI product plan (agreed with the user, 2026-10-11)
+
+Positioning: *AI outputs that light, shadow and populate a world, entirely on the user's GPU* —
+model outputs feed engine systems (lights, IBL, shadows, post, instancing), not just point clouds.
+On-device inference = no server cost per user, and private data never leaves the device.
+
+1. **Event photo booth** (on the user's own event-booking platform) — person segmentation + depth
+   put an attendee inside the event's branded 3D set, in front of / behind objects, lit and
+   shadowed; share a photo or 5 s clip. Camera never leaves the device. Most directly monetizable
+   (premium custom sets for organizers). Small segmentation model (~1 MB).
+2. **Batched neural agents** (the showpiece) — agent state in the instance buffer; a compute stage
+   builds every agent's observation into one tensor; one ORT call for all N; a compute stage
+   applies actions. Path: rule-based compute shader → behaviour-cloned tiny MLP (training script
+   provided, no ML background needed) → in-browser evolution. First milestone: 20k agents, one
+   brain, 60 fps, inference time measured. Ideas: live-evolving ecosystem, train-your-swarm game,
+   venue evacuation sim (ties to the event platform).
+3. **Relight your photo** — depth model (Depth Anything V2 Small, Apache-2.0) → relightable surface
+   with real lights, shadows, post. Privacy line: works in airplane mode after first load. A
+   showcase/funnel more than a business; reuses the depth pipeline from (1).
+
+Parked: room-matched lighting for e-commerce (needs market access the user does not have).
+
 ---
 
 ## Gotchas — for whoever picks this up
