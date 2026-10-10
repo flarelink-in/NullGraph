@@ -76,18 +76,31 @@ with no optional features required.
 
 ### Verification status
 
-Every subsystem is pinned by headless tests — **407 checks** across five suites, covering the pure
-math, every generated WGSL module, and system wiring through mock devices. Run with
-`npm run test:visibility · test:shadows · test:environment · test:geometry · test:post`.
+Two layers, one command each:
+
+- **Headless — 428 checks** across six suites, covering the pure math, every generated WGSL
+  module, and system wiring through mock devices:
+  `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post`.
+- **On a real GPU — 41 checks** across five suites, plus a render smoke test of the
+  [quick start](./docs/quick-start.md): `npm run test:gpu` (Node + Dawn — headless, no browser)
+  and `npm run test:gpu:browser` (headless Chrome). The same test files run on both hosts. They
+  measure what a mock cannot: one indirect draw per mesh at 13,000 instances, the GPU cull matching
+  its CPU mirror instance-for-instance, Hi-Z hiding what is behind a wall, shadow cascades moving by
+  whole texels only, a sun disc of the size it was asked for, and an ONNX Runtime output consumed
+  with zero copies.
+
+The first real-device runs ([Cycle A](./docs/handoff.md)) found four engine bugs the headless layer
+could not see, all fixed with regression tests: cascade texel snapping was a no-op (shimmer), Hi-Z
+culled everything on frame 0, destroying a `ShadowSystem` broke every later frame, and a batch
+created after `upload()` drew nothing on its first frame.
 
 Environment alone is **81 checks** across seven files (`test:environment`), because most of what it
 does is math that a screenshot cannot falsify: phase functions that must integrate to 1, LUT
 parameterizations that must round-trip, a slice-accumulated volume whose segments must compose, and
 CPU mirrors of GPU kernels that are pinned against invariants rather than against each other.
 
-The **GPU integration harnesses have not been run in a browser yet**, and there is currently one only
-for shadows (`test/shadows-gpu/`). The maths is verified; the pixels are not. That is the next
-milestone, not a footnote.
+Not yet on a GPU: probe GI (colour bleeding), atmosphere/aerial perspective, post effects, and the
+shadow atlas — see the [handoff](./docs/handoff.md) for what is next.
 
 ### Not in the box (yet)
 
@@ -269,6 +282,7 @@ Real-time telemetry widgets and WebGPU timestamp-query GPU profiling.
 For comprehensive guides and API references, please check our documentation:
 
 ### Guides
+- [Handoff](./docs/handoff.md) — start here when picking up work: current status, decisions, how to run the GPU suites, what is next
 - [Quick Start Guide](./docs/quick-start.md) — get a lit cube on screen
 - [Scene Composition](./docs/scene-composition.md) — how to assemble any scene, end to end
 - [Engine Roadmap](./docs/roadmap.md) — target architecture, release plan, and the WebGPU realities that shape both

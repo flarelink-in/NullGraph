@@ -245,17 +245,23 @@ assumptions do not hold on WebGPU, and pretending otherwise is how a plan rots:
 | Mesh shaders expand meshlets | none | Meshlets are drawn via **index compaction + `drawIndexedIndirect`** (`visibility-design.md` §7), or the meshlet-as-instance vertex-pulling variant. Both are core. |
 | `multiDrawIndexedIndirect` | optional, non-universal | Baseline is **one indirect draw per material** over a compacted index buffer. Multi-draw is a v1.1 *detected* fast path, never the baseline. |
 | Ray tracing | none | The whole RT branch is ⛔ (`roadmap-modules.md` §13). |
-| Indirect dispatch | **core, not yet wired** | The one remaining optional additive change, below. |
+| Indirect dispatch | core, and **now wired** | `ComputeStageConfig.indirectBuffer` — see below. Consumers move to it one at a time. |
 | Bind groups are plentiful | **`maxBindGroups: 4`** | §6.1 — the budget is fully spent, and it is the hardest constraint in the plan. |
 | Atomic floats for solvers | **no `atomic<f32>` in WGSL** | Any GPU accumulation (SH projection, physics contacts) uses a tiled reduction, fixed-point, or Jacobi iteration. Shapes the physics solver directly. |
 | Readback is cheap | it is a pipeline stall | Nothing reads GPU counts back in the frame loop. Dispatches cover CPU-known caps with idle threads early-outing; physics queries are deliberately one frame late. |
 
-**The one remaining engine change** (optional, an efficiency step, not correctness): expose
-**indirect dispatch**. Today `RenderPipeline` calls `dispatchWorkgroups(x,y,z)` from
-`node.dispatchCount` (`RenderPipeline.ts:58-59`) — a CPU-known count. Two-phase culling, per-view
-shadow culls, and probe capture all over-dispatch to cover a GPU-side count. Adding
-`dispatchWorkgroupsIndirect` support to `ComputeStageNode` removes that waste. Specced in
-`visibility-design.md` §11.
+**Indirect dispatch — shipped, consumers pending.** `ComputeStageConfig` now takes an
+`indirectBuffer` (three `u32`, `[x, y, z]`) and `RenderPipeline` issues
+`dispatchWorkgroupsIndirect` when one is present; `bufferManager.createDispatchIndirectBuffer()`
+allocates it with the `INDIRECT | STORAGE | COPY_DST` mask, and `createComputeStage` refuses a
+buffer missing a required flag rather than dropping the dispatch silently.
+
+**The primitive is done; the waste is not gone yet.** Two-phase culling, per-view shadow culls, and
+probe capture still over-dispatch against CPU-known caps, because moving each one means its
+*producer* kernel must write its own dispatch triple — and clamp it to
+`maxComputeWorkgroupsPerDimension`, since nothing on the CPU can validate a GPU-written count.
+That is per-consumer work and each can move independently, which is why this is listed as wired
+rather than finished.
 
 Everything else in flight — storage buffers, atomics, `INDEX | STORAGE` buffers, `r32float` and
 `rgba16float` storage textures, cube and 3D views, `drawIndexedIndirect` — is core WebGPU and
@@ -348,8 +354,8 @@ geometry inherit it.
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | Draw calls proportional to **material/mesh count, not instance count** | ✅ by construction — one `drawIndexedIndirect` per mesh (instance tier) / per material (meshlet tier). Numeric assertion needs the GPU harness (visibility-design §10 T2). |
-| 2 | Geometry behind other geometry is **not drawn** (Hi-Z) | ✅ implemented; the numeric scene test (§10 T4) awaits a browser harness. |
+| 1 | Draw calls proportional to **material/mesh count, not instance count** | ✅ **measured on a GPU** — 2 indirect draws for 2 meshes at both 1,000 and 13,000 instances, counted on the engine's own encoder; the GPU cull keeps exactly the instances the CPU mirror keeps (`test/visibility-gpu` V1, V2). |
+| 2 | Geometry behind other geometry is **not drawn** (Hi-Z) | ✅ **measured on a GPU** — 400 spheres behind a wall culled, 25 in front kept, all 425 back when the wall moves (V3b, V3c). The run also found frame 0 culling *everything*; fixed (V3a). |
 | 3 | Culling driven from **worker-fillable** buffers, **no per-frame allocation** | ✅ `InstanceBuffer` + `setInstances` adopt by reference. |
 | 4 | Baseline on **core WebGPU**; optional features only accelerate | ✅ no feature gates anywhere. |
 | 5 | **No core-engine changes** for the draw path | ✅ `src/core/` untouched by v1.0.5. |
@@ -360,12 +366,12 @@ geometry inherit it.
 |---|---|---|
 | 1 | Caster culling reuses the visibility chain, not a copy of it | ✅ a cascade fills the same 108-float `Camera`; `CULL_CORE_WGSL` unmodified. |
 | 2 | Stock materials gain shadows with **zero edits** | ✅ the `getIncidentLight` decorator; Lambert/Toon/PBR all unchanged. |
-| 3 | Cascades do not shimmer on rotation or crawl on translation | ✅ sphere fit + texel snap, pinned headless (U2, U3). |
+| 3 | Cascades do not shimmer on rotation or crawl on translation | ✅ **since Cycle A.** The snap was a no-op (its frame's eye sat at the cascade centre) and U3 passed tautologically; the first GPU run measured a 0.31-texel slide per degree of yaw. Fixed; U3 now measures in a fixed frame and `test/shadows-gpu` T4 shows whole-texel moves with 0 mismatched texels. |
 | 4 | Every core addition is **additive and inert by default** | ✅ five fields, all optional; all pre-existing tests pass untouched. |
 | 5 | A cached tile costs **neither a draw nor a cull** | ✅ viewport + `enabled` set together (U12). |
 | 6 | The frame path allocates nothing | ✅ measured 0 typed-array constructions per frame. |
-| 7 | Numeric proof of the visual gates (acne, peter-panning, seams, leaks) | ◻ needs the browser harness (`test/shadows-gpu/`). |
+| 7 | Numeric proof of the visual gates (acne, peter-panning, seams, leaks) | ◐ seams (T5a–c), caster depth range (T3), shadow presence (T1) and beyond-distance (T7) measured on a GPU; peter-panning and leaks not yet. |
 
-**Standing gap across both:** the GPU harnesses exist but need a browser run. Everything expressible
-as pure math or generated WGSL is already covered headless by `npm run test:visibility` and
-`npm run test:shadows`.
+**The GPU layer now runs.** `npm run test:gpu` (Node + Dawn) and `npm run test:gpu:browser`
+(headless Chrome) execute every harness on a real device and fail on any uncaptured WebGPU error;
+both are green. See [`handoff.md`](./handoff.md) for the run log and what is not covered yet.

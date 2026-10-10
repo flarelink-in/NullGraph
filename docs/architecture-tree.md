@@ -32,7 +32,7 @@ has without being squeezed into a single page-wide diagram.
 | [7](#7-lighting) | Lighting | `null-graph/lights` | ✅ |
 | [8](#8-environment) | Environment | `null-graph/environment` | ◐ · sky Phases 1–5 ✅, clouds/weather/wind ◻ |
 | [9](#9-effects) | Effects | `null-graph/effects` | ◻ |
-| [10](#10-physics) | **Physics** | `null-graph/physics` | ◻ 🔌 |
+| [10](#10-physics) | **Physics** | `null-graph/physics` | ◻ 🔌 · [P1–P3 ✍ specced](./physics/) |
 | [11](#11-animation) | Animation | `null-graph/loaders` | ◐ |
 | [12](#12-post) | Post | `null-graph/post` | ✅ |
 | [13](#13-scene--streaming) | Scene & Streaming | — | ◻ |
@@ -70,7 +70,7 @@ Core
 │   ├── Gateable stages (`enabled`)                               ✅ v1.2  skips clears AND dispatch
 │   ├── Dynamic dispatch count (callback form)                    ✅  CPU-known values only
 │   ├── Indirect draw (`drawIndexedIndirect`)                     ✅  the hook v1.0.5 consumed
-│   ├── Indirect dispatch (`dispatchWorkgroupsIndirect`)          ◻ v1.1  removes every over-dispatch
+│   ├── Indirect dispatch (`dispatchWorkgroupsIndirect`)          ✅  exact counts; consumers not yet wired
 │   └── Render bundles (encode once, replay)                      ◻ v2.0  static sub-scenes
 │
 ├── Resources ─────────────────────────────────────────────────── ✅
@@ -101,8 +101,11 @@ Core
     └── Sub-pixel jitter (for TAA)                                ◻ v2.0
 ```
 
-**Next up:** indirect dispatch (v1.1) — every per-view cull currently over-dispatches to cover a
-GPU-side count.
+**Next up:** wiring the existing consumers to indirect dispatch. The primitive ships
+(`ComputeStageConfig.indirectBuffer`, `bufferManager.createDispatchIndirectBuffer`), but
+`VisibilitySystem` and the shadow caster culls still size themselves against a CPU-known cap —
+`ceil(instanceCount / 64)` — because switching them means each cull's *producer* must write its own
+dispatch triple. That is per-consumer work, not core work, and each one can move independently.
 
 ---
 
@@ -623,54 +626,61 @@ designing once with room for velocity and inverse mass.
 ## 10. Physics
 
 **Package:** `null-graph/physics` · **Status:** ◻ 🔌 plugin — ships on its own cadence ·
+**Specs:** [`physics/`](./physics/) — [P1](./physics/physics-p1-transform-bridge-design.md) ·
+[P2](./physics/physics-p2-broadphase-design.md) · [P3](./physics/physics-p3-solver-design.md) ·
 **Brief:** [`roadmap-modules.md`](./roadmap-modules.md) §11
 
 The premise: NullGraph reads transforms out of a flat buffer it does not own, so a physics engine is
 a **producer of transforms** and attaches at the same seam a worker ECS does. **P1 needs no engine
 code at all**, and is a legitimate stopping point for most applications.
 
+P1–P3 are ✍ **designed** — three specs in [`docs/physics/`](./physics/), each a stopping point.
+Everything below them in this tree (queries, character control, integration points, debug draw) is
+◻ **deferred to its own later document**, listed with its reason in
+[`physics/README.md`](./physics/README.md).
+
 ```
 Physics 🔌
 │
-├── P1 · Transform bridge ─────────────────────────── ◻ 🔌  ZERO engine change
+├── P1 · Transform bridge ─────────────────────────── ✍ 🔌  ZERO engine change; P1 spec
 │   ├── Instance buffer binding
-│   │   ├── Model matrix write (floats 0–15)                      ◻ 🔌  the renderer adopts, never copies
-│   │   ├── Bounding sphere sync (floats 16–19)                   ◻ 🔌  desync shows as CULLING artifacts
-│   │   └── Caller-owned backing buffer (one optional ctor param) ◻ 🔌
-│   │       ├── Transferable ArrayBuffer (no headers)             ◻ 🔌  works everywhere
-│   │       └── SharedArrayBuffer                                 ◻ 🔌  OPTIONAL — needs COOP/COEP
+│   │   ├── Model matrix write (floats 0–15)                      ✍ 🔌  the renderer adopts, never copies
+│   │   ├── Bounding sphere sync (floats 16–19)                   ✍ 🔌  desync shows as CULLING artifacts
+│   │   └── Caller-owned backing buffer (one optional ctor param) ✍ 🔌
+│   │       ├── Transferable ArrayBuffer (no headers)             ✍ 🔌  works everywhere
+│   │       └── SharedArrayBuffer                                 ✍ 🔌  OPTIONAL — needs COOP/COEP
 │   ├── Solver adapters
-│   │   ├── Rapier (WASM, worker)                                 ◻ 🔌  third-party stays third-party
-│   │   ├── Jolt (WASM, worker)                                   ◻ 🔌
-│   │   └── Custom / user solver                                  ◻ 🔌  the adapter is the whole API
+│   │   ├── Rapier (WASM, worker)                                 ✍ 🔌  third-party stays third-party
+│   │   ├── Jolt (WASM, worker)                                   ✍ 🔌
+│   │   └── Custom / user solver                                  ✍ 🔌  the adapter is the whole API
 │   ├── Stepping
-│   │   ├── Fixed timestep + accumulator                          ◻ 🔌
-│   │   ├── Render-step interpolation                             ◻ 🔌  without it, everything judders
-│   │   └── Substepping                                           ◻ 🔌
-│   └── Lifecycle (spawn / despawn / sleep sync)                   ◻ 🔌
+│   │   ├── Fixed timestep + accumulator                          ✍ 🔌
+│   │   ├── Render-step interpolation                             ✍ 🔌  without it, everything judders
+│   │   └── Substepping                                           ✍ 🔌
+│   └── Lifecycle (spawn / despawn / sleep sync)                   ✍ 🔌
 │
-├── P2 · GPU broadphase ───────────────────────────── ◻ 🔌
+├── P2 · GPU broadphase ───────────────────────────── ✍ 🔌  P2 spec
 │   ├── Spatial binning
-│   │   ├── Uniform grid (the light binner's kernel shape)        ◻ 🔌  atomics + preClearBuffers
-│   │   ├── Per-cell offset + count                               ◻ 🔌
-│   │   └── Compacted index list                                  ◻ 🔌
-│   ├── Sweep-and-prune on sorted keys                            ◻ 🔌
-│   ├── Pair list → compacted buffer                              ◻ 🔌  the visibility compaction pattern
-│   ├── Midphase from meshlet bounds                              ◻ 🔌  a free one-level BVH per mesh
-│   └── Benefits from indirect dispatch                           ◻ v1.1  exact pair counts
+│   │   ├── Uniform grid (the light binner's kernel shape)        ✍ 🔌  atomics + preClearBuffers
+│   │   ├── Per-cell offset + count                               ✍ 🔌
+│   │   └── Compacted index list                                  ✍ 🔌
+│   ├── Sweep-and-prune on sorted keys                            ◻ 🔌  P2 §12 — needs a GPU sort
+│   ├── Pair list → compacted buffer                              ✍ 🔌  the visibility compaction pattern
+│   ├── Midphase from meshlet bounds                              ◻ 🔌  P2 §8 — filed with its cost
+│   └── Benefits from indirect dispatch                           ✅  the primitive ships; P2 uses it
 │
-├── P3 · GPU solver (XPBD) ────────────────────────── ◻ 🔌
-│   ├── Position-based integration                                ◻ 🔌  compute over a flat buffer
+├── P3 · GPU solver (XPBD) ────────────────────────── ✍ 🔌  P3 spec; particles + cloth only
+│   ├── Position-based integration                                ✍ 🔌  compute over a flat buffer
 │   ├── Constraint projection
-│   │   ├── Jacobi iteration (baseline)                           ◻ 🔌  no atomic<f32> in WGSL
-│   │   ├── Graph-coloured batches                                ◻ 🔌  faster convergence, more setup
-│   │   └── Fixed-point atomics on u32                            ◻ 🔌  the third option
+│   │   ├── Jacobi iteration (baseline)                           ✍ 🔌  no atomic<f32> in WGSL
+│   │   ├── Graph-coloured batches                                ◻ 🔌  P3 §6.2 — optimization over Jacobi
+│   │   └── Fixed-point atomics on u32                            ◻ 🔌  P3 §6.3 — filed, NOT recommended
 │   ├── Bodies
-│   │   ├── Particles / sand / debris                             ◻ 🔌  shares the §9 particle buffer
-│   │   ├── Cloth (distance + bending)                            ◻ 🔌
-│   │   ├── Soft bodies (shape matching)                          ◻ 🔌
-│   │   └── Rigid contacts                                        ◻ 🔌  count over fidelity
-│   └── Collision shapes (sphere, capsule, box, hull, heightfield) ◻ 🔌
+│   │   ├── Particles / sand / debris                             ✍ 🔌  shares the §9 particle buffer
+│   │   ├── Cloth (distance, bending deferred)                    ✍ 🔌  P3 §7
+│   │   ├── Soft bodies (shape matching)                          ◻ 🔌  P3 §12
+│   │   └── Rigid contacts                                        ◻ 🔌  P6 — count over fidelity; P3 §7
+│   └── Collision shapes (sphere, capsule, box, hull, heightfield) ◻ 🔌  P3 is positions only; P3 §7
 │
 ├── Character controller ──────────────────────────── ◻ 🔌  CPU by design
 │   ├── Capsule sweep against a local subset                      ◻ 🔌  must be immediate
@@ -869,7 +879,7 @@ Tooling & Debug
 └── Validation ────────────────────────────────────────────────── ◐
     ├── Headless WGSL parse of every generated module             ✅  in the test suites
     ├── CPU mirrors of GPU math (cullMath, shadowMath)            ✅
-    ├── GPU integration harnesses                                 ◐   exist; need a browser run
+    ├── GPU integration harnesses                                 ◐   run headless (Node+Dawn) + Chrome; 5 suites, GI/atmosphere/post not yet
     └── CI gate                                                   ◻ v1.3  not wired
 ```
 
@@ -975,7 +985,14 @@ pre-pass (§4) want the same flag and can now adopt it without a further core ch
 ### 🔌 Physics plugin — any time
 
 P1 (transform bridge) depends on nothing but the zero-copy instance contract. P2 (GPU broadphase)
-and P3 (XPBD solver) follow, and still need no core change.
+and P3 (XPBD solver) follow, and still need no core change. All three are ✍ specced in
+[`docs/physics/`](./physics/); everything past P3 is deferred to its own later document, listed with
+its reason in [`physics/README.md`](./physics/README.md).
+
+P1 is the one worth reading even if physics is not on your roadmap: it documents what the instance
+buffer's zero-copy contract actually guarantees, and it corrects a live assumption — bounds are
+**object-space** and the cull scales them itself (`visibilityShaders.ts:113-119`), so a rigid body's
+bounds are a spawn-time write, not per-frame sync.
 
 ---
 
@@ -998,7 +1015,7 @@ Every partial entry, with what is actually missing:
 | SSR | 9 | screen-space effects exist | no dedicated SSR effect |
 | Animation sampling | 11 | CPU keyframe interpolation | no blending, no worker path |
 | Depth of field | 12 | Bokeh effect | no true CoC from linear depth |
-| GPU harnesses | 15 | written, structurally valid | need a browser run |
+| GPU harnesses | 15 | shadows, sky, visibility, core, ONNX seam — green on Node+Dawn and Chrome (`npm run test:gpu`, `test:gpu:browser`) | probes/GI, atmosphere, aerial, post, shadow atlas have no GPU suite yet |
 | f16 / bgra8-storage / dual-source | 16 | detected and surfaced | nothing consumes them |
 
 ---

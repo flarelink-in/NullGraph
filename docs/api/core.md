@@ -26,9 +26,60 @@ if (!result.success) throw new Error(result.error);
 ```
 
 `canvas` may be an `HTMLCanvasElement` **or** an `OffscreenCanvas`, so the whole engine can run in a
-Web Worker. After init you can read `engine.width` / `engine.height`, reach shared GPU resources via
-`engine.ctx` (e.g. `engine.ctx.cameraUniformBuffer`), and access `engine.device`,
-`engine.bufferManager`, `engine.textureManager`, and `engine.capabilities`.
+Web Worker — **or `null`**, see below. After init you can read `engine.width` / `engine.height`,
+reach shared GPU resources via `engine.ctx` (e.g. `engine.ctx.cameraUniformBuffer`), and access
+`engine.device`, `engine.bufferManager`, `engine.textureManager`, and `engine.capabilities`.
+
+## Headless rendering & sharing a device
+
+Two options change *where* the engine runs rather than how it renders. Both are additive — a
+canvas-only `init(canvas)` behaves exactly as before.
+
+**No canvas — `init(null, { width, height })`.** The main-screen pass renders into an offscreen
+texture, `engine.screenTexture` (`RENDER_ATTACHMENT | COPY_SRC`, format `engine.ctx.format`:
+`'rgba8unorm'` unless you pass `format`). This is how the engine runs in Node (Dawn), in tests, and
+in the render-to-PNG tool. `width` and `height` are required — there is no canvas to size from —
+and `engine.resize(w, h)` recreates the screen texture. `engine.ctx.isHeadless` tells the two apart.
+
+```ts
+const engine = new NullGraph();
+await engine.init(null, { width: 512, height: 512 });
+// ...build passes; a pass with isMainScreenPass: true draws into engine.screenTexture
+engine.render(sequence);
+// copyTextureToBuffer(engine.screenTexture) to read the frame — in a test, never in the frame loop
+```
+
+**Adopt a device — `init(canvas | null, { device })`.** Use a `GPUDevice` another library already
+created instead of requesting one, so the two share buffers with no copy. The motivating case is
+ONNX Runtime Web: create the session first (ORT owns the device), then adopt it, and bind a model
+output's `tensor.gpuBuffer` directly in a compute stage.
+
+```ts
+import * as ort from 'onnxruntime-web/webgpu';
+
+const session = await ort.InferenceSession.create(model, {
+    executionProviders: ['webgpu'], preferredOutputLocation: 'gpu-buffer',
+});
+await engine.init(canvas, { device: await ort.env.webgpu.device });
+
+const { output } = await session.run({ input });              // stays on the GPU
+engine.setComputePassBindGroup(stage, [{ binding: 0, resource: { buffer: output.gpuBuffer } }, /* … */]);
+engine.render([stage, scenePass]);
+await engine.device.queue.onSubmittedWorkDone();               // keep the tensor alive until read…
+output.dispose();                                              // …then release it
+```
+
+- Adopt in that direction (the runtime owns, NullGraph adopts): the runtime requests the features
+  and limits its kernels need, and NullGraph's baseline needs no optional feature.
+- Nothing is negotiated on an adopted device. `engine.capabilities` reports what it already has
+  (subgroup sizes from `device.adapterInfo` where the browser exposes it); `powerPreference` and
+  `autoNegotiate` are refused with a named error, and a missing `desiredFeatures` entry warns.
+- `engine.ctx.ownsDevice` is `false`, and NullGraph never destroys a device it adopted.
+- Pipelines and shader modules carry labels — a batch's `label` (default `"<pass> #<index>"`) and a
+  compute stage's `name` — so a WebGPU validation error names what caused it.
+
+Executable versions of both: `test/core-gpu` (C1–C6) and `test/onnx-gpu` (O1–O3), run by
+`npm run test:gpu`.
 
 ## Feature Negotiation & Capabilities
 
@@ -209,7 +260,9 @@ Full signatures — the `Camera` methods, the WGSL camera struct, and every `Buf
 | Method | Purpose |
 |---|---|
 | `init(canvas, options)` | Boot WebGPU; returns `{ success, enabledFeatures, error? }`. |
-| `resize(w, h)` | Reallocate the depth texture for a new size. |
+| `init(null, { width, height })` | Boot headless — the main pass renders into `engine.screenTexture`. |
+| `init(canvas \| null, { device })` | Adopt an existing device (e.g. ONNX Runtime's) instead of requesting one. |
+| `resize(w, h)` | Reallocate the depth texture (and the headless screen texture) for a new size. |
 | `createPass(config)` | Create a render pass (screen or offscreen). |
 | `createBatch(pass, config)` | Create a render batch (pipeline + storage buffer). |
 | `createComputeStage(config)` | Create a standalone GPU compute stage. |
@@ -222,5 +275,7 @@ Full signatures — the `Camera` methods, the WGSL camera struct, and every `Buf
 | `render(sequence?)` | Execute the pipeline. |
 
 **Engine properties:** `device`, `ctx` (readonly `WebGPUContext`), `capabilities` (readonly
-`GPUCapabilities`), `bufferManager`, `textureManager`, `width`, `height`, `isDestroyed`. See the
+`GPUCapabilities`), `bufferManager`, `textureManager`, `width`, `height`, `isDestroyed`,
+`screenTexture` (headless only), `canvas` (`null` when headless). On `ctx`: `isHeadless`,
+`ownsDevice`, `getScreenView()`, and `context` (`undefined` when headless). See the
 [Core Reference](./core-reference.md#7-the-shared-context-enginectx).
