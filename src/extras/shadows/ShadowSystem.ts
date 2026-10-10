@@ -1050,6 +1050,19 @@ export class ShadowSystem {
     public get shadowAtlas(): ShadowAtlas | null { return this.atlas; }
 
     public destroy(): void {
+        // Unregister the caster batches from the SHARED VisibilitySystem first. Their cull stages
+        // bind this system's cascade/view camera buffers, destroyed just below; left registered,
+        // every later frame that runs the visibility chain is refused at submit ("used in submit
+        // while destroyed") — the whole frame dropped, long after this system is gone. Phase 1
+        // keeps them per caster; Phase 2 also per view slot (a slot can hold batches for meshes
+        // registered before its light), so the union is what was created.
+        const vis = this.config.visibility;
+        if (vis) {
+            const created = new Set<RenderBatch>();
+            for (const c of this.casters) for (const b of c.batches) created.add(b);
+            for (const s of this.viewSlots) for (const b of s.batches) created.add(b);
+            for (const b of created) vis.removeDrawBatch(b);
+        }
         this.cascadeArray?.destroy();
         for (const b of this.cascadeBuffers) b.destroy();
         for (const b of this.casterParamsBuffers) b.destroy();

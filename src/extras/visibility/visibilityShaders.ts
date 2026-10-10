@@ -140,6 +140,14 @@ fn coneIsBackfacing(axisW: vec3<f32>, cutoff: f32, apexW: vec3<f32>, eye: vec3<f
  * references the pyramid texture binding. Conservative: rejects only when the sphere's nearest
  * point is provably behind the farthest occluder over its footprint. The near-plane guard keeps
  * anything crossing the near plane visible.
+ *
+ * ZERO_IS_NO_HISTORY — a footprint whose max depth is 0 means "no depth history yet", not "a wall
+ * at the near plane". The pyramid and a never-rendered depth source both start zeroed (WebGPU
+ * zero-initializes), and a REAL max-reduced depth is 0 only if geometry touches the near plane
+ * across the whole footprint. Treating zero as occluding made frame 0 — and the first frame after
+ * every resize — cull EVERYTHING, the opposite of visibility-design §5.2 ("frame 0 occludes
+ * nothing"). Found by test/visibility-gpu V3a (Cycle A, docs/handoff.md). Unknown means draw.
+ * (Explained here rather than in the WGSL: comments inside the template ship in the bundle.)
  */
 export const HIZ_OCCLUSION_WGSL = /* wgsl */ `
 fn occludedByHiZ(c: vec3<f32>, r: f32, cam: Camera, screenSize: vec2<f32>, hizMaxLevel: u32, hiz: texture_2d<f32>, hizRect: vec4<f32>) -> bool {
@@ -182,6 +190,7 @@ fn occludedByHiZ(c: vec3<f32>, r: f32, cam: Camera, screenSize: vec2<f32>, hizMa
     occ = max(occ, textureLoad(hiz, vec2<u32>(t0.x, t1.y), level).r);
     occ = max(occ, textureLoad(hiz, t1, level).r);
 
+    if (occ <= 0.0) { return false; } // zero = no depth history: draw (see ZERO_IS_NO_HISTORY)
     return ndcNear > occ;
 }
 `;
