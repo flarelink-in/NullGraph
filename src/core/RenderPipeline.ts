@@ -81,10 +81,11 @@ export class RenderPipeline {
                 let colorAttachments = node.colorAttachments;
                 let depthStencilAttachment = node.depthStencilAttachment;
 
-                // Handle the main presentation swapchain fallback
+                // Handle the main presentation swapchain fallback. The screen is the canvas's
+                // current texture, or the offscreen screen texture when there is no canvas.
                 if (node.isMainScreenPass) {
                     colorAttachments = [{
-                        view: this.ctx.context.getCurrentTexture().createView(),
+                        view: this.ctx.getScreenView(),
                         clearValue: { r: 0.05, g: 0.05, b: 0.05, a: 1.0 },
                         loadOp: 'clear', storeOp: 'store',
                     }];

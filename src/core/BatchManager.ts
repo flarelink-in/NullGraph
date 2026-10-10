@@ -81,7 +81,10 @@ export class BatchManager {
             }
         }
 
-        const shaderModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+        // Labels are free and are what a WebGPU error message quotes back: "[RenderPipeline
+        // "scene #2"]" points at a batch, an unlabelled one points at nothing.
+        const label = config.label ?? `${pass.name} #${pass.batches.length}`;
+        const shaderModule = this.ctx.device.createShaderModule({ label, code: config.shaderCode });
         // depthOnly (shadows-design.md §12.1): no color targets at all — a fragment-less render
         // pipeline is core WebGPU, and a pipeline whose color-target count disagrees with the
         // pass is a validation error.
@@ -98,6 +101,7 @@ export class BatchManager {
         const expectsDepth = pass.depthStencilAttachment !== undefined || pass.isMainScreenPass;
 
         batch.pipeline = this.ctx.device.createRenderPipeline({
+            label,
             layout: 'auto',
             vertex: {
                 module: shaderModule,
@@ -169,8 +173,10 @@ export class BatchManager {
         validateIndirectDispatch(config);
         const stage = new ComputeStageNode(config);
 
-        const computeModule = this.ctx.device.createShaderModule({ code: config.shaderCode });
+        // Labelled with the stage name so a WebGPU validation or compile error names the stage.
+        const computeModule = this.ctx.device.createShaderModule({ label: config.name, code: config.shaderCode });
         stage.computePipeline = this.ctx.device.createComputePipeline({
+            label: config.name,
             layout: 'auto',
             compute: { module: computeModule, entryPoint: 'cs_main' }
         });

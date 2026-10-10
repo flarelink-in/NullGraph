@@ -12,6 +12,11 @@ export interface PipelineConfig {
     strideFloats: number;
     maxInstances: number;
 
+    /**
+     * Name for the shader module and pipeline, quoted back by every WebGPU validation and
+     * compile error that involves them. Defaults to `"<pass name> #<batch index>"`.
+     */
+    label?: string;
 
     // Geometry & Layout
     vertexLayouts?: GPUVertexBufferLayout[];
@@ -101,6 +106,50 @@ export interface EngineInitResult {
     error?: string;
 }
 
+/**
+ * Options for `NullGraph.init(canvas, options)` / `WebGPUContext.init`.
+ *
+ * Two of them change *where the engine runs* rather than how it renders
+ * (docs/handoff.md, Cycle A):
+ *
+ * - **`device`** adopts a `GPUDevice` another library already created — ONNX Runtime Web's
+ *   `await ort.env.webgpu.device` is the motivating case — so both libraries share buffers with
+ *   zero copies. NullGraph never destroys a device it adopted.
+ * - **`canvas = null`** renders the main-screen pass into an offscreen texture
+ *   (`engine.screenTexture`) instead of a canvas, which is what runs the engine in Node (Dawn) and
+ *   in tests. `width` and `height` are then required, because there is no canvas to size from.
+ */
+export interface EngineInitOptions {
+    /** Optional features to request. Missing ones warn rather than fail (they are optional). */
+    desiredFeatures?: GPUFeatureName[];
+    /** Adapter preference. Refused together with `device` — an adopted device has no adapter request. */
+    powerPreference?: 'low-power' | 'high-performance';
+    /**
+     * Opportunistically enable supported `PROGRESSION_FEATURES`. Default `true`. Refused together
+     * with `device`: features are fixed when a device is created, so an adopted device's are
+     * read from `device.features`, never negotiated.
+     */
+    autoNegotiate?: boolean;
+    /** Render size in pixels. Defaults to the canvas size; required when `canvas` is `null`. */
+    width?: number;
+    height?: number;
+    /**
+     * Create the depth texture with `TEXTURE_BINDING` so it can be sampled
+     * (environment-aerial-design.md §9.1). Default `false`, because the flag can cost
+     * depth-compression fast paths every frame whether or not anything samples it.
+     */
+    samplableDepth?: boolean;
+    /**
+     * Adopt this device instead of requesting one. Capabilities are read from what the device
+     * already has; nothing is negotiated, and NullGraph never calls `device.destroy()` on it.
+     */
+    device?: GPUDevice;
+    /**
+     * Main-screen color format. Defaults to `navigator.gpu.getPreferredCanvasFormat()` with a
+     * canvas, and to `'rgba8unorm'` without one (byte order a PNG writer can take as-is).
+     */
+    format?: GPUTextureFormat;
+}
 
 // =========================================================
 // GPU CAPABILITY NEGOTIATION
