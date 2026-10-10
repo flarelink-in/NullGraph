@@ -20,7 +20,7 @@ with regression tests that were watched failing first.
 | Real GPU — Node + Dawn | `npm run test:gpu` | **5 suites + render smoke, 42 checks, 0 WebGPU errors** (~11 s) |
 | Real GPU — headless Chrome | `npm run test:gpu:browser` | **5 suites, 41 checks, 0 WebGPU errors** |
 
-Nothing is committed yet — see [Uncommitted work](#uncommitted-work--suggested-commit-split).
+Committed 2026-10-11 on `master` as six commits, `c76fccc`..`e8c17c6` (not pushed) — see [Commits](#uncommitted-work--suggested-commit-split).
 
 ---
 
@@ -172,7 +172,9 @@ subgroup-accelerated light binning is therefore not exercised by any GPU suite y
 
 ## Uncommitted work — suggested commit split
 
-Nothing from this cycle is committed, and the working tree also holds **in-flight work from before
+**Done — committed as below** (`c76fccc` indirect dispatch · `424e346` core · `c495a7e` fixes · `f43154f` GPU tests · `e623777` docs · `e8c17c6` dist). The README / roadmap / architecture-tree edits from before Cycle A went in with the docs commit; `package.json` went in with the GPU-test commit. Kept for the record:
+
+Nothing from this cycle was committed, and the working tree also held **in-flight work from before
 it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/core/BatchManager.ts`,
 `src/core/RenderPipeline.ts`, `src/core/types.ts`, `docs/roadmap.md`, `docs/architecture-tree.md`.
 
@@ -195,7 +197,7 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
 
 ## Next, in order
 
-1. **Commit** (split above).
+1. ~~Commit~~ — done.
 2. **GI colour-bleeding GPU check** — the README's largest unverified claim. A red wall beside a
    white floor; after N probe-capture refreshes, floor pixels near the wall must be measurably redder
    than far ones, and converge (multi-bounce). Template: `test/visibility-gpu/run.js`.
@@ -241,3 +243,4 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
   Chrome GPU runners, the render CLI, the core/visibility/ONNX suites; ran the shadows and sky
   harnesses for the first time; fixed 4 engine bugs and 8 harness defects; measured bundle cost.
   Decision recorded: agent docs on GitHub, not in the package.
+- **2026-10-11 — Claude.** Committed Cycle A as six commits (your pre-existing indirect-dispatch work first, separately). Rebuilt `dist/` as a dev build — a production build had replaced it in the meantime.
