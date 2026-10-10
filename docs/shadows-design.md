@@ -272,11 +272,19 @@ camera translates:
 
 ```ts
 const texelWorld = (2 * radius) / resolution;
+const lightView  = lookAt([0, 0, 0], lightDir, up);   // FIXED in the world — see below
 let  lightSpaceC = transform(lightView, center);
 lightSpaceC[0] = Math.floor(lightSpaceC[0] / texelWorld) * texelWorld;
 lightSpaceC[1] = Math.floor(lightSpaceC[1] / texelWorld) * texelWorld;
 center = transform(invert(lightView), lightSpaceC);
 ```
+
+**`lightView` must not move with the cascade.** The snap grid is the light view's texel grid, so
+its origin has to be fixed in the world (the world origin is the simplest) while the cascade slides
+across it. The tempting alternative — eye at the cascade `center` — maps `center` to `(0, 0)` every
+frame, so the snap silently does nothing. That shipped: U3 measured it in the same moving frame and
+passed tautologically, and the first real-device run (`test/shadows-gpu` T4) measured a 0.31-texel
+slide per degree of yaw. Fixed in Cycle A ([`handoff.md`](./handoff.md)).
 
 `texelWorld` also goes into `ShadowCascade.texelWorld`, where it sets the caster's normal offset
 (§7.2) and the receiver's filter radius (§8.3) — one number, three consumers, so they can never
@@ -614,7 +622,8 @@ shadows.applyToBatch(sceneBatch);      // binds shadowMaps + sampler + ShadowDat
 ## 10. Test suite
 
 Cascade math is pure logic and runs headless (`npm run test:shadows`), the way `cullMath` does.
-GPU behavior needs a browser harness and is asserted numerically, never by eye.
+GPU behavior is asserted numerically, never by eye, in `test/shadows-gpu` — run on a real device by
+`npm run test:gpu` (Node + Dawn) or `npm run test:gpu:browser` (headless Chrome).
 
 **Pure-logic unit tests (no GPU):**
 
@@ -622,8 +631,10 @@ GPU behavior needs a browser harness and is asserted numerically, never by eye.
   at `λ=0` matches the uniform series, at `λ=1` the logarithmic one, to 1e-6.
 - **U2 — sphere fit is rotation-invariant.** Rotate the camera 360° in 1° steps at a fixed position;
   every cascade's `radius` varies by < 1e-4. A box fit fails this by ~40%.
-- **U3 — texel snapping.** Translate the camera by 0.001-unit steps; the cascade centre in light
-  space moves only in whole `texelWorld` increments (each delta is an integer multiple, ±1e-6).
+- **U3 — texel snapping.** Translate the camera in small steps; the cascade centre, measured in ONE
+  light frame fixed in the world, moves only in whole `texelWorld` increments — and it must move at
+  least once, or the check is vacuous. (Measuring each centre in a frame built from that centre
+  makes every delta 0, which passes for any fit.) The device half is `test/shadows-gpu` T4.
 - **U4 — ZO round-trip.** A point at the cascade centre maps to `z ≈ 0.5` and the eight split
   corners all land in `z ∈ [0,1]`, `xy ∈ [-1,1]`. Swapping `orthoZO` for `ortho` (the NO form)
   fails this — the same trap `Camera.ts:62-66` documents for the perspective case.

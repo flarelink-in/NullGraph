@@ -142,6 +142,18 @@ Both accept `fragmentBody`, `extraBindings`, `materialEntries`, `materialGroupIn
 `targetFormat`. The default fragment is a neutral hemispheric shade — good for bring-up, not for
 real rendering. See §6.
 
+> **`fragmentBody` is a whole entry point, not a body.** Supply the complete function —
+> `@fragment fn fs_main(in: VertexOut) -> @location(0) vec4<f32> { … }` — where `VertexOut` carries
+> `clipPos`, `worldPos`, `worldNormal`, `uv` and `ecsColor`. A bare `return …;` is a WGSL parse
+> error ("statement found outside of function body").
+
+A batch's parameters are written when it is registered, so a batch created after this frame's
+`upload()` still draws on its first frame. To tear one down — a system you destroy while the
+`VisibilitySystem` it shares lives on — call `vis.removeDrawBatch(batch)`: its cull stage leaves
+the chain, its params buffer is released, and the batch leaves its pass. (A cull stage that outlives
+its owner keeps binding the owner's destroyed buffers, and every later frame is refused at submit;
+`ShadowSystem.destroy()` does this for its casters.)
+
 ## 5. Render
 
 ```ts
@@ -229,7 +241,9 @@ texture (`TEXTURE_BINDING`) that the pyramid is rebuilt from each frame.
 - `ctx.depthTexture` is `RENDER_ATTACHMENT`-only and **cannot** be used. Supply a depth pre-pass
   target or the `PostChain` g-buffer depth.
 - The pyramid is built from **last frame's** depth (single-phase), so a fast camera cut can briefly
-  disocclude geometry for one frame. Frame 0 occludes nothing.
+  disocclude geometry for one frame. Frame 0 — and the first frame after a resize — occludes
+  nothing: a depth footprint of exactly 0 (a never-rendered, zero-initialized texture) is treated as
+  "no history". Pinned on a GPU by `test/visibility-gpu` V3a; before Cycle A it culled *everything*.
 - Per-instance opt-out: `INSTANCE_FLAG_NO_OCCLUSION`.
 
 ## 8. Post-Processing Presets Integration
@@ -291,5 +305,6 @@ return [
 - **`maxVisibleMeshletInstances` is not bounds-checked on the GPU.** Under-sizing it overflows the
   compaction buffer. Budget generously.
 - **Testing.** The pure cull math (frustum, sphere, cone, Hi-Z level, LOD) and every generated WGSL
-  module are covered headless by `npm run test:visibility`. The GPU integration scenes
-  (design §10 T1–T7) need a browser/WebGPU harness.
+  module are covered headless by `npm run test:visibility`. On a real device, `test/visibility-gpu`
+  (run by `npm run test:gpu` / `test:gpu:browser`) pins one draw per mesh at any instance count, the
+  GPU cull against the CPU mirror, and Hi-Z occlusion; the meshlet-tier scenes are not written yet.

@@ -324,6 +324,7 @@ is a hard error naming the light.
   clip-space tile remap) **bleeds** into neighbouring tiles and is not the baseline (§6.2).
 - **Testing.** The cascade math, the atlas allocator, the view builders, the cube face select, the
   tap clamp, the slot packing, and every generated WGSL module are covered headless by
-  `npm run test:shadows`. The GPU integration scenes (design §10 T1–T7, atlas-design §10 T1–T6)
-  live in `test/shadows-gpu/` and need a browser/WebGPU harness — serve the repo root and open
-  `/test/shadows-gpu/`.
+  `npm run test:shadows`. The GPU integration scenes live in `test/shadows-gpu/` (T1–T8 — shadow
+  presence, caster culling, depth range, no shimmer/crawl, cascade seams, beyond-distance, the
+  viewport contract) and run on a real device with `npm run test:gpu` (Node + Dawn) or
+  `npm run test:gpu:browser` (headless Chrome). The atlas-design §10 scenes are not written yet.
