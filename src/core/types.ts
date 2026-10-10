@@ -12,6 +12,7 @@ export interface PipelineConfig {
     strideFloats: number;
     maxInstances: number;
 
+
     // Geometry & Layout
     vertexLayouts?: GPUVertexBufferLayout[];
     topology?: GPUPrimitiveTopology;
@@ -100,6 +101,7 @@ export interface EngineInitResult {
     error?: string;
 }
 
+
 // =========================================================
 // GPU CAPABILITY NEGOTIATION
 // =========================================================
@@ -160,6 +162,32 @@ export interface ComputeStageConfig {
 
     // Declarative buffer resets executed exactly before this shader runs
     preClearBuffers?: BufferClearConfig[];
+
+    /**
+     * Take the workgroup count from a **GPU buffer** instead of `dispatchCount`
+     * (`dispatchWorkgroupsIndirect`). Three `u32` — `[x, y, z]` — at `indirectOffset`.
+     *
+     * This is what removes over-dispatch. `dispatchCount` can only be built from values the CPU
+     * knows, so every stage whose real workload is a GPU-side count currently dispatches against a
+     * *cap* and lets idle threads early-out — `VisibilitySystem` dispatches
+     * `ceil(instanceCount / 64)` workgroups when the surviving count is a fraction of that, and a
+     * broadphase pair list has no CPU-known bound at all. With this, a prior compute stage writes
+     * the exact count and the dispatch is exact.
+     *
+     * The buffer needs `INDIRECT` usage, and almost always `STORAGE` too, since the stage that
+     * writes it is a compute shader. `createComputeStage` refuses a buffer missing either
+     * (`BufferManager.createDispatchIndirectBuffer` allocates a correct one).
+     *
+     * **The producing kernel must clamp.** Nothing on the CPU can validate a value the GPU wrote,
+     * so a count above `device.limits.maxComputeWorkgroupsPerDimension` is the caller's to prevent
+     * — see that helper's note.
+     *
+     * Core WebGPU. No feature flag, no detection.
+     */
+    indirectBuffer?: GPUBuffer;
+
+    /** Byte offset of the `[x, y, z]` triple. Must be a multiple of 4. Default 0. */
+    indirectOffset?: number;
 }
 
 export class ComputeStageNode {
@@ -179,14 +207,31 @@ export class ComputeStageNode {
      */
     public enabled: boolean = true;
 
+    /**
+     * Buffer holding `[x, y, z]` workgroup counts — see {@link ComputeStageConfig.indirectBuffer}.
+     * Mutable, so a system can retarget a stage at a different count buffer without rebuilding the
+     * pipeline (the same reason `RenderBatch.viewport` is mutable).
+     */
+    public indirectBuffer?: GPUBuffer;
+
+    /** Byte offset into {@link indirectBuffer}. */
+    public indirectOffset: number = 0;
+
     private _dispatchCount: [number, number, number] | (() => [number, number, number]);
 
     constructor(config: ComputeStageConfig) {
         this.name = config.name;
         this._dispatchCount = config.dispatchCount || [1, 1, 1];
+        this.indirectBuffer = config.indirectBuffer;
+        this.indirectOffset = config.indirectOffset ?? 0;
 
         // Moved into the constructor where config is actively scoped
         this.preClearBuffers = config.preClearBuffers || [];
+    }
+
+    /** True when this stage takes its workgroup count from a buffer rather than from the CPU. */
+    public get isIndirect(): boolean {
+        return this.indirectBuffer !== undefined;
     }
 
     public get dispatchCount(): [number, number, number] {

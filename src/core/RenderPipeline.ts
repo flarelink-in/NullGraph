@@ -55,8 +55,17 @@ export class RenderPipeline {
                     activeComputePass.setBindGroup(index, node.customBindGroups[index]);
                 }
 
-                const counts = node.dispatchCount;
-                activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
+                // Indirect: the workgroup count comes from a buffer a PRIOR stage wrote, so the
+                // dispatch is exact instead of sized against a CPU-known cap. Dispatches within a
+                // compute pass are ordered and a storage write is visible to the next dispatch's
+                // indirect read, which is why this needs no explicit barrier — the same property
+                // consecutive-stage batching already relies on.
+                if (node.indirectBuffer) {
+                    activeComputePass.dispatchWorkgroupsIndirect(node.indirectBuffer, node.indirectOffset);
+                } else {
+                    const counts = node.dispatchCount;
+                    activeComputePass.dispatchWorkgroups(counts[0], counts[1], counts[2]);
+                }
             }
 
                 // =========================================================
