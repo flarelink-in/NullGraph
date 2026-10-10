@@ -258,7 +258,21 @@ box can host it. Not yet verified on Linux — first step is `npm run test:gpu` 
 agents → P2 perception depends on the physical sky/night/fog/shadows; colour genes let camouflage
 evolve → P3 server-scale evolution (idea 1) with browser playback. Per-agent evolved weights fit a
 hand-written WGSL tiny-net kernel better than ORT (which runs one shared set of weights); ORT fits
-a shared brain trained offline. Prior art to study: Madrona batch renderer (Stanford), Isaac Lab
+a shared brain trained offline.
+
+Rendering options for many eyes: (A) multi-view instancing — eye cameras computed on the GPU,
+(eye, object) pairs found through a spatial grid (the physics P2 broadphase grid), one indirect
+draw into an eye atlas, out-of-tile fragments discarded; (B) compute ray-march of a coarse world
+for ≤16×16 eyes (P0's 1D eye is its one-row case). The existing shadow atlas fits the "few
+detailed eyes" end of the dial; it is depth-only and per-view-batch today.
+
+Ideas to keep: asymmetric eyes per species (prey wide/low-res, predators narrow/sharp), eyes as an
+energy-costing gene; day/night as the main lever — nocturnal vs diurnal niches, moon phase, long
+evening shadows as cover, fog ambush, a night-vision-vs-acuity gene, agent-emitted light
+(bioluminescence) via clustered lights. **Catch:** agent eyes must bypass auto-exposure/tone mapping
+(fixed exposure, or exposure as a gene), or night stops being dark to them; compress a day to
+minutes. Defensible pitch: "thousands of agents learning to see — live in your browser, under a
+real sky"; cite Visual Hide and Seek (arXiv 1910.07882) and What if Eye…? (arXiv 2501.15001). Prior art to study: Madrona batch renderer (Stanford), Isaac Lab
 tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites.
 
 ---
