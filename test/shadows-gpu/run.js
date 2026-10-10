@@ -1,40 +1,37 @@
 // GPU integration tests for the ShadowSystem (docs/shadows-design.md §10 T1–T7).
 //
-// These run in a browser (WebGPU) and assert NUMERICALLY, never by eye. `depth24plus` is not
-// buffer-copyable, so readback runs a small compute pass that `textureLoad`s the cascade layer
-// into an f32 storage buffer — legal in a test, forbidden in the frame loop (§10).
+// These assert NUMERICALLY, never by eye. `depth24plus` is not buffer-copyable, so readback runs a
+// small compute pass that `textureLoad`s the cascade layer into an f32 storage buffer — legal in a
+// test, forbidden in the frame loop (§10).
 //
-// Serve the repo root (the dev server does) and open /test/shadows-gpu/:
-//   npm run dev:serve   →   http://localhost:3000/test/shadows-gpu/
-// The page writes a machine-readable summary to #log and `window.__SHADOW_RESULTS__`.
+// Two hosts, one file (test/gpu/harness-env.mjs):
+//   Node/Dawn:  npm run test:gpu          (headless — no browser, no server)
+//   Browser:    npm run dev:serve   →   http://localhost:3000/test/shadows-gpu/
+// Both publish a machine-readable summary on `__SHADOW_RESULTS__`.
 
 import { NullGraph, Camera } from '../../dist/index.js';
 import { VisibilitySystem, InstanceBuffer, INSTANCE_FLOATS, LOD_AUTO } from '../../dist/visibility.js';
 import { MegabufferBuilder, Primitives, StandardLayout } from '../../dist/geometry.js';
 import { LightSystem } from '../../dist/lights.js';
 import { ShadowSystem } from '../../dist/shadows.js';
+import { LambertMaterial } from '../../dist/materials.js';
 import { mat4 } from 'gl-matrix';
+import { harnessEnv } from '../gpu/harness-env.mjs';
 
-const log = (msg) => {
-    document.getElementById('log').textContent += `\n${msg}`;
-    console.log(msg);
-};
-const results = [];
-function check(name, cond, detail = '') {
-    results.push({ name, pass: !!cond, detail });
-    log(`  ${cond ? 'ok  ' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
-}
+const { log, check, fatal, finish, saveImage } = harnessEnv('__SHADOW_RESULTS__');
 
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
-const canvas = document.getElementById('gpu');
+// Headless on BOTH hosts. Every target below is rgba8unorm, and batches default their colour
+// format to the engine's — which is the canvas's preferred format (bgra8unorm) when there is a
+// canvas. Initialised against #gpu, every pipeline here mismatched its own attachments in Chrome;
+// the first browser run failed 5 checks that way. Headless, the engine format is rgba8unorm.
 const engine = new NullGraph();
-const init = await engine.init(canvas, { width: 256, height: 256 });
+const init = await engine.init(null, { width: 256, height: 256 });
 if (!init.success) {
-    log('FATAL: WebGPU init failed — ' + init.error);
-    window.__SHADOW_RESULTS__ = { fatal: init.error };
+    fatal(init.error);
     throw new Error(init.error);
 }
 const device = engine.device;
@@ -73,7 +70,7 @@ async function readCascadeDepth(shadows, layer, resolution) {
 }
 
 /** Render the scene pass to an offscreen rgba8 target and read back the pixels. */
-async function renderScene(shadows, vis, camera, { withShadows = true, extraPasses = [] } = {}) {
+async function renderScene(shadows, vis, camera, { withShadows = true, extraPasses = [], name = 'scene' } = {}) {
     engine.updateCamera(camera);
     shadows.setLight([0, -1, 0]);
     shadows.update(camera);
@@ -88,13 +85,24 @@ async function renderScene(shadows, vis, camera, { withShadows = true, extraPass
 
     const lights = new LightSystem(engine, { technique: 'standard', capacity: { point: 0, directional: 1, spot: 0 } });
     const lightData = new Float32Array(16);
-    lightData.set([0, 0, 0, 2,  1, 1, 1, 1,  0, 1, 0, 0,  0, 0, 0, 0]); // one directional, dir +Y→ travel -Y
+    // One directional light. Floats 8–10 are the direction of TRAVEL (DirectionalLightProxy;
+    // the shader lights along -dir) — so straight down is [0, -1, 0], matching setLight above.
+    // This read [0, 1, 0] before: light travelling UP from under the ground, N·L < 0 everywhere,
+    // and the first real-device run measured ambient only (38/255) both in and out of shadow.
+    lightData.set([0, 0, 0, 2,  1, 1, 1, 1,  0, -1, 0, 0,  0, 0, 0, 0]);
     lights.setRawData(lightData); lights.upload();
 
     const lighting = withShadows ? shadows.wrapLighting(lights) : lights.getShaderLayout();
+    // A real LambertMaterial, not a stub: the lambert fragment declares group 1 as sampler +
+    // albedo + 32-byte params, and a stub that bound an empty group made WebGPU drop the whole
+    // frame's command buffer — shadow passes included — so T1/T3 read zeros and T1b/T5 passed
+    // comparing zero with zero. Caught by the first Node/Dawn run (docs/handoff.md).
     const batch = vis.createInstanceDrawBatch(scenePass, 'ground', 0, {
-        material: { kind: 'lambert', instance: { applyToBatch: (b) => engine.setRenderPassBindGroup(b, [], 1) }, lighting },
+        material: { kind: 'lambert', instance: new LambertMaterial(engine), lighting },
     });
+    // Group 2 is the lights' (roadmap §6.1). Missing, the device refuses the draw with "No bind
+    // group set at group index 2" and drops the frame — the second thing the first run found.
+    lights.applyToBatch(batch);
     if (withShadows) shadows.applyToBatch(batch);
 
     engine.render([...vis.getComputeStages(), ...shadows.getPasses(), scenePass, ...extraPasses]);
@@ -106,6 +114,10 @@ async function renderScene(shadows, vis, camera, { withShadows = true, extraPass
     await read.mapAsync(GPUMapMode.READ);
     const px = new Uint8Array(read.getMappedRange().slice(0));
     read.unmap(); read.destroy(); target.destroy();
+    // This batch was built for one frame; unregister it so its cull stage does not keep running
+    // in every later frame's visibility chain (VisibilitySystem.removeDrawBatch).
+    vis.removeDrawBatch(batch);
+    await saveImage(`shadows-${name}`, px, 256, 256);   // a no-op unless NG_GPU_ARTIFACTS is set
     return px;
 }
 
@@ -153,13 +165,16 @@ camera.updateView([0, 8, 14], [0, 0, 0]);
 // T1 — the shadow exists
 // ---------------------------------------------------------------------------
 {
-    const px = await renderScene(shadows, vis, camera, { withShadows: true });
+    const px = await renderScene(shadows, vis, camera, { withShadows: true, name: 't1-on' });
     const lum = (x, y) => { const i = (y * 256 + x) * 4; return 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]; };
-    const under = lum(128, 150);   // directly under the sphere
-    const beside = lum(180, 150);  // 5 units to the side
+    // The camera looks AT the origin, and the sphere's shadow (straight-down light) is centred on
+    // the origin — so "under the sphere" is the screen centre. This sampled (128, 150) before:
+    // lit ground ~3 units in front of the shadow, which the first saved frame showed at a glance.
+    const under = lum(128, 128);   // the shadow's centre
+    const beside = lum(180, 150);  // lit ground beside it
     check('T1: shadow exists', under < beside * 0.4, `under=${under.toFixed(1)} beside=${beside.toFixed(1)}`);
 
-    const pxNo = await renderScene(shadows, vis, camera, { withShadows: false });
+    const pxNo = await renderScene(shadows, vis, camera, { withShadows: false, name: 't1-off' });
     const lumN = (x, y) => { const i = (y * 256 + x) * 4; return 0.2126 * pxNo[i] + 0.7152 * pxNo[i + 1] + 0.0722 * pxNo[i + 2]; };
     check('T1b: shadows off → the two match within 2%', Math.abs(lumN(128, 150) - lumN(180, 150)) < 2,
         `under=${lumN(128, 150).toFixed(1)} beside=${lumN(180, 150).toFixed(1)}`);
@@ -206,6 +221,9 @@ camera.updateView([0, 8, 14], [0, 0, 0]);
     grazing.registerCaster('ground', 0);
     grazing.setLight([Math.sin(15 * Math.PI / 180), -Math.cos(15 * Math.PI / 180), 0]); // 15° grazing
     grazing.update(camera); vis.upload();
+    // Draw the cascade before reading it. The original never did — it read a never-rendered,
+    // zero-initialised texture (min = max = 0), which only a real-device run could reveal.
+    engine.render([...vis.getComputeStages(), ...grazing.getPasses()]);
     const depth = await readCascadeDepth(grazing, 0, 1024);
     // A clean caster pass: every texel is either the plane's depth or the 1.0 clear — no
     // self-shadow acne band would show as a moiré of intermediate values, which a depth
@@ -218,38 +236,181 @@ camera.updateView([0, 8, 14], [0, 0, 0]);
 }
 
 // ---------------------------------------------------------------------------
+// T4 — no shimmer, no crawl (roadmap §8.2 gate 3, on the device)
+//
+// The headless half (U2, U3) pins the math: a rotation-invariant fit radius and a texel-snapped
+// centre. This pins what the rasterizer then does with it. Render the cascade, nudge the camera,
+// render it again: with snapping, the caster's footprint in the map moves by WHOLE texels only, so
+// the two footprints coincide exactly at some integer shift. Shimmer (a fit radius that breathes
+// with rotation, an unsnapped centre) shows as a fractional centroid shift and edge texels that
+// match at no shift.
+//
+// A dedicated one-cascade system with ONLY the sphere as caster, so the map holds exactly its
+// silhouette on the 1.0 clear. (On the main system the ground casts too and fills the cascade,
+// and the comparison then measures the ground's outline instead — the first attempt did that.)
+// ---------------------------------------------------------------------------
+{
+    const RES = 1024;
+    const stable = new ShadowSystem(engine, {
+        cascades: 1, resolution: RES, shadowDistance: 30, casterExtrusion: 60,
+        constantBias: 0.0015, normalOffsetTexels: 1.5, pcfRadius: 1, blendTexels: 4.0, visibility: vis,
+    });
+    stable.registerCaster('sphere', 1);
+    stable.setLight([0, -1, 0]);
+
+    async function casterMask(cam) {
+        stable.update(cam);
+        vis.upload();
+        engine.render([...vis.getComputeStages(), ...stable.getPasses()]);
+        const depth = await readCascadeDepth(stable, 0, RES);
+        const mask = new Uint8Array(RES * RES);
+        let n = 0, sx = 0, sy = 0;
+        for (let i = 0; i < depth.length; i++) {
+            if (depth[i] < 0.999) { mask[i] = 1; n++; sx += i % RES; sy += Math.floor(i / RES); }
+        }
+        return { mask, n, cx: sx / n, cy: sy / n };
+    }
+    /** Texels that disagree when `b` is compared at an integer offset (dx, dy) from `a`. */
+    function mismatches(a, b, dx, dy) {
+        let bad = 0;
+        for (let y = 0; y < RES; y++) for (let x = 0; x < RES; x++) {
+            const xb = x + dx, yb = y + dy;
+            const vb = (xb >= 0 && xb < RES && yb >= 0 && yb < RES) ? b.mask[yb * RES + xb] : 0;
+            if (a.mask[y * RES + x] !== vb) bad++;
+        }
+        return bad;
+    }
+    function compare(a, b) {
+        const fx = b.cx - a.cx, fy = b.cy - a.cy;
+        const dx = Math.round(fx), dy = Math.round(fy);
+        return { dx, dy, frac: Math.max(Math.abs(fx - dx), Math.abs(fy - dy)), bad: mismatches(a, b, dx, dy) };
+    }
+
+    const eye = [0, 8, 14], target = [0, 0, 0];
+    const base = new Camera(75, 1, 0.1, 200); base.updateView(eye, target);
+    const A = await casterMask(base);
+
+    // (a) yaw the camera 1° about its own position — the cascade's centre swings (~6 texels at
+    //     this distance); its texel size must not change, and its content must land on whole texels.
+    const yaw = 1 * Math.PI / 180, d = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+    const yawed = new Camera(75, 1, 0.1, 200);
+    yawed.updateView(eye, [eye[0] + d[0] * Math.cos(yaw) + d[2] * Math.sin(yaw), eye[1] + d[1],
+        eye[2] - d[0] * Math.sin(yaw) + d[2] * Math.cos(yaw)]);
+    const rot = compare(A, await casterMask(yawed));
+    check('T4a: a 1° camera yaw moves the cascade by whole texels only — no shimmer',
+        A.n > 300 && rot.bad === 0 && rot.frac < 1e-6 && (rot.dx !== 0 || rot.dy !== 0),
+        `caster=${A.n} texels, moved (${rot.dx}, ${rot.dy}) texels, fractional part ${rot.frac.toExponential(1)}, ` +
+        `${rot.bad} mismatched texels at that shift (a zero move would make this check vacuous)`);
+
+    // (b) slide the camera sideways by a fraction of a texel's world size (~0.045 here) — the
+    //     content may stay or jump a whole texel, never slide by part of one.
+    const slid = new Camera(75, 1, 0.1, 200);
+    slid.updateView([eye[0] + 0.013, eye[1], eye[2]], [target[0] + 0.013, target[1], target[2]]);
+    const tr = compare(A, await casterMask(slid));
+    check('T4b: a sub-texel camera translation never moves the caster by part of a texel — no crawl',
+        tr.bad === 0 && tr.frac < 1e-6,
+        `moved (${tr.dx}, ${tr.dy}) texels, fractional part ${tr.frac.toExponential(1)}, ${tr.bad} mismatched texels`);
+
+    stable.destroy();   // safe on a shared VisibilitySystem since removeDrawBatch (lifecycle fix)
+}
+
+// ---------------------------------------------------------------------------
 // T5 — cascade seam (blend band removes the resolution change)
 // ---------------------------------------------------------------------------
 {
-    const cam = new Camera(75, 1, 0.1, 200);
-    cam.updateView([0, 30, 0.1], [0, 0, 0]); // straight down, straddling cascade 0/1
-    const px = await renderScene(shadows, vis, cam, { withShadows: true });
-    const split = shadows.fittedCascades[0].splitFar;
-    // Sample a horizontal line across the seam; no adjacent pair should differ by >20%.
-    let maxJump = 0;
-    for (let x = 40; x < 216; x++) {
-        const i0 = (128 * 256 + x) * 4, i1 = (128 * 256 + x + 1) * 4;
-        const a = px[i0], b = px[i1];
-        if (a > 4 && b > 4) maxJump = Math.max(maxJump, Math.abs(a - b) / Math.max(a, b));
+    // A shadow STRIP that runs from near the camera to past the first split — 25 overlapping
+    // spheres in a line under a straight-down light — seen by an oblique camera, so view depth
+    // grows along the strip and crosses splitFar[0]. A seam artefact (a cascade-selection gap, a
+    // broken blend band) shows as LIT pixels inside a strip that must be dark end to end; a false
+    // shadow band shows as DARK pixels on the lit line beside it.
+    //
+    // Rebuilt after the first real-device run. The original looked straight down — every ground
+    // point then sits at the same view depth, so no split was ever on screen — and its sample row
+    // crossed the caster's own shadow, whose edge it reported as a 75% "seam".
+    const strip = new InstanceBuffer(26);
+    strip.write(0, mat4.create(), [0, 0, 0, 20], 0);
+    const m = mat4.create();
+    for (let k = 0; k < 25; k++) {
+        const z = 5 - k * 0.5;
+        mat4.fromTranslation(m, [0, 3, z]);
+        strip.write(k + 1, m, [0, 0, 0, 1], 1);   // bounds are LOCAL — the cull applies the model
     }
-    check('T5: no cascade seam >20% across the split', maxJump <= 0.20, `maxJump=${(maxJump * 100).toFixed(1)}% split=${split.toFixed(2)}`);
+    vis.setInstances(strip.data, 26);
+
+    const cam = new Camera(75, 1, 0.1, 200);
+    // Low and oblique: the strip's visible near end sits at view depth ≈4, well inside cascade 0
+    // (splitFar ≈ 6.3), so both sides of the split carry dozens of samples, not a handful.
+    cam.updateView([0, 4, 7], [0, 0, -6]);
+    const px = await renderScene(shadows, vis, cam, { withShadows: true, name: 't5-seam' });
+    const split = shadows.fittedCascades[0].splitFar;
+
+    const lumAt = (x, y) => { const i = (y * 256 + x) * 4; return 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]; };
+    /** World point → pixel, through the same view-projection the frame was rendered with. */
+    const project = (p) => {
+        const v = cam.viewProjectionMatrix;
+        const cx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12];
+        const cy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13];
+        const cw = v[3] * p[0] + v[7] * p[1] + v[11] * p[2] + v[15];
+        return [Math.floor((cx / cw * 0.5 + 0.5) * 256), Math.floor((0.5 - cy / cw * 0.5) * 256)];
+    };
+    const viewDepth = (p) => { const v = cam.viewMatrix; return -(v[2] * p[0] + v[6] * p[1] + v[10] * p[2] + v[14]); };
+
+    /** Walk the ground line x = `x0` from z = 4 to z = -6; collect on-screen luminance + depth range. */
+    function walk(x0) {
+        const out = { lums: [], minD: Infinity, maxD: -Infinity };
+        for (let z = 4.0; z >= -6.0; z -= 0.05) {
+            const p = [x0, 0, z];
+            const [x, y] = project(p);
+            if (x < 0 || x > 255 || y < 0 || y > 255) continue;
+            out.lums.push(lumAt(x, y));
+            const d = viewDepth(p);
+            out.minD = Math.min(out.minD, d); out.maxD = Math.max(out.maxD, d);
+        }
+        return out;
+    }
+    const inStrip = walk(0);      // centreline of the shadow: must stay dark
+    const beside = walk(4);       // 3 units clear of it: must stay lit
+
+    check('T5a: the strip straddles the first split (the check below can fail)',
+        inStrip.minD < split - 1 && inStrip.maxD > split + 1 && inStrip.lums.length > 50,
+        `view depth ${inStrip.minD.toFixed(2)}–${inStrip.maxD.toFixed(2)} vs splitFar[0]=${split.toFixed(2)}, ` +
+        `${inStrip.lums.length} samples`);
+    const lit = inStrip.lums.filter(l => l > 128).length;
+    check('T5b: no lit gap along a shadow that crosses the cascade split',
+        lit === 0, `${lit}/${inStrip.lums.length} samples lit; brightest=${Math.max(...inStrip.lums).toFixed(0)} ` +
+        `(shadowed ≈ 38, lit ≈ 255)`);
+    const dark = beside.lums.filter(l => l < 128).length;
+    check('T5c: no false shadow band on lit ground across the split',
+        beside.lums.length > 50 && dark === 0,
+        `${dark}/${beside.lums.length} samples dark; darkest=${Math.min(...beside.lums).toFixed(0)}`);
+    vis.setInstances(instances.data, 2);
 }
 
 // ---------------------------------------------------------------------------
 // T7 — beyond shadowDistance is fully lit
 // ---------------------------------------------------------------------------
 {
+    // A ground tile and a caster directly above it, both ~120 units from the camera — twice
+    // shadowDistance (60). Under a straight-down light the caster's shadow lands exactly on the
+    // centre pixel, so the check can tell the two outcomes apart: past the last cascade the
+    // ground must be LIT (≈255), not shadowed (≈ambient, 38).
+    //
+    // Rebuilt after the first real-device run. The original looked from z=-100 at z=-120 — where
+    // there was no ground (the plane spans ±20 around the origin) and which is only ~21 units
+    // away, i.e. INSIDE the cascades — and its `lum > 4` threshold passed an unlit ground too.
     const far = new InstanceBuffer(2);
-    far.write(0, mat4.create(), [0, 0, 0, 20], 0);
-    const farSphere = mat4.create(); mat4.translate(farSphere, farSphere, [0, 3, -120]); // past shadowDistance
+    const farGround = mat4.create(); mat4.translate(farGround, farGround, [0, 0, -120]);
+    far.write(0, farGround, [0, 0, 0, 20], 0);     // bounds are LOCAL (worldSphereFromModel)
+    const farSphere = mat4.create(); mat4.translate(farSphere, farSphere, [0, 3, -120]);
     far.write(1, farSphere, [0, 0, 0, 1], 1);
     vis.setInstances(far.data, 2);
     const farCam = new Camera(75, 1, 0.1, 300);
-    farCam.updateView([0, 8, -100], [0, 0, -120]);
-    const px = await renderScene(shadows, vis, farCam, { withShadows: true });
+    farCam.updateView([0, 8, 0], [0, 0, -120]);   // centre ray meets the ground at (0, 0, -120)
+    const px = await renderScene(shadows, vis, farCam, { withShadows: true, name: 't7-far' });
     const i = (128 * 256 + 128) * 4;
     const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
-    check('T7: geometry beyond shadowDistance is fully lit', lum > 4, `lum=${lum.toFixed(1)}`);
+    check('T7: geometry beyond shadowDistance is fully lit (not shadowed by its caster)', lum > 128,
+        `lum=${lum.toFixed(1)} (lit ≈ 255, shadowed ≈ 38)`);
     vis.setInstances(instances.data, 2);
 }
 
@@ -346,7 +507,4 @@ camera.updateView([0, 8, 14], [0, 0, 0]);
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
-const failed = results.filter(r => !r.pass);
-log(failed.length === 0 ? '\nAll shadow GPU tests passed.' : `\n${failed.length} GPU test(s) FAILED.`);
-window.__SHADOW_RESULTS__ = { total: results.length, failed: failed.length, results };
-document.title = failed.length === 0 ? 'PASS' : 'FAIL';
+await finish('All shadow GPU tests passed.');

@@ -71,9 +71,13 @@
     "build:test": "npm run clean && npm run build:lib:prod && npm run bundle:test-ui && npm run postbuild:test",
     "dev:serve": "node dev-server.js",
     "dev:serve:nosab": "node dev-server.js --no-sab",
+    "test:core": "node test/core-compute.test.mjs && node test/core-headless.test.mjs",
+    "test:gpu": "node test/gpu/run-gpu-tests.mjs",
+    "test:gpu:browser": "node test/gpu/browser-run.mjs",
+    "render": "node test/gpu/render.mjs",
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",
     "test:geometry": "node test/geometry-meshlets.test.mjs",
-    "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs",
+    "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs && node test/visibility-lifecycle.test.mjs",
     "test:shadows": "node test/shadows-csm.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",
     "test:tod": "node test/environment-timeofday.test.mjs",
@@ -95,9 +99,11 @@
     "concurrently": "^9.2.1",
     "esbuild": "^0.27.4",
     "express": "^5.2.1",
+    "onnxruntime-web": "1.29.0",
     "rimraf": "^6.1.3",
     "serve": "^14.2.6",
     "typescript": "^5.9.3",
+    "webgpu": "0.6.1",
     "wgsl_reflect": "^1.5.0"
   }
 }

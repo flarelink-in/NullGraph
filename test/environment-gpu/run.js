@@ -4,9 +4,10 @@
 // on screen, and whether the bake and the skybox really are one function once a driver has
 // compiled both.
 //
-// Serve the repo root (the dev server does) and open /test/environment-gpu/:
-//   npm run build:lib && npm run dev:serve   →   http://localhost:3000/test/environment-gpu/
-// The page writes a machine-readable summary to #log and `window.__SKY_RESULTS__`.
+// Two hosts, one file (test/gpu/harness-env.mjs), after `npm run build:lib`:
+//   Node/Dawn:  npm run test:gpu          (headless — no browser, no server)
+//   Browser:    npm run dev:serve   →   http://localhost:3000/test/environment-gpu/
+// Both publish a machine-readable summary on `__SKY_RESULTS__`.
 //
 // Every assertion is numeric. Readback is legal in a test and forbidden in the frame loop
 // (design-principles §13).
@@ -16,23 +17,14 @@ import {
     EnvironmentSystem, GradientSky, PreethamSky,
     gradientSkyColor, SKY_PARAM_FLOATS, buildSkyWGSL,
 } from '../../dist/environment.js';
+import { harnessEnv } from '../gpu/harness-env.mjs';
 
-const log = (msg) => {
-    document.getElementById('log').textContent += `\n${msg}`;
-    console.log(msg);
-};
-const results = [];
-function check(name, cond, detail = '') {
-    results.push({ name, pass: !!cond, detail });
-    log(`  ${cond ? 'ok  ' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
-}
+const { canvas, log, check, fatal, finish } = harnessEnv('__SKY_RESULTS__');
 
-const canvas = document.getElementById('gpu');
 const engine = new NullGraph();
 const init = await engine.init(canvas, { width: 256, height: 256 });
 if (!init.success) {
-    log('FATAL: WebGPU init failed — ' + init.error);
-    window.__SKY_RESULTS__ = { fatal: init.error };
+    fatal(init.error);
     throw new Error(init.error);
 }
 const device = engine.device;
@@ -547,9 +539,4 @@ function fibonacci(n) {
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
-const failed = results.filter(r => !r.pass);
-log(failed.length === 0
-    ? '\nAll environment sky GPU tests passed.'
-    : `\n${failed.length} GPU test(s) FAILED.`);
-window.__SKY_RESULTS__ = { total: results.length, failed: failed.length, results };
-document.title = failed.length === 0 ? 'PASS' : 'FAIL';
+await finish('All environment sky GPU tests passed.');
