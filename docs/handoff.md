@@ -235,6 +235,32 @@ On-device inference = no server cost per user, and private data never leaves the
 
 Parked: room-matched lighting for e-commerce (needs market access the user does not have).
 
+### Far horizon — ideas worth keeping (2026-10-11)
+
+Server-side runs use the same code: NullGraph runs headless in Node (Dawn), so a rented Linux GPU
+box can host it. Not yet verified on Linux — first step is `npm run test:gpu` on one.
+
+1. **Train on server, play in browser** — evolve batched-agent brains at 1M agents on a rented GPU,
+   ship the best `.onnx` brains to browsers running the same engine. (Novel combination.)
+2. **Synthetic training-data factory** — randomized sky/time/materials/post, exact labels for free;
+   train small models, run them back in NullGraph via ORT (e.g. the photo booth's segmentation).
+3. **Server sim, browser rendering** — flat-array state streams naturally; venue digital twins.
+4. **Agents that see** — each agent gets its own tiny rendered view (16×16–32×32) and a small
+   vision brain; the shadow atlas is already a many-cameras-in-one-texture renderer with per-view
+   culling. Lighting, night and fog then change what agents perceive. (Most extreme; see below.)
+5. **Auto-cinematographer** — an aesthetic-score model + optimizer over time of day, lights, fog,
+   post presets, run headless with the render CLI → best shot of a scene (event hero images).
+6. **Self-narrating sim** — a small language model writes the story from aggregate sim stats.
+7. **Opt-in visitor GPU time** for evolution runs — only ever clearly opt-in.
+
+**Agents that see — phases.** P0 ray-cast "1D eyes" (16–32 rays per agent, compute shader,
+10k+ agents) → P1 rendered 16×16 eyes in an atlas, multi-view instanced draws, hundreds to ~2k
+agents → P2 perception depends on the physical sky/night/fog/shadows; colour genes let camouflage
+evolve → P3 server-scale evolution (idea 1) with browser playback. Per-agent evolved weights fit a
+hand-written WGSL tiny-net kernel better than ORT (which runs one shared set of weights); ORT fits
+a shared brain trained offline. Prior art to study: Madrona batch renderer (Stanford), Isaac Lab
+tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites.
+
 ---
 
 ## Gotchas — for whoever picks this up
