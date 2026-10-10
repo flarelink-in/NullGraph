@@ -40,6 +40,8 @@ interface CullStageRecord {
     meshIndex: number;
     /** The draw batch this stage feeds — the key for {@link VisibilitySystem.getCullStage}. */
     batch?: RenderBatch;
+    /** The pass `batch` was created into — what {@link VisibilitySystem.removeDrawBatch} detaches it from. */
+    pass?: RenderPassNode;
     /**
      * Hi-Z UV remap for this stage (shadows-atlas-design.md §7.2). Default `[1,1,0,0]` — the
      * identity, which leaves the main view bit-for-bit unchanged (§10 U5).
@@ -271,11 +273,17 @@ export class VisibilitySystem {
             ...(occlusion ? [{ binding: 5, resource: this.hiZ!.view }] : []),
         ], 0);
 
-        this.instanceTierCulls.push({
-            stage, paramsBuffer, meshIndex, batch,
+        const record: CullStageRecord = {
+            stage, paramsBuffer, meshIndex, batch, pass,
             hizRect: options.hizRect,
             screenSize: options.screenSize,
-        });
+        };
+        this.instanceTierCulls.push(record);
+        // Seed the params NOW, not at the next upload(). A params buffer starts zeroed, and a
+        // zero instanceCount culls everything in silently — so a batch created after this
+        // frame's upload() drew nothing, with no error. Found by the first Node/Dawn run of
+        // test/shadows-gpu (its renderScene creates the batch after upload).
+        this.writeParams(record);
         this.computeChain = null;
         return batch;
     }
@@ -363,7 +371,10 @@ export class VisibilitySystem {
         ], 0);
 
 
-        this.meshletTierCulls.push({ stage, paramsBuffer, meshIndex: 0, batch });
+        const record: CullStageRecord = { stage, paramsBuffer, meshIndex: 0, batch, pass };
+        this.meshletTierCulls.push(record);
+        // Seeded at registration for the same reason as the instance tier — see there.
+        this.writeParams(record);
         this.computeChain = null;
         return batch;
     }
@@ -389,6 +400,31 @@ export class VisibilitySystem {
         for (const rec of this.instanceTierCulls) if (rec.batch === batch) return rec.stage;
         for (const rec of this.meshletTierCulls) if (rec.batch === batch) return rec.stage;
         return null;
+    }
+
+    /**
+     * Unregister a draw batch this system created: its cull stage leaves the compute chain, the
+     * stage's params buffer is released, and the batch is detached from its pass with its own
+     * draw buffers destroyed. Returns `false` (and does nothing) for a batch this system did not
+     * create.
+     *
+     * Required by anything that shares this system and can be torn down before it. A cull stage
+     * that outlives its owner keeps binding the owner's destroyed buffers (a shadow cascade's
+     * camera, say), and from then on EVERY frame that runs this chain is refused at submit —
+     * "used in submit while destroyed", the whole command buffer dropped. `ShadowSystem.destroy`
+     * calls this for each of its caster batches.
+     */
+    public removeDrawBatch(batch: RenderBatch): boolean {
+        for (const list of [this.instanceTierCulls, this.meshletTierCulls]) {
+            const i = list.findIndex(r => r.batch === batch);
+            if (i < 0) continue;
+            const [rec] = list.splice(i, 1);
+            rec.paramsBuffer.destroy();
+            if (rec.pass) this.engine.clearBatch(rec.pass, batch);
+            this.computeChain = null;
+            return true;
+        }
+        return false;
     }
 
     public getComputeStages(): ComputeStageNode[] {

@@ -31,7 +31,6 @@ const _ld = vec3.create();
 const _ls = vec3.create();
 const _snapped = vec3.create();
 const _center = vec3.create();
-const _lookTarget = vec3.create();
 const _eye = vec3.create();
 const _snapView = mat4.create();
 const _invSnap = mat4.create();
@@ -45,6 +44,8 @@ const _invProj = mat4.create();
 /** Up vectors, hoisted — a ternary over two array literals allocated one per cascade per frame. */
 const UP_Y: vec3 = vec3.fromValues(0, 1, 0);
 const UP_Z: vec3 = vec3.fromValues(0, 0, 1);
+/** The texel-snap frame's eye (§5.5): fixed in the world, so the grid does not travel with the camera. */
+const ORIGIN: vec3 = vec3.fromValues(0, 0, 0);
 
 /**
  * A cached `Uint32Array` view over a `Float32Array`'s memory, for the packers that write integer
@@ -292,12 +293,18 @@ export function fitCascade(
     const up: vec3 = Math.abs(ld[1]) > 0.999 ? UP_Z : UP_Y;
 
     // §5.5 — snap the ortho centre to whole shadow texels IN LIGHT SPACE, or the cascade
-    // shimmers as the camera translates. The snap uses the un-extruded view (eye at the sphere
-    // centre) so the extrusion never shifts the texel grid.
+    // shimmers as the camera rotates and crawls as it translates. The snap frame must be FIXED in
+    // the world — the light's orientation, origin at the world origin — so the texel grid stays put
+    // while the cascade slides across it. Extrusion only moves the final eye along the light
+    // direction (this frame's Z), so it never shifts the grid either.
+    //
+    // This frame used to put its eye AT the sphere centre. That maps the centre to (0, 0) every
+    // frame, so the snap was a no-op; U3 measured it in the same moving frame and passed
+    // tautologically, and the first real-device run (test/shadows-gpu T4) measured a 0.31-texel
+    // slide per degree of yaw.
     const texelWorld = (2 * radius) / config.resolution;
     vec3.set(_center, _sphere[0], _sphere[1], _sphere[2]);
-    vec3.set(_lookTarget, _sphere[0] + ld[0], _sphere[1] + ld[1], _sphere[2] + ld[2]);
-    const snapView = mat4.lookAt(_snapView, _center, _lookTarget, up);
+    const snapView = mat4.lookAt(_snapView, ORIGIN, ld, up);
     const ls = vec3.transformMat4(_ls, _center, snapView);
     ls[0] = Math.floor(ls[0] / texelWorld) * texelWorld;
     ls[1] = Math.floor(ls[1] / texelWorld) * texelWorld;

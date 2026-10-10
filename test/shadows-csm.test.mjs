@@ -90,25 +90,29 @@ check('U2: cascade radius is rotation-invariant (a box fit fails this by ~40%)',
 
 // === U3: texel snapping (§5.5) ==============================================
 check('U3: cascade centre in light space moves only in whole texelWorld increments', () => {
-    const lightView = (c) => {
-        // Rebuild the light view the fit used: eye at centre, looking along the light.
-        const view = mat4.create();
-        mat4.lookAt(view, c.center, [c.center[0] + SUN[0], c.center[1] + SUN[1], c.center[2] + SUN[2]], [0, 0, 1]);
-        return view;
-    };
-    let prev = null;
+    // Measure in ONE light frame, fixed in the world (origin-anchored, the fit's up rule). This
+    // test used to rebuild the frame from each cascade's own centre — eye AT the centre — which
+    // maps every centre to (0, 0): Δ was always 0, an integer, so it passed whatever the fit did,
+    // while the real cascades slid 0.31 texels per degree of yaw on a GPU (test/shadows-gpu T4).
+    const up = Math.abs(SUN[1]) > 0.999 ? [0, 0, 1] : [0, 1, 0];
+    const fixedLight = mat4.lookAt(mat4.create(), [0, 0, 0], SUN, up);
+    let prev = null, moved = 0;
     for (let step = 0; step < 20; step++) {
-        const cam = knownCamera([step * 0.001, 0, 0], [step * 0.001, 0, -1]);
+        // 0.0137 is not a multiple of anything the fit could align to by accident.
+        const cam = knownCamera([step * 0.0137, 0, 0], [step * 0.0137, 0, -1]);
         const c = fitCascade(cam, SUN, 0.1, 50, FIT);
-        const ls = vec3.transformMat4(vec3.create(), c.center, lightView(c));
+        const ls = vec3.transformMat4(vec3.create(), c.center, fixedLight);
         if (prev) {
             const dx = (ls[0] - prev[0]) / c.texelWorld;
             const dy = (ls[1] - prev[1]) / c.texelWorld;
-            near(dx, Math.round(dx), 1e-6, `step ${step} x snap (Δ=${dx} texels)`);
-            near(dy, Math.round(dy), 1e-6, `step ${step} y snap (Δ=${dy} texels)`);
+            near(dx, Math.round(dx), 1e-3, `step ${step} x snap (Δ=${dx} texels)`);
+            near(dy, Math.round(dy), 1e-3, `step ${step} y snap (Δ=${dy} texels)`);
+            if (Math.round(dx) !== 0 || Math.round(dy) !== 0) moved++;
         }
         prev = ls;
     }
+    // Non-vacuity: the camera travelled ~0.26 units — many texels — so the centre must have moved.
+    assert(moved > 0, 'the cascade centre never moved — this check would pass for any fit');
 });
 
 // === U4: ZO round-trip (§5.5, the Camera.ts:62-66 trap) =====================
