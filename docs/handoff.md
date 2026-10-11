@@ -18,15 +18,28 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — in progress: C1 step 1 done; step 2 started (2026-10-11)
+### Cycle C — in progress: C1 steps 1–2 done (2026-10-11)
 
-**C1 step 2 has started, CPU reference only.** Shared XZ point-grid math lives in
+**C1 step 2 implemented and validated.** Shared XZ point-grid math lives in
 `src/extras/spatial/gridMath.ts`: bin, exclusive prefix with a terminal offset, scatter, and excess
 entries over the scan budget. `agentGridMath.ts` supplies the 3×3-cell query reference. U2/U3 add
 five checks (4,096 positions, 64 prefix arrays, 512 random scenes compared with brute force,
 scatter-order-independent ties, crowded-cell accounting). `npm run test:agents` now runs 29 checks.
-GPU bin/scan/scatter/query stages, A1 on-device comparison, `groundGrid()` and the reusable GPU
-occupancy overlay are **not implemented yet**; step 2 is not complete.
+GPU kernel generators now cover bin, hierarchical exclusive scan (terminal offset included),
+scatter and bounded k-nearest queries. `test/agents-gpu/` is registered as the `agents` GPU suite.
+`PointGrid` owns prebuilt shared stages/buffers; `AgentGrid` adds the nearest query output.
+GPU reset dispatches make repeated builds in one submission safe (queue-side clears would not).
+`null-graph/debug-ui` now exports `groundGrid()` and `gridOccupancy()`; occupancy reads GPU counts
+directly, with red over-budget cells. Debug-view pixel assertions run in the GPU suite.
+Node/Dawn and Chrome both reported AMD GCN-5; correctness checks cover prefix sizes through
+65,537 elements, four 10,000-agent layouts, membership, overflow, species masks, stable stages,
+repeated builds, empty rebuild, input refusals, debug pixels and teardown. Source buffers remain
+caller-owned. See [`api/agent-grid.md`](./api/agent-grid.md) for usage and limitations.
+Final validation: **36/36 GPU checks on each host, zero WebGPU errors**, 29 CPU agent checks,
+17 core checks, library/TypeScript and IDE builds, and diff whitespace checks passed. Reviewed
+floor/overflow PNGs are in `C:/Users/Vikas/AppData/Local/Temp/nullgraph-agent-grid-step2/`.
+This completes the step-2 library/test debug views, **not** an `AgentSystem`, a moving crowd or a
+new frontend GPU route. No performance claim follows from the correctness harness's readbacks.
 
 **Demo: Spatial Grid — CPU Reference (2026-10-11).** A separate test-engine experiment at
 `/dashboard/agents/spatial-grid` visualizes 256 static seeded points, 15×15 occupancy cells,
@@ -43,9 +56,10 @@ grid reference is exported through `null-graph/agents`; there is no new package 
 - **Server cleanup:** on 2026-10-11, stopped the stale Vite Node process on port 8081 (PID 6328)
   at the user's request and verified no listening connection remained. Already-loaded browser
   pages can continue rendering until closed/refreshed; this did not stop the port-8083 server.
-- **Next-work clarification:** the user requested "C3", but the current design defines C0/C1/C2
-  only. Confirm whether this means C1 step 3, spike S3, or a new cycle before implementation.
-  C1 step 2 GPU grid/query and A1 are still pending; S3 gates C1 step 3.
+- **Next-work clarified:** the user selected continuing C1: finish step 2 GPU grid/query, then
+  step 3. Step 2 is implemented locally with production wiring and both-host checks.
+  S3 gates C1 step 3. The handoff clarification/server cleanup is committed as `747ec45`;
+  the completed step-2 implementation remains uncommitted. No frontend edits were made here.
 - **Validated after visual/type fixes:** frontend `tsc --noEmit`, IDE build, library build and
   29 agent checks passed. Targeted ESLint has zero errors (12 style warnings in integration/demo
   files); the five new experiment files pass Prettier. Existing integration formatting and unrelated
@@ -572,9 +586,8 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
 4. **Cycle C** — batched agents, now planned in [`agents-design.md`](./agents-design.md).
    1. ~~Clean tree~~ — agent kit `7054b16`, GI work `1a70e8d`, C1 step 1 `feat(agents)`.
    2. ~~Get the user's answers~~ — settled 2026-10-11 (hybrid, `null-graph/inference`, JS, Herd & Wolves).
-   3. ~~C1 step 1~~ — done (headless). **Next: C1 step 2**, the spatial grid (P2's stages A–C in
-      `src/extras/spatial/`) and the GPU k-nearest query, checked against `nearestNeighbours`
-      (U2, U3, A1). Spike S3 (the built-in kernel's cost) runs before step 3; the ORT spikes S1,
+    3. ~~C1 steps 1–2~~ — done: CPU references, shared XZ point-grid GPU stages, query and debug
+       draws (U2, U3, A1). **Next: spike S3**, the built-in kernel's cost, before step 3; the ORT spikes S1,
       S2, S4 and S5 run before C2's ORT step.
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half.

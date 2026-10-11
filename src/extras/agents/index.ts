@@ -3,3 +3,7 @@ export * from './agentRecords';
 export * from './agentMath';
 export * from './agentGridMath';
 export * from '../spatial/gridMath';
+export * from '../spatial/gridShaders';
+export * from './agentGridShaders';
+export * from '../spatial/PointGrid';
+export * from './AgentGrid';
