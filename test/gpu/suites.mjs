@@ -14,6 +14,7 @@ export const SUITES = [
     { name: 'picking', file: 'test/picking-gpu/run.js', key: '__PICKING_RESULTS__' },
     { name: 'text', file: 'test/text-gpu/run.js', key: '__TEXT_RESULTS__' },
     { name: 'probes', file: 'test/probes-gpu/run.js', key: '__PROBE_RESULTS__' },
+    { name: 'agents', file: 'test/agents-gpu/run.js', key: '__AGENTS_RESULTS__' },
 ];
 
 /**

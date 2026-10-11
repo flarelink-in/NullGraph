@@ -4,9 +4,10 @@
 `src/extras/spatial/` (the uniform grid physics P2 shares)
 **Package:** `null-graph/agents` — opt-in subpath; core untouched. The optional ONNX Runtime path
 goes through a separate, generic `null-graph/inference` subpath (§9.4); ORT is never bundled.
-**Status:** 🔨 **C1 step 1 done** — the record, the derived layouts, CPU mirrors of sensing and
-steering, and the fixed step (`src/extras/agents/`, `npm run test:agents`, 24 checks). Nothing runs
-on the GPU yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
+**Status:** 🔨 **C1 steps 1–2 done** — 29 CPU checks including U2/U3; GPU grid/query production
+wrappers and debug draws validated on Node/Dawn and Chrome (AMD GCN-5). See
+[`api/agent-grid.md`](./api/agent-grid.md). S3 runs next, before step 3.
+No live GPU agent simulation ships yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
 §9.4's ONNX Runtime defaults, and their numbers go back into this document.
 **Depends on:** Cycle A (headless runs, device adoption, the ORT seam), Cycle B (`sourceIndex`, public
 `vis.instanceBuffer`, labels that follow GPU buffers, picking), physics P2's grid spec (built here).
@@ -674,8 +675,16 @@ needed. If S1 is under ~1 ms at 20,000, `OrtBrain` is comfortable interactively 
      without `byteOffset` (U1b). The suite's exit 1 was seen on a real failure: unclamped spawn
      speed, now fixed (§5.1).
    - **Bundle:** `agents.js` 5,138 B min + gzip, much of it error text; core +0 B.
-2. **Started — CPU references only.** `spatial/gridMath.ts` and `agents/agentGridMath.ts` pin U2/U3
-   with five checks; GPU stages and A1 remain pending. The grid (P2 stages A–C) and the k-nearest query
+2. ✅ **Grid, query and GPU debug views implemented.** `spatial/gridMath.ts` and `agents/agentGridMath.ts` pin U2/U3
+   with five checks. `spatial/gridShaders.ts` and `agents/agentGridShaders.ts` add shared XZ bin,
+   recursive block scan/add-back, full scatter and bounded query generators. The registered
+   `agents` GPU harness passes 36/36 checks, zero GPU errors, on both Node/Dawn and Chrome
+   (AMD GCN-5). `PointGrid` / `AgentGrid`
+   own prebuilt stages/buffers; GPU resets support repeated steps in one submission without
+   queue-clear hazards. `debug-ui/gridDrawing.ts` exports the two draws below, with real pixel
+   assertions (nonuniform floor, red overflow, empty rebuild removes red). Overflow preserves every index; bounded
+   query subsets depend on atomic scatter order, so the crowded oracle uses that actual order.
+   The grid (P2 stages A–C) and the k-nearest
    — U2, U3, A1. With it, the first **GPU debug
    views** in `null-graph/debug-ui` (today two DOM performance widgets). The physics plan already
    names `debug-ui` as the home of debug drawing (P8), so these are its first GPU members:
