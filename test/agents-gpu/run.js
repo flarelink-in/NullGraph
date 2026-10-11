@@ -191,7 +191,7 @@ function senseOnly(s) {
     return s;
 }
 function system(definition = loopDef) {
-    const s = senseOnly(new A.AgentSystem(engine, definition));
+    const s = senseOnly(makeSystem(engine, definition));
     for (let i = 0; i < s.capacity; i++) s.spawn(i, { position: [-6 + (i % 16) * 0.75, 0, -3 + Math.floor(i / 16) * 0.75], species: i % 2 });
     s.upload();
     return s;
@@ -248,7 +248,7 @@ for (let i = 0; i < 128; i++) {
 check('U16 GPU: both shared query slices equal the CPU nearest oracle', slicesMatch);
 const crowdedDef = A.defineAgents({ capacity: 8, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
     maxScanPerCell: 2, species: [loopDef.species[0]], sensors: [A.Sensors.nearest({ k: 1 })] });
-const crowded = new A.AgentSystem(engine, crowdedDef);
+const crowded = makeSystem(engine, crowdedDef);
 for (let i = 0; i < 8; i++) crowded.spawn(i, { position: [1, 0, 1], species: 0 });
 crowded.upload(); crowded.advance(3 * crowdedDef.dt); engine.render(crowded.getComputeStages());
 check('tick: overflow is folded once per build in a repeated chain', equal(await read(crowded.state, 4), new Uint32Array([3, 3, 18, 0])));
@@ -274,7 +274,7 @@ const senseDef = A.defineAgents({ capacity: 10000, world: { min: [-100, -100], m
         { name: 'wolf', maxSpeed: 5, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
     sensors: [A.Sensors.self(), A.Sensors.nearest({ species: 'wolf', k: 1 }),
         A.Sensors.nearest({ species: 'prey', k: 3 }), A.Sensors.bounds(), extraSensor] });
-const sensing = senseOnly(new A.AgentSystem(engine, senseDef));
+const sensing = senseOnly(makeSystem(engine, senseDef));
 for (let i = 0; i < senseDef.capacity; i++) {
     sensing.spawn(i, { position: [-99.9 + random() * 199.8, 0, -99.9 + random() * 199.8], species: i % 2,
         heading: -Math.PI + random() * 2 * Math.PI, speed: random() * (i % 2 ? 5 : 3),
@@ -343,7 +343,7 @@ sensing.destroy();
 // Exact radius, absent/padded ranks, rotated axes, wall ties and speedScale > 1 are explicit fixtures.
 const fixtureDef = A.defineAgents({ capacity: 6, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
     species: [loopDef.species[0]], sensors: [A.Sensors.self(), A.Sensors.nearest({ k: 3 }), A.Sensors.bounds(), extraSensor] });
-const fixture = senseOnly(new A.AgentSystem(engine, fixtureDef));
+const fixture = senseOnly(makeSystem(engine, fixtureDef));
 for (const [i, position, heading] of [[0, [0, 0, 0], 0], [1, [4, 0, 0], Math.PI / 2],
     [2, [0, 0, 4], -Math.PI / 2], [3, [-8, 0, -8], Math.PI], [4, [8, 0, 8], -Math.PI]]) {
     fixture.spawn(i, { position, heading, species: 0, speedScale: 2, speed: 6, age: 1 });
@@ -356,7 +356,7 @@ fixture.destroy();
 
 // No act stage exists yet: age is supplied explicitly to exercise non-newborn cadence.
 const cadenceDef = A.defineAgents({ ...loopDef, world: { min: [-8, -8], max: [8, 8] }, sensors: [A.Sensors.self()] });
-const cadence = senseOnly(new A.AgentSystem(engine, cadenceDef, { thinkEvery: 3 }));
+const cadence = senseOnly(makeSystem(engine, cadenceDef, { thinkEvery: 3 }));
 for (let i = 0; i < 128; i++) cadence.spawn(i, { position: [0, 0, 0], species: 0, age: 1, energy: 0.25 });
 cadence.spawn(65, { position: [0, 0, 0], species: 0, age: 0, energy: 0.75 });
 await cadence.step();
@@ -377,7 +377,7 @@ cadence.destroy();
 // These layouts must retain all auto-layout bindings even without any neighbour/custom use.
 for (const sensors of [[A.Sensors.bounds()], [extraSensor]]) {
     const sparseDef = A.defineAgents({ ...fixtureDef, world: { min: [-8, -8], max: [8, 8] }, sensors });
-    const sparse = new A.AgentSystem(engine, sparseDef);
+    const sparse = makeSystem(engine, sparseDef);
     sparse.spawn(0, { position: [0, 0, 0], species: 0 });
     await sparse.step();
     check(`sense sparse: ${sensors[0]?.kind ?? 'empty'} layout submits with all bindings`, (await read(sparse.state, 4))[0] === 1);
@@ -388,7 +388,7 @@ for (const sensors of [[A.Sensors.bounds()], [extraSensor]]) {
 const actDef = A.defineAgents({ capacity: 10000, world: { min: [-20, -20], max: [20, 20] }, cellSize: 4,
     maxScanPerCell: 10000, dt: 1 / 60,
     species: loopDef.species, sensors: [A.Sensors.self()] });
-const acting = new A.AgentSystem(engine, actDef);
+const acting = makeSystem(engine, actDef);
 const actions = new Float32Array(actDef.capacity * 2);
 for (let i = 0; i < actDef.capacity; i++) {
     acting.spawn(i, { position: [-19.6 + random() * 39.2, random(), -19.6 + random() * 39.2], species: i % 2,
@@ -464,7 +464,7 @@ acting.destroy();
 // A14: poison actions ON THE GPU, not via JS float conversion, then allow braking to finish.
 const poisonDef = A.defineAgents({ capacity: 8, world: { min: [-20, -20], max: [20, 20] }, cellSize: 4,
     species: loopDef.species, sensors: [A.Sensors.self()] });
-const poisoned = new A.AgentSystem(engine, poisonDef);
+const poisoned = makeSystem(engine, poisonDef);
 for (let i = 0; i < 8; i++) poisoned.spawn(i, { position: [i - 4, 0, 0], species: 0, speed: 1, heading: 0.5 });
 poisoned.upload();
 const poisonInitial = new Float32Array(poisoned.records.data);
@@ -500,7 +500,7 @@ poisoned.destroy();
 
 const agingDef = A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
     species: loopDef.species, sensors: [A.Sensors.self()] });
-const aging = new A.AgentSystem(engine, agingDef, { thinkEvery: 3 });
+const aging = makeSystem(engine, agingDef, { thinkEvery: 3 });
 aging.spawn(64, { position: [0, 0, 0], species: 0, energy: 0.75, frozen: true });
 await aging.step();
 const agingEncoder = device.createCommandEncoder();
@@ -528,7 +528,7 @@ for (let i = 0; i < 128; i++) {
 }
 const replayResults = [];
 for (let run = 0; run < 2; run++) {
-    const replay = new A.AgentSystem(engine, replayDef, { thinkEvery: 3 });
+    const replay = makeSystem(engine, replayDef, { thinkEvery: 3 });
     replay.records.data.set(replayRecords.data); replay.records.markDirty(0, 127);
     device.queue.writeBuffer(replay.act, 0, replayActions);
     for (let step = 0; step < 600; step++) await replay.step();
@@ -543,7 +543,7 @@ const customDef = A.defineAgents({ capacity: 3, world: { min: [-8, -8], max: [8,
     species: loopDef.species, sensors: [A.Sensors.self()], actions: A.Actions.custom({ name: 'customMove', width: 1,
         wgsl: 'fn customMove(i: u32) { agents[i].posRadius.x += act[i] * DT; }',
         mirror(d, u, i, act, at, dt) { d[i * 16] += act[at] * dt; } }) });
-const customSystem = new A.AgentSystem(engine, customDef);
+const customSystem = makeSystem(engine, customDef);
 for (let i = 0; i < 3; i++) customSystem.spawn(i, { position: [0, 0, 0], species: 0, frozen: i === 1 });
 customSystem.kill(2);
 const customExpected = new A.AgentRecords(customDef, new Float32Array(customSystem.records.data));
@@ -552,6 +552,178 @@ device.queue.writeBuffer(customSystem.act, 0, customActions); await customSystem
 check('custom act: CPU twin agrees, frozen ages only and dead stays byte-identical',
     equal(await read(customSystem.buffer, 48), customExpected.u32));
 customSystem.destroy();
+// A15: invoke only production think on CPU-built observations (no sensing/trig in the oracle).
+const ruleDef = A.defineAgents({ capacity: 10000, world: { min: [-100, -100], max: [100, 100] }, cellSize: 4,
+    species: loopDef.species, sensors: [A.Sensors.self()] });
+const rule = makeSystem(engine, ruleDef);
+const ruleObs = new Float32Array(20000), ruleExpected = new Float32Array(20000), ruleReasons = new Uint32Array(10000);
+for (let i = 0; i < 10000; i++) {
+    rule.spawn(i, { position: [0, 0, 0], species: i % 2, age: 1 });
+    ruleObs[i * 2] = Math.fround(random() * 2 - 1);
+    ruleObs[i * 2 + 1] = Math.fround(random());
+    ruleExpected[i * 2] = Math.fround(Math.fround(A.rand01(i, 0xffffffff, 7) * 2) - 1);
+    ruleExpected[i * 2 + 1] = ruleObs[i * 2 + (i % 2)];
+    ruleReasons[i] = i ^ 0xffffffff;
+}
+rule.setBrain(new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, rand01(i, tick, 7u) * 2.0 - 1.0);
+    setAct(i, ACT_THROTTLE, obs(i, select(SELF_SPEED, SELF_ENERGY, species == SPECIES_WOLF)));
+    setReason(i, i ^ tick);
+}`));
+rule.upload(); device.queue.writeBuffer(rule.obs, 0, ruleObs);
+device.queue.writeBuffer(rule.state, 0, new Uint32Array([0xffffffff, 0, 0, 0]));
+rule.advance(ruleDef.dt);
+engine.render([rule.getComputeStages().find(s => s.name === 'AgentSystem think')]);
+check('A15: 10000 RuleBrain action rows match JS PCG/obs twin byte-exactly',
+    equal(await read(rule.act, 20000), new Uint32Array(ruleExpected.buffer)));
+check('A15: all reason words match integer twin exactly', equal(await read(rule.reason, 10000), ruleReasons));
+rule.destroy();
 
+// A16: full chain retains both actions and reason off-cadence; spawn refreshes a stale slot.
+const thinkDef = A.defineAgents({ capacity: 130, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    maxScanPerCell: 130, species: loopDef.species, sensors: [A.Sensors.self()] });
+const tickBrain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, f32(tick)); setAct(i, ACT_THROTTLE, obs(i, SELF_ENERGY)); setReason(i, tick + 10u);
+}`);
+const thinking = makeSystem(engine, thinkDef, { thinkEvery: 3 }); thinking.setBrain(tickBrain);
+for (let i = 0; i < 130; i++) thinking.spawn(i, { position: [0, 0, 0], species: 0, age: 1,
+    energy: 0.25, frozen: true });
+thinking.kill(129);
+const retainedActs = new Float32Array(260).fill(-7), retainedReasons = new Uint32Array(130).fill(99);
+device.queue.writeBuffer(thinking.act, 0, retainedActs);
+const reasonEncoder = device.createCommandEncoder();
+dispatch(reasonEncoder, `@group(0) @binding(0) var<storage, read_write> reason: array<u32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < 130u) { reason[id.x] = 99u; }
+}`, [thinking.reason], 3);
+device.queue.submit([reasonEncoder.finish()]);
+const cadenceExpected = new Float32Array(retainedActs), cadenceReasons = new Uint32Array(retainedReasons);
+let thinkingMatches = true;
+for (let tick = 0; tick < 6; tick++) {
+    if (tick === 1) thinking.spawn(65, { position: [0, 0, 0], species: 0, frozen: true, energy: 0.75 });
+    for (let i = 0; i < 129; i++) if ((tick + Math.floor(i / 64)) % 3 === 0 || (tick === 1 && i === 65)) {
+        cadenceExpected[i * 2] = tick; cadenceExpected[i * 2 + 1] = i === 65 && tick >= 1 ? 0.75 : 0.25;
+        cadenceReasons[i] = tick + 10;
+    }
+    await thinking.step();
+    if (!equal(await read(thinking.act, 260), new Uint32Array(cadenceExpected.buffer)) ||
+        !equal(await read(thinking.reason, 130), cadenceReasons)) thinkingMatches = false;
+}
+check('A16: tick/actions/reasons update only on block cadence, newborn refreshes immediately, dead retains', thinkingMatches);
+// Watch failure using the generated think with its cadence early-return removed.
+device.queue.writeBuffer(thinking.act, 0, retainedActs);
+const ungated = A.buildAgentThinkWGSL(thinkDef, tickBrain.wgsl, 3).replace('if (!thinksNow(i, a)) { return; }',
+    'if ((a.ids.y & 1u) == 0u) { return; }');
+const ungatedEncoder = device.createCommandEncoder();
+dispatch(ungatedEncoder, ungated, [thinking.buffer, thinking.obs, thinking.state, thinking.act, thinking.reason, thinking.species], 3);
+device.queue.submit([ungatedEncoder.finish()]);
+check('A16 watched failing: ungated think changes off-cadence block 1 at tick 6',
+    new Float32Array((await read(thinking.act, 260)).buffer)[64 * 2] !== -7);
+thinking.destroy();
+
+// A stage brain can supply caller-owned group-1 data; swapping brain disables old cached stages.
+const brainExtra = buffer(1, new Float32Array([0.625]));
+const rebound = makeSystem(engine, thinkDef);
+rebound.spawn(0, { position: [0, 0, 0], species: 0, frozen: true });
+rebound.advance(thinkDef.dt);
+const oldBrainStage = rebound.getComputeStages().find(s => s.name === 'AgentSystem think');
+rebound.setBrain({ kind: 'stage', buffers: [brainExtra], dims: { obs: 2, act: 2 }, destroy() {},
+    wgsl: `@group(1) @binding(0) var<storage, read> weights: array<f32>;
+fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, weights[0]); setAct(i, ACT_THROTTLE, -1.0); setReason(i, 42u);
+}` });
+await rebound.step();
+check('brain: group-1 data works and replacement disables the previous stage',
+    !oldBrainStage.enabled && new Float32Array((await read(rebound.act, 260)).buffer)[0] === 0.625 &&
+    (await read(rebound.reason, 130))[0] === 42);
+rebound.destroy();
+check('brain: caller-owned group-1 buffer survives destroy',
+    (await read(brainExtra, 1))[0] === new Uint32Array(new Float32Array([0.625]).buffer)[0]);
+
+// A13 with production RuleBrain, not only the earlier test stub. Brain depends on GPU tick/obs.
+const movingBrain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, rand01(i, tick, 2u) * 2.0 - 1.0);
+    setAct(i, ACT_THROTTLE, obs(i, SELF_ENERGY)); setReason(i, tick);
+}`);
+const productionLoops = [];
+for (let run = 0; run < 2; run++) {
+    const s = makeSystem(engine, thinkDef, { thinkEvery: 3 }); s.setBrain(movingBrain);
+    for (let i = 0; i < 130; i++) s.spawn(i, { position: [-6 + (i % 16) * 0.75, 0, -3 + Math.floor(i / 16) * 0.75],
+        species: i % 2, heading: 0.5, energy: 0.25 });
+    if (run === 0) { s.upload(); s.advance(3 * thinkDef.dt); engine.render(s.getComputeStages()); }
+    else for (let n = 0; n < 3; n++) await s.step();
+    productionLoops.push(s);
+}
+for (const [name, words] of [['buffer', 2080], ['obs', 260], ['act', 260], ['reason', 130], ['state', 4]]) {
+    check(`A13 production brain: repeated vs separate chains agree (${name})`,
+        equal(await read(productionLoops[0][name], words), await read(productionLoops[1][name], words)));
+}
+productionLoops.forEach(s => s.destroy());
+
+// A18: catches writes flags/timers only. Respawn moves only self, in a distinct dispatch.
+const gameDef = A.defineAgents({ capacity: 128, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    maxScanPerCell: 128, species: loopDef.species,
+    sensors: [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }),
+        A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 1 })] });
+const gameBrain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, rand01(i, tick / 8u, 3u) * 2.0 - 1.0);
+    setAct(i, ACT_THROTTLE, -0.5); setReason(i, tick);
+}`);
+const catchesWGSL = `const CAUGHT = 1u << 8u;
+fn step(i: u32, tick: u32) {
+    let me = agents[i];
+    if (me.ids.x == SPECIES_PREY) {
+        let w = neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_WOLF];
+        if (w != NO_AGENT && distance(agents[w].posRadius.xz, me.posRadius.xz) < 0.9) {
+            agents[i].ids.y |= CAUGHT;
+        }
+    } else {
+        let p = neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_PREY];
+        if (p != NO_AGENT && distance(agents[p].posRadius.xz, me.posRadius.xz) < 0.9) {
+            agents[i].state.w += 1.0;
+        }
+    }
+}`;
+const respawnWGSL = `const CAUGHT = 1u << 8u;
+@group(1) @binding(0) var<storage, read_write> catches: atomic<u32>;
+fn step(i: u32, tick: u32) {
+    if ((agents[i].ids.y & CAUGHT) == 0u) { return; }
+    respawn(i, randomPointInWorld(i, tick), rand01(i, tick, 2u) * 6.2831853 - 3.1415927);
+    agents[i].ids.y &= ~CAUGHT;
+    atomicAdd(&catches, 1u);
+}`;
+const games = [];
+for (let run = 0; run < 2; run++) {
+    const s = makeSystem(engine, gameDef, { thinkEvery: 3 }), score = buffer(1);
+    s.setBrain(gameBrain);
+    s.addStepStage({ name: 'catches', wgsl: catchesWGSL });
+    s.addStepStage({ name: 'respawn', wgsl: respawnWGSL, buffers: [score] });
+    for (let i = 0; i < 128; i++) s.spawn(i, { position: [-6 + (Math.floor(i / 2) % 8) * 1.5 + (i % 2) * 0.1,
+        0, -6 + Math.floor(i / 16) * 1.5], species: i % 2, heading: 0 });
+    await s.step();
+    const first = new Float32Array((await read(s.buffer, 2048)).buffer);
+    check(`A18 run ${run + 1}: all 64 prey caught/respawned on step 0, age/velocity reset`,
+        (await read(score, 1))[0] === 64 && Array.from({ length: 64 }, (_, j) => {
+            const b = j * 32;
+            return first[b + 9] === 0 && first[b + 4] === 0 && first[b + 6] === 0 &&
+                first[b] !== s.records.data[b] && first[b + 2] !== s.records.data[b + 2];
+        }).every(Boolean));
+    for (let step = 1; step < 600; step++) await s.step();
+    const records = await read(s.buffer, 2048), floats = new Float32Array(records.buffer);
+    check(`A18 run ${run + 1}: finite/inset records, cleared catch flags, 600 ticks and no overflow`,
+        Array.from({ length: 128 }, (_, i) => {
+            const b = i * 16;
+            return Array.from({ length: 12 }, (_, k) => Number.isFinite(floats[b + k])).every(Boolean) &&
+                Math.abs(floats[b]) <= 7.600001 && Math.abs(floats[b + 2]) <= 7.600001 && !(records[b + 13] & 256);
+        }).every(Boolean) && equal(await read(s.state, 4), new Uint32Array([600, 0, 0, 0])));
+    games.push({ records, obs: await read(s.obs, 128 * gameDef.obsDim), act: await read(s.act, 256),
+        reason: await read(s.reason, 128), score: await read(score, 1) });
+    s.destroy();
+    check(`A18 run ${run + 1}: app-owned group-1 score survives system destroy`, equal(await read(score, 1), games[run].score));
+}
+check('A18/A7: two 600-step catches/respawn runs agree byte-exactly, including obs/actions/reasons/score',
+    Object.keys(games[0]).every(key => equal(games[0][key], games[1][key])));
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All phase 3.3 agent GPU checks passed.');
+await finish('All agent grid, sense, think, act and app-stage GPU checks passed.');
+device.destroy();
+function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }

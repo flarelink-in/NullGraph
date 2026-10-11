@@ -8,7 +8,9 @@ goes through a separate, generic `null-graph/inference` subpath (§9.4); ORT is 
 wrappers and debug draws validated on Node/Dawn and Chrome (AMD GCN-5). See
 [`api/agent-grid.md`](./api/agent-grid.md). Steps 3–4 are designed and phased in
 [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), accepted 2026-10-11. Its phase 3.0,
-spike S3, is measured (§13, C0); phase 3.1 is next.
+spike S3, is measured (§13, C0); phase 3.1's GPU system skeleton is implemented and validated
+(phase 3.2 sensing also complete: 36 headless agent checks; 63/63 GPU checks on both hosts).
+Phase 3.3, the act generator, is next.
 No live GPU agent simulation ships yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
 §9.4's ONNX Runtime defaults, and their numbers go back into this document.
 **Depends on:** Cycle A (headless runs, device adoption, the ORT seam), Cycle B (`sourceIndex`, public
@@ -736,7 +738,22 @@ on NVIDIA. What the spike found:
    Verified by A1 (GPU grid = CPU mirror) and by `npm run drive` screenshots of the overlay in the
    site demo.
 3. Sensors → `obs`, `RuleBrain`, steering, fixed step — U8, U9, A2, A3, A7.
+   Phases 3.1–3.3 are implemented locally: system, sense and act. Current chain is
+   grid → queries → sense → act → tick; RuleBrain/app stages follow in phase 3.4.
+   Phase 3.3 validates 38 headless agent checks, 17 core checks and 72/72 GPU checks on each
+   of Node/Dawn and Chrome (both AMD GCN-5), with zero WebGPU errors. A3 checks 10,000 slots,
+   A14 checks GPU-written non-finite actions and A7 verifies two byte-identical 600-step runs.
+   Whole entry min+gzip is 11,791 B; tree-shaken system/declarations is 9,075 B. Details and
+   measured error bounds are in the child design's phase-3.3 result. No new frontend/visual review.
 4. Instance output, `vis.setInstanceCount`, highlight, inspector — A10–A12.
+
+   Phase 3.4 is also implemented locally: RuleBrain, think helpers/shared cadence and app stages.
+   The production chain is grid → queries → sense → think → act → app stages → tick; a brain is
+   now required. A15/A16/A18 and production-brain A13 pass: 43 headless agent checks, 17 core checks,
+   90/90 GPU checks on each host, zero WebGPU errors (both AMD GCN-5). Two 600-step catches/respawn
+   runs are byte-identical and overflow-free. Whole entry min+gzip is 13,428 B; tree-shaken
+   system/declarations/RuleBrain is 10,593 B. App race safety is a caller contract; auxiliary
+   buffers/brains remain caller-owned. Phase 3.5 is next; no new frontend/interactive review yet.
 
    **Steps 3–4 are designed in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),**
    phased 3.0 (S3) → 3.5 and 4.1 → 4.5, with tests U16–U20 and A13–A20 added. Its §1.5 lists where
@@ -786,16 +803,3 @@ Every regression test is watched failing on broken code before it passes
    [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §1.5, including the brain seam (the
    system builds the think stage). The C1 bundle line is raised to 16 KB (§12.5), and the arrow
    preview phase is kept. Live demos go in the test-engine site's Agent Experiments section.
-
-
-## Sequential checkpoint — phase 3.3 (2026-10-11)
-
-Generated steering/custom act stage after sensing and before tick. Dead records unchanged; live/frozen age handling, exponent-bit sanitization and X-then-Z wall reflection. Brain/app stages remain deferred.
-
-Phases 3.1–3.3 are complete at this checkpoint.
-The original combined implementation was split into buildable phase commits after phase 3.4.
-Later stages are deliberately absent from this revision, not lost. Validation for this reconstructed
-checkpoint is run before committing; the completed phase-3.4 source is backed up outside the repo.
-Next: phase 3.4. No phase-3.5/frontend/renderer work in this checkpoint.
-
-Checkpoint revalidation: library/TypeScript + IDE builds, 38 headless agent checks and 72/72 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). A3 CPU agreement, A14 non-finite braking/fault injection, wall-reflection injection and two deterministic 600-step A7 runs passed.
