@@ -6,7 +6,8 @@
 goes through a separate, generic `null-graph/inference` subpath (§9.4); ORT is never bundled.
 **Status:** 🔨 **C1 steps 1–2 done** — 29 CPU checks including U2/U3; GPU grid/query production
 wrappers and debug draws validated on Node/Dawn and Chrome (AMD GCN-5). See
-[`api/agent-grid.md`](./api/agent-grid.md). S3 runs next, before step 3.
+[`api/agent-grid.md`](./api/agent-grid.md). S3 runs next, before step 3. Steps 3–4 are designed
+and phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), accepted 2026-10-11.
 No live GPU agent simulation ships yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
 §9.4's ONNX Runtime defaults, and their numbers go back into this document.
 **Depends on:** Cycle A (headless runs, device adoption, the ORT seam), Cycle B (`sourceIndex`, public
@@ -635,7 +636,8 @@ imports them and adds stage D.
 
 ### 12.5 Bundle budget
 
-`agents.js` ≤ 12 KB min+gz for C1 (grid, layout, stages, inspector), at most +4 KB for C2
+`agents.js` ≤ 16 KB min+gz for C1 (grid, layout, stages, inspector; raised from 12 KB on
+2026-10-11, decision 7 below). The frame path's tree-shaken cost is reported beside it. At most +4 KB for C2
 (`MlpBrain`, `fromOnnx`); `inference.js` (the generic ORT adapter plus `OrtBrain`'s wrapper) a few
 KB, paid only by apps that import it; `visibility.js` about +40 B; core +0 B. ONNX Runtime itself:
 0 B in every bundle.
@@ -698,6 +700,12 @@ needed. If S1 is under ~1 ms at 20,000, `OrtBrain` is comfortable interactively 
    site demo.
 3. Sensors → `obs`, `RuleBrain`, steering, fixed step — U8, U9, A2, A3, A7.
 4. Instance output, `vis.setInstanceCount`, highlight, inspector — A10–A12.
+
+   **Steps 3–4 are designed in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),**
+   phased 3.0 (S3) → 3.5 and 4.1 → 4.5, with tests U16–U20 and A13–A20 added. Its §1.5 lists where
+   it refines this plan: the think stage is built by the system, `think` gains `species` and
+   `tick`, a GPU tick stage, staggered `thinkEvery`, and queries at `cellSize`. All of it was
+   accepted on 2026-10-11 (decision 7).
 5. **Site demo "Herd & Wolves":** 20,000 agents, rule brains, names, picking, an inspector panel;
    A9 measured. Docs: `api/agents.md`, a README row, an agent-kit starter scene.
 
@@ -737,3 +745,7 @@ Every regression test is watched failing on broken code before it passes
 4. **Cycle C demo:** Herd & Wolves.
 5. **Module name:** `null-graph/agents`.
 6. **Still open:** the device-ownership amendment (engine first allowed, §9.4) — decided by S5.
+7. **C1 steps 3–4 design accepted** (2026-10-11): every refinement in
+   [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §1.5, including the brain seam (the
+   system builds the think stage). The C1 bundle line is raised to 16 KB (§12.5), and the arrow
+   preview phase is kept. Live demos go in the test-engine site's Agent Experiments section.
