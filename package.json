@@ -83,6 +83,7 @@
     "test:geometry": "node test/geometry-meshlets.test.mjs",
     "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs && node test/visibility-lifecycle.test.mjs",
     "test:shadows": "node test/shadows-csm.test.mjs",
+    "test:picking": "node test/picking.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",
     "test:tod": "node test/environment-timeofday.test.mjs",
     "test:night": "node test/environment-night.test.mjs",

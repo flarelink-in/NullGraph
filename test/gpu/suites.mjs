@@ -11,6 +11,7 @@ export const SUITES = [
     { name: 'visibility', file: 'test/visibility-gpu/run.js', key: '__VISIBILITY_RESULTS__' },
     { name: 'core', file: 'test/core-gpu/run.js', key: '__CORE_GPU_RESULTS__' },
     { name: 'onnx', file: 'test/onnx-gpu/run.js', key: '__ONNX_RESULTS__' },
+    { name: 'picking', file: 'test/picking-gpu/run.js', key: '__PICKING_RESULTS__' },
 ];
 
 /**
