@@ -9,3 +9,4 @@ export * from '../spatial/PointGrid';
 export * from './AgentGrid';
 export * from './AgentSystem';
 export * from './agentSystemShaders';
+export * from './agentSenseShaders';

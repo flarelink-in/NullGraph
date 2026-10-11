@@ -120,3 +120,38 @@ test('validation happens before buffer allocation; no-nearest layouts have a val
     assert.equal(n.stages.filter(stage => stage.name.startsWith('AgentSystem query')).length, 0);
     s.destroy();
 });
+
+test('U9 sense: every sensor kind and sparse layout parses, bindings remain referenced, predicate emitted once', () => {
+    const custom = A.Sensors.custom({ name: 'extra', width: 2,
+        wgsl: 'fn extra(i: u32, a: Agent) -> array<f32, 2> { return array<f32, 2>(f32(i), a.state.x); }' });
+    for (const sensors of [[A.Sensors.self()], [A.Sensors.bounds()], [custom],
+        [A.Sensors.self(), A.Sensors.nearest({ k: 8 }), A.Sensors.bounds(), custom]]) {
+        const code = A.buildAgentSenseWGSL(definition({ sensors }), 3);
+        const reflect = new WgslReflect(code);
+        assert.equal(reflect.entry.compute.length, 1);
+        assert.equal(reflect.entry.compute[0].name, 'cs_main');
+        assert.equal((code.match(/fn thinksNow\(/g) ?? []).length, 1);
+        assert.equal((code.match(/const OBS_DIM\b/g) ?? []).length, 1);
+        assert.ok(!code.includes('`'));
+        assert.match(code, /if \(!thinksNow\(i, a\)\)/);
+        assert.match(code, /_ = arrayLength\(&neighbours\)/);
+        assert.match(code, /_ = arrayLength\(&obs\)/);
+        assert.match(code, /species\[a.ids.x\]/);
+        const m = mock(), s = new A.AgentSystem(m.engine, definition({ sensors }));
+        const sense = m.stages.find(stage => stage.name === 'AgentSystem sense');
+        assert.equal(sense.entries.length, 5);
+        s.advance(s.definition.dt);
+        assert.equal(s.getComputeStages().at(-2), sense);
+        s.destroy();
+    }
+});
+
+test('U17 sense: missing/wrong/comment-only custom signatures fail by name before allocation', () => {
+    for (const wgsl of ['', '// fn extra(i: u32, a: Agent) -> array<f32, 2> {}',
+        'fn extra(i: u32, a: Agent) -> array<f32, 3> { return array<f32, 3>(); }']) {
+        const def = definition({ sensors: [A.Sensors.custom({ name: 'extra', width: 2, wgsl })] });
+        const m = mock();
+        assert.throws(() => new A.AgentSystem(m.engine, def), /custom sensor "extra" must define fn extra/);
+        assert.equal(m.buffers.length, 0);
+    }
+});
