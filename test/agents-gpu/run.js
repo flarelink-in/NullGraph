@@ -184,8 +184,12 @@ const loopDef = A.defineAgents({ capacity: 128, world: { min: [-8, -8], max: [8,
     maxScanPerCell: 128,
     species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
     sensors: [A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }), A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 3 })] });
-// Phase-local fixtures do not yet include integration.
-function senseOnly(s) { return s; }
+// Earlier grid/sense fixtures isolate those stages; phase-3.3 fixtures below run act normally.
+function senseOnly(s) {
+    s.advance(s.definition.dt);
+    s.getComputeStages().find(stage => stage.name === 'AgentSystem act').enabled = false;
+    return s;
+}
 function system(definition = loopDef) {
     const s = senseOnly(new A.AgentSystem(engine, definition));
     for (let i = 0; i < s.capacity; i++) s.spawn(i, { position: [-6 + (i % 16) * 0.75, 0, -3 + Math.floor(i / 16) * 0.75], species: i % 2 });
@@ -379,6 +383,175 @@ for (const sensors of [[A.Sensors.bounds()], [extraSensor]]) {
     check(`sense sparse: ${sensors[0]?.kind ?? 'empty'} layout submits with all bindings`, (await read(sparse.state, 4))[0] === 1);
     sparse.destroy();
 }
+// A3: CPU stepAll is the definition. Radius/wall and wrapped-heading fixtures accompany the
+// 10,000-agent scene. Bounds include trig error and f32 output rounding, not guessed epsilons.
+const actDef = A.defineAgents({ capacity: 10000, world: { min: [-20, -20], max: [20, 20] }, cellSize: 4,
+    maxScanPerCell: 10000, dt: 1 / 60,
+    species: loopDef.species, sensors: [A.Sensors.self()] });
+const acting = new A.AgentSystem(engine, actDef);
+const actions = new Float32Array(actDef.capacity * 2);
+for (let i = 0; i < actDef.capacity; i++) {
+    acting.spawn(i, { position: [-19.6 + random() * 39.2, random(), -19.6 + random() * 39.2], species: i % 2,
+        heading: -Math.PI + random() * 2 * Math.PI, speed: random() * 3, speedScale: 0.5 + random() * 1.5,
+        age: random() * 5, frozen: i % 101 === 0, user0: random(), user1: i });
+    if (i % 97 === 0) acting.kill(i);
+    actions[i * 2] = random() * 4 - 2;
+    actions[i * 2 + 1] = random() * 4 - 2;
+}
+for (const [i, position, heading, radius] of [[1, [19.59, 2, 0], Math.PI / 2, 0.4],
+    [2, [-19.59, 2, 0], -Math.PI / 2, 0.4], [3, [0, 2, 19.59], 0, 0.4],
+    [4, [0, 2, -19.59], -Math.PI, 0.4], [5, [19.59, 2, 19.59], Math.PI / 4, 0.4],
+    [6, [0, 2, 0], 0.7, 30], [7, [0, 2, 0], Math.PI - 1e-7, 0.4]]) {
+    acting.spawn(i, { position, heading, radius, species: 0, speed: 3 });
+    actions[i * 2] = i === 7 ? 1 : 0; actions[i * 2 + 1] = 1;
+}
+const initialActRecords = new Float32Array(acting.records.data);
+const expectedAct = new A.AgentRecords(actDef, new Float32Array(initialActRecords));
+A.stepAll(actDef, expectedAct, actions);
+device.queue.writeBuffer(acting.act, 0, actions);
+await acting.step();
+const actualActWords = await read(acting.buffer, actDef.capacity * 16);
+function compareAct(words, expected, def) {
+    const floats = new Float32Array(words.buffer);
+    let ok = true, maxHeading = 0, maxVelocity = 0, maxPosition = 0;
+    const rounding = v => 8 * 2 ** -23 * Math.max(1, Math.abs(v));
+    for (let i = 0; i < def.capacity; i++) {
+        const b = i * 16, flags = expected.u32[b + 13];
+        if (!(flags & 1)) {
+            for (let k = 0; k < 16; k++) if (words[b + k] !== expected.u32[b + k]) ok = false;
+            continue;
+        }
+        const speed = Math.hypot(expected.data[b + 4], expected.data[b + 6]);
+        const velocityBound = speed * 2 ** -11;
+        for (let k = 0; k < 16; k++) {
+            if ([0, 2, 4, 6, 7].includes(k)) continue;
+            if (k === A.AGENT_AGE_OFFSET) {
+                if (Math.abs(floats[b + k] - expected.data[b + k]) > rounding(expected.data[b + k])) ok = false;
+            } else if (words[b + k] !== expected.u32[b + k]) {
+                console.log('A3 unexpected changed field', i, k, floats[b + k], expected.data[b + k]);
+                ok = false;
+            }
+        }
+        const headingError = Math.abs(A.wrapAngle(floats[b + 7] - expected.data[b + 7]));
+        maxHeading = Math.max(maxHeading, headingError);
+        if (headingError > rounding(expected.data[b + 7])) ok = false;
+        for (const k of [4, 6]) {
+            const error = Math.abs(floats[b + k] - expected.data[b + k]);
+            maxVelocity = Math.max(maxVelocity, error);
+            if (!Number.isFinite(error) || error > velocityBound + rounding(expected.data[b + k])) ok = false;
+        }
+        for (const k of [0, 2]) {
+            const error = Math.abs(floats[b + k] - expected.data[b + k]);
+            maxPosition = Math.max(maxPosition, error);
+            if (!Number.isFinite(error) || error > velocityBound * def.dt + rounding(expected.data[b + k])) ok = false;
+        }
+    }
+    return { ok, maxHeading, maxVelocity, maxPosition };
+}
+const actComparison = compareAct(actualActWords, expectedAct, actDef);
+console.log('A3 measured maxima:', JSON.stringify(actComparison));
+check('A3: 10000 GPU act rows match stepAll within derived trig/rounding bounds', actComparison.ok);
+// Test the generated kernel directly against the same initial rows with X reflection removed.
+device.queue.writeBuffer(acting.buffer, 0, initialActRecords);
+const noReflection = A.buildAgentActWGSL(actDef).replaceAll('h = wrapAngle(-h);', 'h = h;');
+const badEncoder = device.createCommandEncoder();
+dispatch(badEncoder, noReflection, [acting.act, acting.buffer, acting.species], Math.ceil(actDef.capacity / 64));
+device.queue.submit([badEncoder.finish()]);
+check('A3 watched failing: missing wall reflection is rejected',
+    !compareAct(await read(acting.buffer, actDef.capacity * 16), expectedAct, actDef).ok);
+acting.destroy();
+
+// A14: poison actions ON THE GPU, not via JS float conversion, then allow braking to finish.
+const poisonDef = A.defineAgents({ capacity: 8, world: { min: [-20, -20], max: [20, 20] }, cellSize: 4,
+    species: loopDef.species, sensors: [A.Sensors.self()] });
+const poisoned = new A.AgentSystem(engine, poisonDef);
+for (let i = 0; i < 8; i++) poisoned.spawn(i, { position: [i - 4, 0, 0], species: 0, speed: 1, heading: 0.5 });
+poisoned.upload();
+const poisonInitial = new Float32Array(poisoned.records.data);
+const poisonEncoder = device.createCommandEncoder();
+dispatch(poisonEncoder, `@group(0) @binding(0) var<storage, read_write> act: array<u32>;
+@compute @workgroup_size(8) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    let bits = select(select(0x7fc00000u, 0x7f800000u, i % 3u == 1u), 0xff800000u, i % 3u == 2u);
+    act[i * 2u] = select(bits, bitcast<u32>(1.0), i % 2u != 0u);
+    act[i * 2u + 1u] = select(bitcast<u32>(1.0), bits, i % 2u != 0u);
+}`, [poisoned.act], 1);
+device.queue.submit([poisonEncoder.finish()]);
+for (let step = 0; step < 20; step++) await poisoned.step();
+const poisonRecords = new Float32Array((await read(poisoned.buffer, 128)).buffer);
+check('A14: GPU NaN/+Inf/-Inf in either action component brake to zero, records stay finite',
+    Array.from({ length: 8 }, (_, i) => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].every(k => Number.isFinite(poisonRecords[i * 16 + k])) &&
+        poisonRecords[i * 16 + 4] === 0 && poisonRecords[i * 16 + 6] === 0 && poisonRecords[i * 16 + 7] === Math.fround(0.5)).every(Boolean));
+device.queue.writeBuffer(poisoned.buffer, 0, poisonInitial);
+const noSanitize = A.buildAgentActWGSL(poisonDef).replace(
+    /if \(\(bitcast<u32>\(a0\)[\s\S]*?\) \{/, 'if (true) {');
+if (noSanitize === A.buildAgentActWGSL(poisonDef)) throw new Error('A14 sanitize injection did not change the shader');
+const unsafeEncoder = device.createCommandEncoder();
+dispatch(unsafeEncoder, noSanitize, [poisoned.act, poisoned.buffer, poisoned.species], 1);
+device.queue.submit([unsafeEncoder.finish()]);
+const unsafeRecords = new Float32Array((await read(poisoned.buffer, 128)).buffer);
+check('A14 watched failing: removed sanitize violates the safe braking contract',
+    Array.from({ length: 8 }, (_, i) => {
+        const b = i * 16;
+        return !Number.isFinite(unsafeRecords[b + 7]) || unsafeRecords[b + 7] !== Math.fround(0.5) ||
+            Math.abs(Math.hypot(unsafeRecords[b + 4], unsafeRecords[b + 6]) - 0.9) > 1e-6;
+    }).some(Boolean));
+poisoned.destroy();
+
+const agingDef = A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: loopDef.species, sensors: [A.Sensors.self()] });
+const aging = new A.AgentSystem(engine, agingDef, { thinkEvery: 3 });
+aging.spawn(64, { position: [0, 0, 0], species: 0, energy: 0.75, frozen: true });
+await aging.step();
+const agingEncoder = device.createCommandEncoder();
+dispatch(agingEncoder, `${A.AGENT_STRUCT_WGSL}
+@group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
+@compute @workgroup_size(1) fn cs_main() { agents[64].state.x = 0.25; }`, [aging.buffer], 1);
+device.queue.submit([agingEncoder.finish()]);
+await aging.step();
+const retainedEnergy = new Float32Array((await read(aging.obs, 130)).buffer)[129];
+await aging.step();
+check('act cadence: frozen newborn ages, skips tick 1 sensing, refreshes at tick 2',
+    retainedEnergy === 0.75 && new Float32Array((await read(aging.obs, 130)).buffer)[129] === 0.25 &&
+    new Float32Array((await read(aging.buffer, 65 * 16)).buffer)[64 * 16 + 9] > 0);
+aging.destroy();
+
+// A7: two 600-step lockstep runs, full production chains, identical seeded start and actions.
+const replayDef = A.defineAgents({ capacity: 128, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    maxScanPerCell: 128, species: loopDef.species,
+    sensors: [A.Sensors.self(), A.Sensors.nearest({ k: 3 }), A.Sensors.bounds()] });
+const replayRecords = new A.AgentRecords(replayDef), replayActions = new Float32Array(256);
+for (let i = 0; i < 128; i++) {
+    replayRecords.spawn(i, { position: [-7 + random() * 14, 0, -7 + random() * 14], species: i % 2,
+        heading: -Math.PI + random() * 2 * Math.PI, speed: random() * 3 });
+    replayActions[i * 2] = random() * 2 - 1; replayActions[i * 2 + 1] = random() * 2 - 1;
+}
+const replayResults = [];
+for (let run = 0; run < 2; run++) {
+    const replay = new A.AgentSystem(engine, replayDef, { thinkEvery: 3 });
+    replay.records.data.set(replayRecords.data); replay.records.markDirty(0, 127);
+    device.queue.writeBuffer(replay.act, 0, replayActions);
+    for (let step = 0; step < 600; step++) await replay.step();
+    replayResults.push(await read(replay.buffer, 2048));
+    check(`A7 run ${run + 1}: 600 ticks and zero overflow steps`, equal(await read(replay.state, 4), new Uint32Array([600, 0, 0, 0])));
+    replay.destroy();
+}
+check('A7: two seeded 600-step runs produce byte-identical agent records', equal(...replayResults));
+
+// Custom integration runs only after age/frozen checks, with the same bindings as steering.
+const customDef = A.defineAgents({ capacity: 3, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: loopDef.species, sensors: [A.Sensors.self()], actions: A.Actions.custom({ name: 'customMove', width: 1,
+        wgsl: 'fn customMove(i: u32) { agents[i].posRadius.x += act[i] * DT; }',
+        mirror(d, u, i, act, at, dt) { d[i * 16] += act[at] * dt; } }) });
+const customSystem = new A.AgentSystem(engine, customDef);
+for (let i = 0; i < 3; i++) customSystem.spawn(i, { position: [0, 0, 0], species: 0, frozen: i === 1 });
+customSystem.kill(2);
+const customExpected = new A.AgentRecords(customDef, new Float32Array(customSystem.records.data));
+const customActions = new Float32Array([2, 2, 2]); A.stepAll(customDef, customExpected, customActions);
+device.queue.writeBuffer(customSystem.act, 0, customActions); await customSystem.step();
+check('custom act: CPU twin agrees, frozen ages only and dead stays byte-identical',
+    equal(await read(customSystem.buffer, 48), customExpected.u32));
+customSystem.destroy();
 
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All phase 3.2 agent GPU checks passed.');
+await finish('All phase 3.3 agent GPU checks passed.');

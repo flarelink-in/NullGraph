@@ -7,15 +7,15 @@ log at the bottom is append-only.
 ---
 
 
-## Sequential checkpoint — phase 3.2 (2026-10-11)
+## Sequential checkpoint — phase 3.3 (2026-10-11)
 
-Generated built-in/custom sensing with shared newborn/block cadence. Custom signatures validated before allocation; skipped rows retain values. Act and brain/app stages remain deferred.
+Generated steering/custom act stage after sensing and before tick. Dead records unchanged; live/frozen age handling, exponent-bit sanitization and X-then-Z wall reflection. Brain/app stages remain deferred.
 
-Phases 3.1–3.2 are complete at this checkpoint.
+Phases 3.1–3.3 are complete at this checkpoint.
 The original combined implementation was split into buildable phase commits after phase 3.4.
 Later stages are deliberately absent from this revision, not lost. Validation for this reconstructed
 checkpoint is run before committing; the completed phase-3.4 source is backed up outside the repo.
-Next: phase 3.3. No phase-3.5/frontend/renderer work in this checkpoint.
+Next: phase 3.4. No phase-3.5/frontend/renderer work in this checkpoint.
 
 
 ## Where things stand — 2026-10-11
@@ -875,4 +875,4 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
     steps 3–4 docs, then the spike with its results.
   - **Next:** phase 3.1, the `AgentSystem` skeleton.
 
-Checkpoint revalidation: library/TypeScript + IDE builds, 36 headless agent checks and 63/63 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5).
+Checkpoint revalidation: library/TypeScript + IDE builds, 38 headless agent checks and 72/72 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). A3 CPU agreement, A14 non-finite braking/fault injection, wall-reflection injection and two deterministic 600-step A7 runs passed.

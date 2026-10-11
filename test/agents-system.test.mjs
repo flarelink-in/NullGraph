@@ -141,7 +141,7 @@ test('U9 sense: every sensor kind and sparse layout parses, bindings remain refe
         const sense = m.stages.find(stage => stage.name === 'AgentSystem sense');
         assert.equal(sense.entries.length, 5);
         s.advance(s.definition.dt);
-        assert.equal(s.getComputeStages().at(-2), sense);
+        assert.equal(s.getComputeStages().at(-3), sense);
         s.destroy();
     }
 });
@@ -152,6 +152,32 @@ test('U17 sense: missing/wrong/comment-only custom signatures fail by name befor
         const def = definition({ sensors: [A.Sensors.custom({ name: 'extra', width: 2, wgsl })] });
         const m = mock();
         assert.throws(() => new A.AgentSystem(m.engine, def), /custom sensor "extra" must define fn extra/);
+        assert.equal(m.buffers.length, 0);
+    }
+});
+
+test('U9 act: steering/custom modules parse, preserve bindings and integrate before tick', () => {
+    for (const actions of [A.Actions.steering(), A.Actions.custom({ name: 'customMove', width: 1,
+        wgsl: 'fn customMove(i: u32) { agents[i].state.w = act[i]; }' })]) {
+        const def = definition({ actions }), code = A.buildAgentActWGSL(def);
+        const reflected = new WgslReflect(code);
+        assert.equal(reflected.entry.compute[0].name, 'cs_main');
+        assert.equal((code.match(/const ACT_DIM\b/g) ?? []).length, 1);
+        assert.ok(!code.includes('`'));
+        assert.match(code, /arrayLength\(&act\)/);
+        assert.match(code, /species\[a.ids.x\]/);
+        if (actions.kind === 'steering') assert.match(code, /bitcast<u32>\(a0\) & 0x7f800000u/);
+        const m = mock(), s = new A.AgentSystem(m.engine, def);
+        s.advance(def.dt);
+        assert.equal(s.getComputeStages().at(-2).name, 'AgentSystem act');
+        s.destroy();
+    }
+});
+
+test('U17 act: wrong/comment-only custom signatures fail by name before allocation', () => {
+    for (const wgsl of ['', '// fn customMove(i: u32) {}', 'fn customMove(i: f32) {}']) {
+        const m = mock(), def = definition({ actions: A.Actions.custom({ name: 'customMove', width: 1, wgsl }) });
+        assert.throws(() => new A.AgentSystem(m.engine, def), /custom actions "customMove" must define fn customMove/);
         assert.equal(m.buffers.length, 0);
     }
 });
