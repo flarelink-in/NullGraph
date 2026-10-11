@@ -14,9 +14,101 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 
 | Layer | Command | Result |
 |---|---|---|
-| Headless (mock devices, math, WGSL) | `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post · test:picking · test:text` | **457 checks, 0 failing** |
-| Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **7 suites: 58 checks + 1 render smoke, 0 WebGPU errors** |
-| Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **7 suites, 59 checks, 0 WebGPU errors** |
+| Headless (mock devices, math, WGSL) | `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post · test:picking · test:text` | **458 checks, 0 failing** |
+| Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
+| Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
+
+### Cycle C — in progress: C1 step 1 done (2026-10-11)
+
+**C1 step 1 is done, headless only.** It adds `src/extras/agents/` (`agentLayout`, `agentRecords`,
+`agentMath`) with the 64-byte record, the observation and action layouts derived from declared
+`Sensors` / `Actions`, CPU mirrors of sensing and steering, and the fixed step. These mirrors are
+the definitions later GPU stages are checked against. Run `npm run test:agents`: 24 checks, and six
+injected bugs were each caught by the test meant for them. `agents.js` is 5,138 B min+gzip; core is
++0 B.
+
+Semantics pinned and written into the design doc:
+- **The local frame:** positive side = the direction a positive turn steers toward.
+- **Non-finite action rows mean stop.** The GPU detects them via exponent bits, because WGSL may
+  fold `v != v` away.
+- **Spawn speed** is clamped to the agent's max; negative speed is refused.
+- **The fixed step drops time only under real debt.** Physics P1's pseudocode counts a clamp at
+  exactly `maxSteps × dt`; its spec text should be corrected to match.
+
+Committed as `feat(agents)`, directly after Cline's GI work (`1a70e8d`); the two were kept separate.
+
+The plan and design spec is [`agents-design.md`](./agents-design.md): batched agents, sense → think
+→ act on the GPU, as an opt-in `null-graph/agents` module with zero core change. Phases:
+- **C0:** spikes S1–S5, scripts only.
+- **C1:** a population with rule brains, the shared spatial grid (physics P2's stages A–C), and
+  output to visibility, labels and picking. A product on its own.
+- **C2:** neural brains — a built-in WGSL kernel, `MlpBrain.fromOnnx`, an `OrtBrain` adapter, and
+  JS training tools.
+
+**Decisions settled with the user** (the doc's last section): a hybrid brain runtime — rules and a
+built-in WGSL kernel ship, ORT is the optional research path, never the default; ORT goes through a
+generic opt-in `null-graph/inference` adapter (ORT an optional peer dependency, never bundled); JS
+training tool; Herd & Wolves demo; module name `null-graph/agents`. Still open: the engine-first
+device amendment, decided by spike S5. Nothing is implemented yet.
+
+Facts verified in ONNX Runtime 1.29 while planning, and why they matter:
+- **`run()` cannot submit inside the call.** It awaits input preparation first, so an ORT brain
+  lands at least one frame late in an interactive loop. WGSL brains have no such gap.
+- **Graph capture binds GPU inputs and outputs once, then silently ignores new ones.** So the
+  agents' observation and action buffers must be fixed for life.
+- **`env.webgpu.device` can be set to an app-created device.** Cycle A's "ORT owns the device, never
+  the reverse" can relax for engine-first hosts such as the site's worker, after spike S5.
+- **ORT's WebGPU WASM is 25.7 MB, 6.4 MB gzipped.** A typical agent brain is 7.7 KB, which is why
+  small dense networks default to the built-in kernel.
+
+### GI colour-bleeding check — 2026-10-11 (committed `1a70e8d`)
+
+`test/probes-gpu/{run.js,index.html}`, registered as `probes` in both GPU runners, now measures a
+red wall beside a neutral diffuse floor. Six numeric checks on real rendered linear-HDR pixels:
+nonblank/finite/unsaturated patches, stronger red near the wall than far away, disabled-GI and
+neutral-wall controls, feedback versus direct-only captures, and convergence over 16 complete
+refreshes of a 24-probe volume. One probe per frame keeps Node pipeline construction under the
+execution tool timeout. Late change is measured before tone mapping or RGBA8 quantization.
+
+NVIDIA/Node: near red excess **0.01826**, far **0.00249**, direct-only **0.00540**; AMD/Chrome:
+**0.01825 / 0.00248 / 0.00540**. Both controls remove the tint; the final four refreshes have zero
+measured change at rgba16float precision. All six checks pass with zero WebGPU errors on both.
+The first estimate includes environment fallback, so convergence is not necessarily monotonic.
+This does not yet verify the enclosed white-room energy test, leak bounds, or local reflections.
+
+**Bug found and fixed:** `ReflProbeBuffer` used `count: u32; _pad: vec3<u32>` — WGSL aligns that
+vec3 to byte 16, putting the runtime probe array at byte 32, while CPU records start at byte 16.
+The empty 64-byte placeholder was rejected (minimum 80 bytes), dropping every GI frame. Three
+scalar padding fields restore the intended 16-byte header; a new reflector-based headless check
+pins the byte offset (old 32, fixed 16). No core or public API changes.
+
+Known lifecycle gap found while reading: `ProbeVolume.destroy()` leaves its capture batches in
+the visibility system. This harness explicitly unregisters those batches before destruction;
+the library lifecycle fix and its own regression test are follow-up work.
+
+---
+
+## Frontend GI sequencing — 2026-10-11 (uncommitted)
+
+Updated the external site at `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`:
+- Architectural Irradiance Probes: submit environment + shadow atlas before startup prewarm;
+  use public `setIntensity`; full-volume UI rebake invalidates bounds and refreshes amortized.
+- Sky Sources: UI rebake uses amortized invalidation of the complete grid (including edge probes).
+- Both demos: `afterRender` copies environment SH after the bake submission. `EngineCore` calls
+  this optional hook and suppresses rendering during setup and asynchronous teardown.
+- Irradiance tutorial: initialize lights, camera, environment and shadows before startup prewarm;
+  copy SH after submitted frame bakes; remove the claim that initial filling proves convergence.
+- Updated both rebake button labels and Architectural GI documentation for progressive behavior.
+
+Validation: IDE build reports no problems; `npm run build` passed its TypeScript phase but the
+Vite production build did not finish within the tool wait limits (not claimed passing). Separate
+`tsc --noEmit` emitted no diagnostics. All four embedded tutorial source strings transpile without
+syntax errors (not a semantic or live tutorial test). Chrome dashboard smoke: both routes loaded,
+rendered at roughly 36–38 FPS, and accepted intensity/sun/rebake/invalidation worker-state messages.
+Page-console capture showed only React Router future-flag warnings. This smoke did not attach
+to worker console targets, prove visual changes, or verify in-place route teardown. Live tutorial,
+worker-level WebGPU error capture, and thorough interactive/visual checks remain follow-up.
+No library API changes, package refresh, commits, push, or agent-kit implementation this session.
 
 ---
 
@@ -134,7 +226,7 @@ there (port 8081). `yalc:push` pushes to **three** local consumers (this site,
 | 2 | `npm run test:gpu` runs headless and exits non-zero on failure | ✅ | `test/gpu/run-gpu-tests.mjs`; failure exit verified by injecting a validation error (exit 1 on both hosts). |
 | 3 | Validation errors, shader-compile errors and device loss fail the run and name the stage/pass | ✅ | Devices watched from birth (`test/gpu/node-gpu.mjs`, `test/gpu/harness-env.mjs`); pipelines/modules labelled (`label` on `PipelineConfig`, stage `name`); C5 asserts the stage name appears in the error. |
 | 4 | `npm run render -- scene.mjs --out shot.png` | ✅ | `test/gpu/render.mjs`; the quick-start doc renders (a lit blue PBR cube); blank and broken scenes exit 1 with reasons. |
-| 5 | Headline README claims get GPU checks | ◐ | ✅ one draw per mesh at 13k instances; ✅ GPU cull == CPU mirror; ✅ Hi-Z; ✅ no shimmer/crawl; ✅ cascade seams; ◻ **GI colour bleeding — not written** (next). |
+| 5 | Headline README claims get GPU checks | ✅ | ✅ one draw per mesh at 13k instances; ✅ GPU cull == CPU mirror; ✅ Hi-Z; ✅ no shimmer/crawl; ✅ cascade seams; ✅ **GI colour bleeding + refresh convergence** (`test/probes-gpu` G1–G6). |
 | 6 | ONNX smoke test: a model's output feeds a NullGraph compute stage with zero CPU readback, browser + Node | ✅ | `test/onnx-gpu` O1–O3 — ORT creates the device, NullGraph adopts it, `tensor.gpuBuffer` bound as-is; exact values on both hosts. |
 
 The **agent kit** (llms.txt, compact guide, starter scenes, a baseline eval) was scoped as the step
@@ -212,7 +304,7 @@ devDependencies added (exact pins): `webgpu@0.6.1` (Dawn for Node), `onnxruntime
 |---|---|---|
 | Agent-facing docs (llms.txt, guides) live **in the repo and are linked from GitHub — not shipped in the npm package** (`files` stays `["dist"]`) | Keep the published package lean. (Note: `.md` in a tarball does not reach app bundles — this is about package size, not runtime perf.) | User, 2026-10-11 |
 | **ORT owns the device, NullGraph adopts** — never the reverse | ORT requests the features/limits its kernels need; its maintainers warn a device made with other parameters may not work. NullGraph's baseline needs nothing optional. | Cycle A |
-| No `null-graph/ml` module | The seam is two things NullGraph already does (adopt a device, bind a raw `GPUBuffer`). An ONNX model is "another producer of buffers" — the physics README's framing. | Cycle A |
+| ~~No `null-graph/ml` module~~ **Revised:** a small generic, opt-in `null-graph/inference` adapter; ORT stays an optional peer dependency, never bundled or on the default path | Cycle A assumed the seam was trivial (adopt a device, bind a raw `GPUBuffer`). Cycle C planning showed it is not: device direction, graph capture's fixed-buffer rule, two schedules and shape checks are each easy to get wrong, and both agents and image projects need them | Cycle A; revised by the user, 2026-10-11 (Cycle C) |
 | Headless default format `rgba8unorm` | Core-renderable everywhere; bytes already in PNG order (no BGRA swizzle in readback). | Cycle A |
 | Thrown error strings kept short; reasoning in comments | Thrown strings (and comments **inside WGSL template literals**) ship in the bundle; TS comments do not. Errors still name the offender and the way out (design-principles §2). | Cycle A |
 | A GPU suite fails on **any** uncaptured WebGPU error, even with every check green | Two shadow checks "passed" comparing zero with zero over a frame the device had dropped. | Cycle A |
@@ -378,18 +470,23 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
 ## Next, in order
 
 1. ~~Commit Cycle A~~ — done. ~~**Cycle B: implement and commit**~~ — done (seven local commits, not pushed).
-2. **GI colour-bleeding GPU check** — the README's largest unverified claim. A red wall beside a
-   white floor; after N probe-capture refreshes, floor pixels near the wall must be measurably redder
-   than far ones, and converge (multi-bounce). Template: `test/visibility-gpu/run.js`.
+2. ~~**GI colour-bleeding GPU check**~~ — done, six checks pass on Node/NVIDIA and Chrome/AMD;
+   header-layout fix and harness committed as `1a70e8d`. See the evidence above.
 3. **Agent kit follow-up** — Stage 1 implemented; three local kit-guided trials completed as
    recorded above. Keep Option 1 (README-linked root index, kit not shipped in npm), the curated
    `docs/agent/` folder and approximate 50k-token guide ceiling. Implement the small guidance
    fixes, repeat a requirement-preserving browser conversion with a local 1.1.1 tarball, then
    review/release/tag and verify pinned discovery. Controlled before/after evaluation remains
    pending; do not equate the local trials with that benchmark.
-4. **Cycle C** — the flagship where NullGraph's data path matters: batched neural agents through
-   ORT (one inference for N agents, actions written back to the instance buffer on the GPU). Labels
-   that follow `vis.instanceBuffer` and picking are now in place for it ("click a unit, see its name").
+4. **Cycle C** — batched agents, now planned in [`agents-design.md`](./agents-design.md).
+   1. ~~Clean tree~~ — agent kit `7054b16`, GI work `1a70e8d`, C1 step 1 `feat(agents)`.
+   2. ~~Get the user's answers~~ — settled 2026-10-11 (hybrid, `null-graph/inference`, JS, Herd & Wolves).
+   3. ~~C1 step 1~~ — done (headless). **Next: C1 step 2**, the spatial grid (P2's stages A–C in
+      `src/extras/spatial/`) and the GPU k-nearest query, checked against `nearestNeighbours`
+      (U2, U3, A1). Spike S3 (the built-in kernel's cost) runs before step 3; the ORT spikes S1,
+      S2, S4 and S5 run before C2's ORT step.
+   4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
+      half.
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -507,3 +604,37 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   stale headless count and clarified Node versus Chrome GPU totals. Historical boundary checks
   exceeded the tool timeout; final-tree verification completed. No push, demo-site edits, or
   unrelated follow-on work. Next: the GI colour-bleeding GPU check.
+- **2026-10-11 — Cline.** Added the red-wall/neutral-floor GPU harness with six non-vacuous checks
+  and controls, measured linear-HDR pixels, and verified colour bleeding and feedback convergence
+  on NVIDIA/Node and AMD/Chrome. The first run exposed the reflection-buffer header alignment bug;
+  fixed it with scalar padding and pinned it headless. Corrected harness cube dimensions and floor
+  rotation before accepting results. Node's large capture budgets exceeded the tool timeout;
+  one probe per frame passes in about 21 seconds. Updated verification docs. No commits or push.
+  Next: review/commit this GI work, then the agent kit; white-room energy/leak/reflection checks and
+  ProbeVolume capture-batch teardown remain follow-ups.
+- **2026-10-11 — Claude (Opus 5.5).** Planned Cycle C at the user's request: design only, no code.
+  - **Read first:** Cline's handoff updates (Cycle B committed, GI check, agent kit), the design
+    principles, the physics plugin specs, and the roadmaps.
+  - **Verified against source:** the ONNX Runtime 1.29 behaviours Cycle C depends on — GPU
+    inputs/outputs, pre-allocated outputs, graph capture binding once, `run()` awaiting before it
+    submits, device setter/getter, input-shape metadata — and measured its WebGPU WASM size.
+  - **Wrote `docs/agents-design.md`** in the §14 shape: a 64-byte agent record compatible with P1,
+    P2's grid built once and shared, declared sensors, three brain backends behind one socket,
+    a test plan with expected numbers, verbatim errors, touchpoints (one visibility addition,
+    `setInstanceCount`), and a spike-gated build order.
+  - **Changed only** that doc and this file. Five open questions await the user.
+- **2026-10-11 — Claude (Opus 5.5).** Settled Cycle C's open questions with the user and updated
+  `agents-design.md`: hybrid brains (ORT optional, the research path, never default); ORT behind a
+  generic `null-graph/inference` adapter (revising Cycle A's "no ML module", reason recorded in
+  Decisions); goals ladder (§9.7); spikes reordered agents-first (S3 before C1 step 3; ORT spikes
+  before C2). Docs only. Next: C1 step 1 — record, layouts, CPU mirrors.
+- **2026-10-11 — Claude (Opus 5.5).** C1 step 1 of Cycle C, headless only.
+  - **Built** `src/extras/agents/`: the record layout, `defineAgents` (derived observation and action
+    layouts, named WGSL offsets, slot names, species masks and table), `AgentRecords`, CPU mirrors
+    (brute-force k-nearest, sensing, steering) and `FixedStep`.
+  - **Tests:** `test/agents.test.mjs`, 24 checks. Six injected bugs were each caught by their test.
+    A real gap was found and fixed (spawn speed above the agent's max).
+  - **Docs:** design doc §5.1, §5.2 and §7 now state the exact semantics; A3's tolerance is derived
+    from WGSL's trig accuracy.
+  - **Committed** after the GI work (`1a70e8d`), as requested. Next: a CPU-preview demo in the
+    test-engine site, then C1 step 2 — the grid.
