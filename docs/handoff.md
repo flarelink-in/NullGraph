@@ -34,6 +34,18 @@ overflow, bounded nearest neighbours and brute-force misses. Herd & Wolves is un
 Controls select uniform/boundary/crowded layouts, scan budget 1–64 and agent index 0–255.
 Grid construction and queries run on the CPU only; rendering/culling run on the GPU. The shared
 grid reference is exported through `null-graph/agents`; there is no new package subpath.
+- **Purpose clarified:** occupancy partitions neighbour-search candidates. Queries visit a 3×3
+  cell neighbourhood instead of the whole population; empty cells have no candidates. This is
+  not rendering-tile culling. Red means entries exceed the per-cell scan budget (not lost storage);
+  pink identifies neighbours missed by the bounded query.
+- **Committed reference:** `d607d73` contains the library CPU grid/query reference and tests.
+  The frontend experiment remains local under the commit caveat below.
+- **Server cleanup:** on 2026-10-11, stopped the stale Vite Node process on port 8081 (PID 6328)
+  at the user's request and verified no listening connection remained. Already-loaded browser
+  pages can continue rendering until closed/refreshed; this did not stop the port-8083 server.
+- **Next-work clarification:** the user requested "C3", but the current design defines C0/C1/C2
+  only. Confirm whether this means C1 step 3, spike S3, or a new cycle before implementation.
+  C1 step 2 GPU grid/query and A1 are still pending; S3 gates C1 step 3.
 - **Validated after visual/type fixes:** frontend `tsc --noEmit`, IDE build, library build and
   29 agent checks passed. Targeted ESLint has zero errors (12 style warnings in integration/demo
   files); the five new experiment files pass Prettier. Existing integration formatting and unrelated
