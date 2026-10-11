@@ -35,7 +35,45 @@ Semantics pinned and written into the design doc:
 - **The fixed step drops time only under real debt.** Physics P1's pseudocode counts a clamp at
   exactly `maxSteps × dt`; its spec text should be corrected to match.
 
-Committed as `feat(agents)`, directly after Cline's GI work (`1a70e8d`); the two were kept separate.
+Committed as `7f4cdb5`, directly after Cline's GI work (`1a70e8d`); the two were kept separate.
+
+**Demo: Herd & Wolves, CPU preview (2026-10-11).** It lives in the test-engine site under a new nav
+section, **Agent Experiments**, at `/dashboard/agents/herd-wolves-preview` (also the section's
+index).
+- **What it runs:** step 1's real API. `defineAgents` with `Sensors.self/nearest/bounds` gives the
+  24-float observation; `AgentRecords`, `FixedStep`, `senseAll` and `stepAll` do the rest.
+- **The brain:** a JS rule brain (`brain.ts`) that reads only what a WGSL rule brain will get —
+  the observation row via named offsets, the species, the index and the tick. It is the prototype
+  for step 3.
+- **The scene:** 24 wolves and 300 prey as arrow-shaped darts, so headings show, on a 60 m field.
+  Prey flock and flee; wolves chase, catch (a "caught!" marker), then rest 5 s. Caught prey respawn
+  far from the pack. Rendering is `VisibilitySystem` instances written from the records each frame.
+- **Interaction:** wolf names follow `vis.instanceBuffer`. Hover highlights; click opens the
+  inspector label — what the agent senses (wolf / prey / wall in its own frame) and decides (turn,
+  throttle, the brain's reason). A second, no-depth-test `TextSystem` holds the inspector, a stats
+  sign and the catch markers.
+- **Controls:** flocking, fleeing, simulation speed, wolf names.
+
+Verified in headless Chrome (AMD iGPU), zero console errors:
+- **Speed:** 60 FPS; one sim step costs 1.2–1.9 ms on the CPU (brute-force O(N²) sensing at 324
+  agents). That cost is the reason for the GPU grid in step 2.
+- **Inspector:** shows live values ("prey 3 of 3 · nearest side -0.15 fwd -0.05 → turn +0.02 ·
+  throttle +0.25").
+- **Site wiring:** the nav section and the Docs tab render.
+- **Gameplay is brisk:** about 2 catches per second even after tuning (wolf 3.7 m/s, rest 5 s, prey
+  sense 7 m). Retune at 20,000 agents in step 5.
+
+Site files (the site's git tracks almost nothing; this is the record):
+- **New:**
+  - `src/data/engine-demos/demos/AgentsExperiments/HerdWolvesPreview/` (`index.ts`, `brain.ts`,
+    `scene.ts`, `font.ts`)
+  - `…/AgentsExperiments/HerdWolvesPreviewExample.ts`, `…/AgentsExperiments/HerdWolvesPreviewDocumentation.ts`
+  - `src/pages/dashboard/AgentsExperiments/HerdWolvesPreview.tsx`
+  - `src/layouts/components/engine-inspector/controls/herd-preview-controls.tsx`
+- **Wiring:** `routes/paths.ts` (`agents` group), `routes/sections/dashboard.tsx` (`agents` routes),
+  `layouts/config-nav-dashboard.tsx` (group + `agents` icon), `demoMap.ts`, `docsMap.ts`,
+  `workers/engine/demoRegistry.ts` (`AGENTS_HERD_PREVIEW`), `workers/types/types.ts`
+  (`HerdPreviewState`), `store/useDemoControlStore.ts`, `inspector-tab.tsx`.
 
 The plan and design spec is [`agents-design.md`](./agents-design.md): batched agents, sense → think
 → act on the GPU, as an opt-in `null-graph/agents` module with zero core change. Phases:
@@ -638,3 +676,10 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
     from WGSL's trig accuracy.
   - **Committed** after the GI work (`1a70e8d`), as requested. Next: a CPU-preview demo in the
     test-engine site, then C1 step 2 — the grid.
+- **2026-10-11 — Claude (Opus 5.5).** Committed the GI work (`1a70e8d`) and Cycle C plan + C1 step 1
+  (`7f4cdb5`) separately.
+  - **Built** the Herd & Wolves CPU-preview demo in the test-engine site under a new "Agent
+    Experiments" section, and verified it in headless Chrome.
+  - **Published** with `yalc:push`, which now reaches five local consumers; the dev `dist/` was
+    restored afterwards.
+  - **Next:** C1 step 2 — the GPU grid.
