@@ -30,7 +30,13 @@ struct Camera {
 };
 `;
 
-/** Instance record — 96 bytes, matches cullMath.ts INSTANCE_* layout (design doc §4.1). */
+/**
+ * Instance record — 96 bytes, matches cullMath.ts INSTANCE_* layout (design doc §4.1).
+ *
+ * `sourceIndex` (formerly padding) is 0 in the app's buffer and, in the COMPACTED copies the
+ * instance cull writes, the record's index in that buffer — so a draw shader that sees "visible
+ * instance #k" can still ask "which of the app's instances am I?" (picking-design.md §5).
+ */
 export const INSTANCE_STRUCT_WGSL = /* wgsl */ `
 struct Instance {
     model: mat4x4<f32>,
@@ -38,7 +44,7 @@ struct Instance {
     meshIndex: u32,
     lodOverride: u32,
     flags: u32,
-    _pad: u32,
+    sourceIndex: u32,
 };
 `;
 
@@ -288,7 +294,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }` : ''}
 
     let slot = atomicAdd(&drawArgs[1], 1u);
-    outInstances[slot] = inst;
+    var survivor = inst;
+    survivor.sourceIndex = i;
+    outInstances[slot] = survivor;
 }
 `;
 }

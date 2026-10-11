@@ -62,7 +62,13 @@ export class VisibilitySystem {
     private readonly lodErrorPx: number;
 
     // --- shared inputs ---
-    private instanceBuffer: GPUBuffer;
+    /**
+     * The instance records on the GPU (`INSTANCE_FLOATS` per instance, STORAGE). Public read-only
+     * so other GPU consumers can read the same data with no copy — labels following instances
+     * (`TextSystem` `follow: { buffer, strideFloats: 24, positionOffset: 12 }`), a simulation's
+     * compute stage. Written by `upload()`.
+     */
+    public readonly instanceBuffer: GPUBuffer;
     private instanceStaging: Float32Array | null = null;
     private instanceCount: number = 0;
 

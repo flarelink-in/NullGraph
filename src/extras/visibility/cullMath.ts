@@ -28,8 +28,13 @@ export const INSTANCE_MESH_INDEX_OFFSET = 20;
 export const INSTANCE_LOD_OVERRIDE_OFFSET = 21;
 /** u32, float 22. bit0: disable occlusion cull; bit1: disable cone cull. */
 export const INSTANCE_FLAGS_OFFSET = 22;
-/** padding, float 23. */
+/** padding, float 23. Kept for compatibility — the field is now {@link INSTANCE_SOURCE_INDEX_OFFSET}. */
 export const INSTANCE_PAD_OFFSET = 23;
+/**
+ * u32, float 23. 0 in the app's buffer (`write` sets it); in the compacted copies the instance
+ * cull produces, the record's index in the app's buffer (picking-design.md §5).
+ */
+export const INSTANCE_SOURCE_INDEX_OFFSET = 23;
 
 /** `lodOverride` value meaning "select LOD automatically from screen-space error" (§8). */
 export const LOD_AUTO = 0xFFFFFFFF;
