@@ -1,6 +1,6 @@
 {
   "name": "null-graph",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
@@ -83,6 +83,7 @@
     "test:gpu": "node test/gpu/run-gpu-tests.mjs",
     "test:gpu:browser": "node test/gpu/browser-run.mjs",
     "render": "node test/gpu/render.mjs",
+    "test:agent-kit": "node --test test/agent-kit.test.mjs",
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",
     "test:geometry": "node test/geometry-meshlets.test.mjs",
     "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs && node test/visibility-lifecycle.test.mjs",

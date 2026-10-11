@@ -1,8 +1,9 @@
 # Composing a Scene with NullGraph — Guide
 
-**Status:** guide (not an implementation spec). Reflects the shipped API plus, where marked, the
-v1.0.5 designs ([`visibility-design.md`](./visibility-design.md),
-[`geometry-meshlets-design.md`](./geometry-meshlets-design.md)).
+**Status:** historical composition guide (not an implementation spec). Visibility, meshlets and
+shadows now ship. For current runnable application starters, begin with
+[`agent/guide.md`](./agent/guide.md) and the linked public API references. The illustrative
+snippets below are not the agent kit's tested examples; section 9 remains a proposal.
 **Audience:** someone with an arbitrary scene "X" asking *how do I actually put this on screen,
 and how much of it is boilerplate I can default?*
 
@@ -149,7 +150,7 @@ function frame() {
 Note the scene pass flips to `isMainScreenPass: false` — the *post* chain now owns the final
 on-screen pass. This is the composition changing shape, but only by rebracketing the same array.
 
-### 3.3 Add scale — visibility & meshlets (v1.0.5, designed not yet shipped)
+### 3.3 Add scale — visibility & meshlets (shipped)
 
 For thousands+ of objects, replace hand-managed batches with GPU culling
 ([`visibility-design.md`](./visibility-design.md)). The array gains a cull bracket; the draw
@@ -264,13 +265,13 @@ Do not expect these to be handled for you:
   This is the deliberate cost of zero-copy DOD.
 - **No automatic resource lifetime.** You `destroy()` what you create. Recompiling a `PostChain`
   currently leaks pass nodes (`post-processing-design.md` §3.2) — an acknowledged rough edge.
-- **Visibility & meshlets are v1.0.5 — designed, not shipped.** Until then, cull/batch on the CPU.
-  §3.3 is forward-looking; §3.0–3.2 work today.
+- **Visibility and meshlets ship.** Use the instance tier for repeated meshes and the meshlet
+  tier for cluster-level culling; see the current [Visibility API](./api/visibility.md).
 - **Instance stride is material-defined.** The 14-float PBR default (position, quaternion, scale,
   color — see quick-start) is a convention of `buildPBRShader`, not a law. Custom materials define
   their own stride, and your instance `Float32Array` must match it.
-- **Not yet in the engine:** shadows (v1.1), deferred/visibility-buffer shading (v1.1), TAA
-  (v2.0). Composition today is forward-rendered. See `roadmap.md`.
+- **Shadows ship:** see the [Shadows API](./api/shadows.md). Deferred/visibility-buffer shading
+  and TAA remain outside these starters. Composition here is forward-rendered.
 
 None of these break the §2 backbone — they are content/feature gaps, not structural ones. That is
 exactly why the claim in §1 holds: the shape generalizes; the content is yours.

@@ -115,6 +115,27 @@ maps · leak-free DDGI probe visibility · compute skinning. All planned and spe
 
 # Installation and Setup
 
+## Agent quick path (repository-side kit)
+
+The npm package contains the engine, declarations and this README. Installing it does **not**
+automatically load agent instructions, examples or repository validation scripts.
+
+Start at the [repository agent index](https://github.com/Vikas593-cloud/NullGraph/blob/master/llms.txt)
+or fetch its [raw text](https://raw.githubusercontent.com/Vikas593-cloud/NullGraph/master/llms.txt).
+These branch links are development entry points, not version-pinned release documentation.
+The intended pinning baseline is **v1.1.1**; tag publication and URL verification are release steps.
+In a checkout, read `llms.txt` then `docs/agent/guide.md`; resolve linked paths relative to each
+document. Pull only the example/API pages needed for the task, not the internal design archive.
+
+Repository validation: `npm install`, `npm run build:lib`, `npm run test:agent-kit`, then
+`npm run render -- test/gpu/scenes/instancing.mjs --out instances.png --json instances.json`.
+The first starters cover plain instancing and GPU frustum culling. The renderer writes evidence,
+but a non-blank frame alone does not prove correct culling or the requested appearance.
+
+Offline npm-only agents can inspect public exports and shipped `.d.ts` files. They cannot run
+the repository's scripts without obtaining its tools. No `null-graph/llm` module is exported:
+a possible future documentation-resolution subpath is not an executable runtime or auto-reader.
+
 NullGraph is distributed as a modular ESM package. To maintain its "Zero-Copy" philosophy, it requires `gl-matrix` as a peer dependency to ensure your application and the engine share the same math structures.
 
 ## 1. Install via NPM
