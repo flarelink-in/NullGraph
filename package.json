@@ -86,6 +86,7 @@
     "test:core": "node test/core-compute.test.mjs && node test/core-headless.test.mjs",
     "test:gpu": "node test/gpu/run-gpu-tests.mjs",
     "test:gpu:browser": "node test/gpu/browser-run.mjs",
+    "drive": "node test/gpu/drive-page.mjs",
     "render": "node test/gpu/render.mjs",
     "test:agent-kit": "node --test test/agent-kit.test.mjs",
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",

@@ -196,6 +196,15 @@ Specs first, as house style: [`picking-design.md`](./picking-design.md),
   `removePass`, or keep the pick pass out of the tracked list.
 - Text: decluttering, shaping (Arabic/Devanagari), rich text, world-size labels, picking labels,
   atlas generation in Node (no OffscreenCanvas — load an msdf-atlas-gen atlas instead).
+- **Pointer — label decluttering (text v2).** Seen in practice: both site demos (Picking & Labels,
+  Herd & Wolves) have dense spots where labels overlap and become unreadable.
+  - **Planned approach** (`text-labels-design.md` §1: "a compute pass over the same records"): after
+    the text cull, each visible label claims the cells of a coarse screen grid (about 32 px) under
+    its rectangle with `atomicMin(priority << 16 | label)`. A second pass keeps only labels that won
+    their cells. Priority: selected / hovered first, then nearer.
+  - **No CPU, no readback,** one extra pass.
+  - **Workarounds today:** `maxDistance`, a second `depthTest: false` system for labels that must
+    read, and fading the rest during a selection.
 - Text draw order inside one system is undefined (atomic compaction), and the depth test uses the
   anchor's depth across the whole quad. Both are documented with workarounds in `api/text.md` §5.
   The demo shows the pattern: a second `depthTest: false` system for overlay labels.
@@ -253,6 +262,7 @@ there (port 8081). `yalc:push` pushes to **three** local consumers (this site,
 | `npm run test:gpu:browser` | The same suites in headless Chrome (built-in static server, COOP/COEP on). `-- --only core`, `-- --chrome <path>`. |
 | `NG_GPU_ARTIFACTS=<dir> npm run test:gpu` | Also save the frames harnesses render, as PNGs — for looking at what a check measured. |
 | `npm run render -- <scene.mjs> --out shot.png [--width --height --frames --json --allow-blank]` | Render any scene to a PNG, headless. Exit 1 on a WebGPU error or a uniform (nothing-drew) frame, with the likely causes printed. Contract in `test/gpu/render.mjs`; example: `test/gpu/scenes/quick-start.mjs`. |
+| `npm run drive -- <url> [--wait-for re] [--actions steps.json \| --interactive] [--canvas sel] [--out dir]` | Drive a page in headless Chrome: move/click/key/wheel, screenshots, eval. Captures page **and worker** consoles and watches every GPU device (a hook installed before page and worker scripts run). Exit 1 on an exception, console error or WebGPU error; 2 when it cannot run. `--serve <dir> <path>` drives repository pages. See `test/gpu/drive-page.mjs` and `docs/agent/validation.md`. |
 
 ---
 
@@ -683,3 +693,17 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   - **Published** with `yalc:push`, which now reaches five local consumers; the dev `dist/` was
     restored afterwards.
   - **Next:** C1 step 2 — the GPU grid.
+- **2026-10-11 — Claude (Opus 5.5).** Added `npm run drive` (`test/gpu/drive-page.mjs`), the
+  page driver behind the demo checks, grown from `browser-run.mjs`. Documented in
+  `docs/agent/validation.md`; the agent-kit test passes.
+  - **Watched failing first:** an uncaught WebGPU error in the page and in a worker, an exception,
+    a 404 page and a Git-Bash-mangled path each exit non-zero; a clean page, a 9-step site
+    interaction and the text GPU harness page exit 0.
+  - **Bugs found while building it,** each fixed:
+    - A fixed debug port reached a previous run's closing browser — now port 0, read from Chrome's
+      DevToolsActivePort file.
+    - Git Bash rewrote `/x.html` into a Windows path — now refused by name.
+    - The favicon 404 counted as a page error — now answered with 204.
+    - Workers ran before the device watch existed — now a before-script instrumentation breakpoint.
+  - **Plan:** the step 2 entry now includes `groundGrid()` and the grid-occupancy overlay.
+  - **Pointer:** label decluttering, in the Cycle B known gaps.
