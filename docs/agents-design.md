@@ -6,8 +6,9 @@
 goes through a separate, generic `null-graph/inference` subpath (§9.4); ORT is never bundled.
 **Status:** 🔨 **C1 steps 1–2 done** — 29 CPU checks including U2/U3; GPU grid/query production
 wrappers and debug draws validated on Node/Dawn and Chrome (AMD GCN-5). See
-[`api/agent-grid.md`](./api/agent-grid.md). S3 runs next, before step 3. Steps 3–4 are designed
-and phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), accepted 2026-10-11.
+[`api/agent-grid.md`](./api/agent-grid.md). Steps 3–4 are designed and phased in
+[`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), accepted 2026-10-11. Its phase 3.0,
+spike S3, is measured (§13, C0); phase 3.1 is next.
 No live GPU agent simulation ships yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
 §9.4's ONNX Runtime defaults, and their numbers go back into this document.
 **Depends on:** Cycle A (headless runs, device adoption, the ORT seam), Cycle B (`sourceIndex`, public
@@ -456,6 +457,10 @@ offsets and writing `act`. It is the shipping brain for many games, and the teac
   buffer. One thread per agent. Every thread reads the same weights, so they stay in cache.
   New weights cost one `writeBuffer`; a new shape costs a pipeline (build time,
   [design-principles](./design-principles.md) §11).
+- **The kernel S3 chose:**
+  - weights read from storage, in loops;
+  - no barriers, so the think entry can return early;
+  - `tanh` inputs clamped to ±15, because FXC's `tanh` returns NaN from |x| ≥ 89 (§13, S3).
 - `MlpBrain.fromOnnx(bytes)` reads the dense subset: `Gemm`, or `MatMul` + `Add`, then `Relu` /
   `Tanh` / `Sigmoid`, with float32 initializers. That is what `torch.onnx.export` of a stack of
   `Linear` + activation layers emits. Any other op is refused by name, pointing at `OrtBrain`.
@@ -649,7 +654,7 @@ KB, paid only by apps that import it; `visibility.js` about +40 B; core +0 B. ON
 ### C0 — spikes: measure before building (scripts only, no library code)
 
 Agents-first reordering: **S3 runs before C1's step 3** (it sizes the built-in kernel, the shipped
-path). S1, S2, S4 and S5 measure only the optional ORT path and run before C2's step 9.
+path). ✅ **S3 measured 2026-10-11**; the results are below the table. S1, S2, S4 and S5 measure only the optional ORT path and run before C2's step 9.
 
 | # | Question | Measured how |
 |---|---|---|
@@ -661,6 +666,38 @@ path). S1, S2, S4 and S5 measure only the optional ORT path and run before C2's 
 
 **Gate:** the numbers decide §9.4's defaults (capture on, the think rate) and whether §12.3 is
 needed. If S1 is under ~1 ms at 20,000, `OrtBrain` is comfortable interactively at ≤ 30 Hz thinking.
+
+**S3 — measured 2026-10-11.**
+- **Where:** `test/spikes/s3-think-kernel/`, run with `npm run spike:s3` (Node, every adapter
+  Dawn offers) and in Chrome with `npm run drive`.
+- **What:** the 24→32→32→2 tanh network, one invocation per agent, workgroup 64, weights read from
+  a storage buffer in loops. That is the shape C2's kernel takes
+  ([`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §7.1).
+- **Correctness:** every variant matched an f64 CPU forward pass to within 3.7e-7.
+- **Method:** GPU timestamps; the lower of two medians of five, after a 1 s warm-up.
+
+| µs per think dispatch | 1,000 | 20,000 | 100,000 |
+|---|---|---|---|
+| NVIDIA Turing — Node/Dawn | 38 | 176 | 909 |
+| AMD GCN-5 iGPU — Node/Dawn | 33 | 281 | 1,229 |
+| AMD GCN-5 iGPU — Chrome | 41 | 337 | 1,286 |
+
+That is 9–13 ns per agent at 100,000. At 20,000 the network takes about 9% of A9's 2 ms step budget
+on NVIDIA. What the spike found:
+- **Weights staged in workgroup memory are 2.1–2.3× faster on NVIDIA and 2.1–2.3× slower on AMD.**
+  There is no portable winner. Staging also needs barriers, fits only small networks, and cannot
+  serve Phase 2's per-agent weights. The think entry therefore keeps early returns.
+- **A uniform buffer** is 10–19% faster on NVIDIA and level on AMD. **A fixed-size storage array**
+  (no bounds checks) changes nothing.
+- **Unrolled code is at most 10% faster than loops**, but takes 0.2–0.4 s to compile, and up to
+  4.4 s under FXC, against 0.03–0.26 s for loops. `MlpBrain` uses loops.
+- **`tanh` returns NaN for |x| ≥ 89 under Node/Dawn (D3D12 through FXC) on both GPUs.** Chrome,
+  which compiles with DXC, is finite. A NaN in a hidden layer would stop agents without a sound, so
+  `MlpBrain` clamps `tanh` inputs to ±15, which is exact in f32 (§9.3). No engine shader calls
+  `tanh` today.
+- **With `thinkEvery = 3`, staggering by agent index saves nothing:** it costs 88–111% of all
+  agents thinking, because the lanes of one wavefront run together. Staggering by 64-agent block
+  costs 32–42%. `thinkEvery` staggers by block.
 
 ### C1 — a population with rules, no ML (a stopping point)
 

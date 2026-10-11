@@ -40,6 +40,19 @@ It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn wi
 - live demos in the test-engine site; phase 3.5's demo will be `/dashboard/agents/herd-wolves-gpu`,
   beside the CPU preview. It is not built yet.
 
+**Phase 3.0, spike S3, is measured.** It is `test/spikes/s3-think-kernel/`, run with `npm run spike:s3`
+and through `npm run drive` in Chrome; the numbers are in `agents-design.md` §13, C0. Every variant
+matched the CPU forward pass to within 3.7e-7. The 24→32→32→2 network costs 0.18 ms at 20,000
+agents on NVIDIA Turing and 0.28–0.34 ms on the AMD iGPU. Four decisions follow from it:
+- **Weights are read from storage, and the think entry returns early.** Workgroup staging is 2.1–2.3×
+  faster on NVIDIA but as much slower on AMD.
+- **Loops, not unrolled code.** Unrolling is at most 10% faster, and an unrolled kernel took up to
+  4.4 s to compile under FXC.
+- **`thinkEvery` staggers by 64-agent block.** Staggering by index saved nothing (88–111% of the full
+  cost); by block it costs 32–42%.
+- **C2's network clamps `tanh` inputs to ±15.** Node/Dawn's FXC path returns NaN for |x| ≥ 89 on
+  both GPUs. Chrome (DXC) is finite, and no engine shader uses `tanh`.
+
 **C1 step 2 implemented and validated.** Shared XZ point-grid math lives in
 `src/extras/spatial/gridMath.ts`: bin, exclusive prefix with a terminal offset, scatter, and excess
 entries over the scan budget. `agentGridMath.ts` supplies the 3×3-cell query reference. U2/U3 add
@@ -78,8 +91,9 @@ grid reference is exported through `null-graph/agents`; there is no new package 
   pages can continue rendering until closed/refreshed; this did not stop the port-8083 server.
 - **Next-work clarified:** the user selected continuing C1: finish step 2 GPU grid/query, then
   step 3. Step 2 is implemented locally with production wiring and both-host checks.
-  S3 gates C1 step 3. The handoff clarification/server cleanup is committed as `747ec45`;
-  the completed step-2 implementation remains uncommitted. No frontend edits were made here.
+  S3 gates C1 step 3. The handoff clarification/server cleanup is committed as `747ec45`.
+  The completed step-2 implementation was committed on 2026-10-11, before the steps 3–4 docs
+  and the S3 spike. No frontend edits were made here.
 - **Validated after visual/type fixes:** frontend `tsc --noEmit`, IDE build, library build and
   29 agent checks passed. Targeted ESLint has zero errors (12 style warnings in integration/demo
   files); the five new experiment files pass Prettier. Existing integration formatting and unrelated
@@ -340,6 +354,7 @@ there (port 8081). `yalc:push` pushes to **three** local consumers (this site,
 | `NG_GPU_ARTIFACTS=<dir> npm run test:gpu` | Also save the frames harnesses render, as PNGs — for looking at what a check measured. |
 | `npm run render -- <scene.mjs> --out shot.png [--width --height --frames --json --allow-blank]` | Render any scene to a PNG, headless. Exit 1 on a WebGPU error or a uniform (nothing-drew) frame, with the likely causes printed. Contract in `test/gpu/render.mjs`; example: `test/gpu/scenes/quick-start.mjs`. |
 | `npm run drive -- <url> [--wait-for re] [--actions steps.json \| --interactive] [--canvas sel] [--out dir]` | Drive a page in headless Chrome: move/click/key/wheel, screenshots, eval. Captures page **and worker** consoles and watches every GPU device (a hook installed before page and worker scripts run). Exit 1 on an exception, console error or WebGPU error; 2 when it cannot run. `--serve <dir> <path>` drives repository pages. See `test/gpu/drive-page.mjs` and `docs/agent/validation.md`. |
+| `npm run spike:s3` | Spike S3 (Cycle C): the think-kernel cost of the 24→32→32→2 network on **every adapter Dawn offers** (here NVIDIA Turing and the AMD iGPU), with each variant checked against a CPU forward pass. Prints a µs table per adapter and an `S3 JSON` line. In Chrome: `npm run drive -- --serve . test/spikes/s3-think-kernel/index.html --wait-for "S3 done" --timeout 300`. A measurement, not a registered suite. |
 
 ---
 
@@ -607,11 +622,13 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
    1. ~~Clean tree~~ — agent kit `7054b16`, GI work `1a70e8d`, C1 step 1 `feat(agents)`.
    2. ~~Get the user's answers~~ — settled 2026-10-11 (hybrid, `null-graph/inference`, JS, Herd & Wolves).
     3. ~~C1 steps 1–2~~ — done: CPU references, shared XZ point-grid GPU stages, query and debug
-       draws (U2, U3, A1). **Next: spike S3**, the built-in kernel's cost, before step 3; the ORT spikes S1,
-      S2, S4 and S5 run before C2's ORT step.
+       draws (U2, U3, A1). ~~Spike S3~~, the built-in kernel's cost, was measured on 2026-10-11. The ORT
+       spikes S1, S2, S4 and S5 run before C2's ORT step.
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
-      §13, and accepted. **Next: phase 3.0**, spike S3.
+      §13, and accepted. ~~Phase 3.0 (S3)~~ is done. **Next: phase 3.1**, the `AgentSystem`
+      skeleton: buffers, the species uniform, the shared-buffer queries, chains, the tick stage and
+      `step()`, tested by U8, U16 and A13.
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -822,5 +839,26 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   - **Next:** the user answers the design's §13.3 questions, then phase 3.0 (spike S3).
 - **2026-10-11 — Claude (Opus 5.5).** The user accepted the steps 3–4 design: every refinement, a
   16 KB C1 bundle line, the arrow preview kept, and live demos in the test-engine site. The
-  decisions are recorded in both docs.
-  - **Next:** phase 3.0, spike S3.
+  decisions are recorded in both docs. Then phase 3.0, spike S3.
+  - **Built** `test/spikes/s3-think-kernel/{run.js,index.html}` and the `npm run spike:s3` script.
+    It is not a registered suite. It uses the shared harness, so it watches devices and runs in
+    both Node and Chrome. It measures every adapter Dawn offers: NVIDIA Turing as high-performance
+    and the AMD GCN-5 iGPU as low-power. Chrome on Windows ignores `powerPreference`, so it gives
+    AMD only.
+  - **Checks:** 24 on Node and 12 in Chrome, all passing, with zero WebGPU errors. Every kernel
+    matched an f64 forward pass to within 3.7e-7, and gated kernels left every skipped row
+    untouched.
+  - **Fixed in the spike itself:** the first run's NVIDIA 1,000-agent column read 10–25× too slow,
+    because the clocks rose partway through it. The spike now warms up for 1 s and keeps the lower
+    of two rounds.
+  - **Findings, recorded in the parent's C0 section and the GPU-loop doc §7.1, §7.3, §13:**
+    - Staggering by index saves nothing, so `thinkEvery` now staggers by 64-agent block (a design
+      change).
+    - Storage weights with early return, because workgroup staging wins on NVIDIA and loses on AMD.
+    - Loops, not unrolled code.
+    - FXC's `tanh` returns NaN for |x| ≥ 89, so C2 clamps its inputs.
+  - **Evidence:** the numbers are in `agents-design.md` §13 (C0). Rerun with `npm run spike:s3`, or
+    the Chrome command in Commands, to see the full table and the `S3 JSON` line.
+  - **Committed** at the user's request, in three commits: Cline's step 2 unchanged, then the
+    steps 3–4 docs, then the spike with its results.
+  - **Next:** phase 3.1, the `AgentSystem` skeleton.

@@ -12,7 +12,8 @@ file so the parent stays a plan.
 - One additive method in `null-graph/visibility`.
 - One debug draw in `null-graph/debug-ui`.
 
-**Status:** ✅ **designed and accepted (2026-10-11)**; 🔨 phase 3.0, the S3 spike, is in progress.
+**Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
+and §7.3 record what it decided. Next is phase 3.1.
 It is built in phases 3.0–3.5 and 4.1–4.5 (§13), each with its own exit criteria. §1.5 lists where
 this document refines the parent, and §13.3 records the user's decisions.
 
@@ -103,7 +104,7 @@ Each row is a deliberate change, with its reason. None of them touches core.
 | §9.1: a `'stage'` brain builds its own stages (`bind(io)`, `getComputeStages()`) | **The system builds the think stage.** A `'stage'` brain contributes WGSL (`fn think`) and, from C2, its own read-only buffers at group 1. `'async'` brains are unchanged | The think-rate gate, the dead and newborn checks and the binding plumbing live in one place, so a brain cannot forget the gate (design-principles §9). S3 decides one detail (§7.1) |
 | §9.2: `fn think(i: u32)` | `fn think(i: u32, species: u32, tick: u32)` | One rule set usually serves several species (Herd & Wolves branches on species). WGSL has no RNG, so randomness hashes `(i, tick)` |
 | §4.5: step parameters in a 32-byte uniform; the act stage increments the tick | dt, the world, capacity and the cell layout are WGSL constants. A one-thread **tick stage** ends each step and also accumulates grid overflow | These values never change for a system, and step 2's generators already bake them (fact 8). App stages run after act and must see the same tick as think. The grid zeroes `overflow` every step (fact 5) |
-| fact 2 and U8: `thinkEvery` disables the sense and think stages | One GPU predicate, `thinksNow(i, agent)`. It is staggered by agent index, and is true on an agent's first step | Repeated chain copies share node objects, so `enabled` cannot differ between the steps of one frame. Staggering spreads the cost (design-principles §11, corollary); it is the simplest form of the parent's deferred "amortized think slices", and costs one term in the predicate. A newborn never acts on its slot's previous row |
+| fact 2 and U8: `thinkEvery` disables the sense and think stages | One GPU predicate, `thinksNow(i, agent)`. It is staggered by **64-agent block**, and is true on an agent's first step | Repeated chain copies share node objects, so `enabled` cannot differ between the steps of one frame. Staggering spreads the cost (design-principles §11, corollary); it is the simplest form of the parent's deferred "amortized think slices", and costs one term in the predicate. The stagger is by block because S3 measured staggering by index at 88–111% of the full cost and by block at 32–42% (§7.3). A newborn never acts on its slot's previous row |
 | §6.2: the query radius is the sense radius | Query at `cellSize`; each observer filters by its own `senseRadius` | §1.3 |
 | A2: obs within 1e-5 absolute | A2 uses a bound derived from WGSL's `sin`/`cos` accuracy, like A3, and reports the measured maximum | Sense rotates into the local frame with `sin`/`cos`, and WGSL promises only 2⁻¹¹ absolute for them (§6.3). 1e-5 is not guaranteed |
 | §8.1: bounds `[0, 0, 0, boundsRadius]` | Unchanged; **plus** a refusal for a drawn species whose `boundsRadius` is 0 | `defineAgents` defaults `boundsRadius` to 0, and a zero-radius sphere is culled while the mesh is still on screen |
@@ -424,11 +425,20 @@ the brain's WGSL, then:
 }
 ```
 
-**What S3 (phase 3.0) decides for this contract** is whether a network kernel stages its weights in
-workgroup memory. If it does, it needs `workgroupBarrier()`, and WGSL allows barriers only in
-uniform control flow. The entry would then not return early: it would call
-`think(i, species, tick, active)` for every invocation, and the brain would mask its own writes.
-`RuleBrain` works under either shape. The choice is made once, before phase 3.4 bakes it in.
+**S3's answer (phase 3.0, 2026-10-11): the entry returns early.** The open detail was whether a
+network kernel would stage its weights in workgroup memory. Staging needs `workgroupBarrier()`,
+which WGSL allows only in uniform control flow, so the entry could not return early.
+
+S3 measured the 24→32→32→2 network on NVIDIA Turing and on an AMD GCN-5 iGPU, under Node/Dawn and
+Chrome (parent §13, C0):
+- **Staging is 2.1–2.3× faster on NVIDIA and 2.1–2.3× slower on AMD.** The iGPU pays for the
+  staging traffic in every workgroup.
+- **Staging only fits small networks.** The workgroup-memory limit is 16 KiB by default.
+- **Staging cannot serve Phase 2's per-agent weights.**
+
+Weights read from storage are within about 2.3× of the fastest variant everywhere. A network at
+20,000 agents costs 0.18 ms on NVIDIA and 0.28–0.34 ms on AMD. So `think` is called after the
+early returns, as shown above. Staging stays a measured per-GPU option for later (§13.2).
 
 ### 7.2 `RuleBrain` and the helpers
 
@@ -466,17 +476,22 @@ The system provides:
 
 ```wgsl
 fn thinksNow(i: u32, a: Agent) -> bool {
-    return (a.ids.y & 1u) != 0u && (a.state.y == 0.0 || (state.tick + i) % THINK_EVERY == 0u);
+    return (a.ids.y & 1u) != 0u && (a.state.y == 0.0 || (state.tick + i / 64u) % THINK_EVERY == 0u);
 }
 ```
 
-- **Staggered.** With `thinkEvery = n`, agent `i` senses and thinks on the steps where
-  `(tick + i) % n == 0`, so each step does 1/n of the work instead of all of it every nth step.
-  Between thinks, an agent keeps acting on its last action row.
+- **Staggered by 64-agent block.** With `thinkEvery = n`, the agents of block `b = i / 64` sense
+  and think on the steps where `(tick + b) % n == 0`. Each step does 1/n of the work, instead of
+  all of it every nth step. Between thinks, an agent keeps acting on its last action row.
+- **Why blocks, not single agents.** The lanes of one wavefront execute together, so a wavefront
+  with any agent thinking runs the whole brain. S3 measured staggering by index at 88–111% of the
+  full cost, on all three hosts, and staggering by block at 32–42%. 64 is the workgroup size, so a
+  block is whole wavefronts on any subgroup size up to 64.
 - **Newborns think at once.** `age == 0` marks an agent that has never acted (spawn sets it, the
   `respawn` helper resets it, and act advances it by `dt`). It never steers by the previous
-  occupant's last row. An app that spawns with an explicit nonzero `age` is restoring a population
-  and opts out of this.
+  occupant's last row. Its wavefront runs the brain that step even if its block is not due, which
+  is rare and costs one wavefront. An app that spawns with an explicit nonzero `age` is restoring a
+  population and opts out of this.
 - **One predicate, two kernels.** It is emitted once and called by both sense and think
   (principle 5). It lives on the GPU because repeated chain copies share node objects (fact 2).
 - **Queries stay ungated.** App stages read `neighbours` every step. Gating queries for agents
@@ -723,7 +738,7 @@ IDs continue the parent's §10: U8, U9, A2, A3, A7 and A10–A12 keep their mean
 | A13 | `chains[3]` in one submission equals three single-step submissions, byte for byte, with a brain that reads `tick` |
 | A14 | Act rows poisoned with NaN and ±Inf on the GPU: those agents slow to a stop, and every record stays finite (the GPU twin of U5c) |
 | A15 | A fixture `RuleBrain` that uses `rand01` matches its JS twin on 10,000 CPU-built obs rows. Equality is exact, since the fixture uses no trig |
-| A16 | With `thinkEvery = 3`, a fixture brain that writes `tick` into its act row: each row changes only on its staggered steps, and a newly spawned agent thinks on its first step |
+| A16 | With `thinkEvery = 3`, a fixture brain that writes `tick` into its act row: each row changes only on its block's steps, and a newly spawned agent thinks on its first step |
 | A17 | Instance rows written by the GPU equal U19's twin applied to read-back records |
 | A18 | `catches` + `respawn`: caught prey reappear inside the world, no record is non-finite, and two lockstep runs agree byte for byte |
 | A19 | Per frame on the CPU: zero typed arrays constructed, and at most two agent-system `writeBuffer` calls without spawns |
@@ -829,7 +844,7 @@ Every phase ends the same way:
 
 | Phase | Builds | Exit criteria | What becomes visible |
 |---|---|---|---|
-| **3.0** | Spike **S3** (parent §13, C0), a script with no library code: the 24→32→32→2 network as one kernel, one invocation per agent, at 1k / 20k / 100k agents, with weights read from storage vs staged in workgroup memory | Numbers recorded in the parent. §7.1's entry shape (early return, or `active` with uniform control flow) is chosen | — |
+| **3.0** ✅ | Spike **S3** (parent §13, C0): `test/spikes/s3-think-kernel/`, `npm run spike:s3`. A script with no library code: the 24→32→32→2 network as one kernel, one invocation per agent, at 1k / 20k / 100k agents. It compares weights in storage (runtime-sized or fixed-size), uniform and workgroup memory, loops against unrolled code, index against block staggering, and probes `tanh` at large inputs | Done 2026-10-11 on NVIDIA Turing and AMD GCN-5 under Node/Dawn, and AMD under Chrome; every variant matched the CPU forward pass. Numbers are in the parent. The entry returns early (§7.1), and the stagger is by block (§7.3) | — |
 | **3.1** | `AgentSystem` skeleton: buffers, `upload()`, the species uniform, `setSpecies`, `PointGrid` + query stages into the shared buffer, chains, the tick stage, `step()`, `destroy()` | U8, U16; A13 over grid, queries and tick, with a stub brain that reads `tick` (re-run as each stage lands) | — |
 | **3.2** | The sense generator | U9 (sense); A2 | — |
 | **3.3** | The act generator | U9 (act); A3, A14, A7 | — |
@@ -855,6 +870,7 @@ measured.
 | Time-budgeted think slicing beyond the index stagger, and live `thinkEvery` changes | No measured need yet |
 | `addStepStage({ when: 'frame' })` for once-per-frame logic | No consumer yet |
 | Per-species brains (`setBrain(brain, { species })`) | C2 decides it with behaviour cloning; one network for two policies needs a species input or two networks |
+| Network weights staged in workgroup memory, or read from a uniform buffer, where measured faster | S3: staging is 2.1–2.3× faster on NVIDIA and as much slower on AMD; a uniform buffer is 10–19% faster on NVIDIA and level on AMD. Staging needs an additive entry variant that keeps uniform control flow |
 
 ### 13.3 Decisions — settled with the user, 2026-10-11
 
