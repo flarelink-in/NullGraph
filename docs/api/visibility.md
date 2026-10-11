@@ -147,6 +147,14 @@ real rendering. See §6.
 > `clipPos`, `worldPos`, `worldNormal`, `uv` and `ecsColor`. A bare `return …;` is a WGSL parse
 > error ("statement found outside of function body").
 
+**Which instance am I?** The instance cull copies survivors into a compacted list, and writes each
+one's index in your `InstanceBuffer` into the record's last field — `sourceIndex` in WGSL,
+`INSTANCE_SOURCE_INDEX_OFFSET` (= 23) on the CPU. A custom instance-tier shader reads
+`instances[instance_index].sourceIndex` to look up per-instance data the record does not hold;
+picking uses it to report your index. **`vis.instanceBuffer`** is public (read-only): the GPU copy
+of your records, for other GPU consumers — e.g. labels that follow instances
+(`TextSystem` `follow: { buffer: vis.instanceBuffer, strideFloats: 24, positionOffset: 12 }`).
+
 A batch's parameters are written when it is registered, so a batch created after this frame's
 `upload()` still draws on its first frame. To tear one down — a system you destroy while the
 `VisibilitySystem` it shares lives on — call `vis.removeDrawBatch(batch)`: its cull stage leaves
