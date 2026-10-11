@@ -2,7 +2,8 @@
 // All pure math is headless (probeMath.ts pinned by number — the CPU mirrors of the WGSL in
 // probeShaders.ts); every generated WGSL module is parsed with wgsl_reflect; the systems' wiring
 // is exercised through a mock device, the same discipline as shadows-csm.test.mjs and
-// environment-ibl.test.mjs. The GPU integration tests (T1–T7) need a browser harness.
+// environment-ibl.test.mjs. Colour bleeding/feedback run in test/probes-gpu on Node and Chrome;
+// the remaining integration tests (leak bounds, white room, reflections) are still unwritten.
 //   npm run build:lib && node test/environment-probes.test.mjs
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 import {
@@ -56,6 +57,13 @@ struct VertexOut { @builtin(position) clipPos: vec4<f32>, @location(0) worldPos:
 /** The real Phase 1 layout — the decorator consumes (and renames) exactly this. */
 
 // === U1: grid ↔ world round-trip (§4.1, U1) =================================
+check('reflection data header is 16 bytes, matching CPU records and the empty placeholder', () => {
+    const reflect = new WgslReflect(buildProbeStructsWGSL(2));
+    const header = reflect.structs.find(s => s.name === 'ReflProbeBuffer');
+    assertEq(header.members.find(m => m.name === 'probes').offset, 16, 'probe array byte offset');
+    assertEq(header.size, 16, 'fixed header byte size (runtime array excluded by reflector)');
+});
+
 check('U1: worldToUVW(probePosition(i,j,k)) recovers (i,j,k)/(dims-1); index/coord round-trips', () => {
     const D = [32, 16, 32], O = [-64, 0, -64], S = 4;
     const corners = [[0, 0, 0], [31, 0, 0], [0, 15, 0], [0, 0, 31], [31, 15, 31], [31, 15, 0], [0, 15, 31], [31, 0, 31]];

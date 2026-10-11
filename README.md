@@ -80,16 +80,17 @@ with no optional features required.
 
 Two layers, one command each:
 
-- **Headless — 457 checks** across eight suites, covering the pure math, every generated WGSL
+- **Headless — 458 checks** across eight suites, covering the pure math, every generated WGSL
   module, and system wiring through mock devices:
   `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post · test:picking · test:text`.
-- **On a real GPU — 58 checks in Node / 59 in Chrome** across seven suites, plus a Node render smoke test of the
+- **On a real GPU — 64 checks in Node / 65 in Chrome** across eight suites, plus a Node render smoke test of the
   [quick start](./docs/quick-start.md): `npm run test:gpu` (Node + Dawn — headless, no browser)
   and `npm run test:gpu:browser` (headless Chrome). The same test files run on both hosts. They
   measure what a mock cannot: one indirect draw per mesh at 13,000 instances, the GPU cull matching
   its CPU mirror instance-for-instance, Hi-Z hiding what is behind a wall, shadow cascades moving by
   whole texels only, a sun disc of the size it was asked for, an ONNX Runtime output consumed
-  with zero copies, picks that agree with a CPU ray cast, and labels placed to the pixel.
+  with zero copies, picks that agree with a CPU ray cast, labels placed to the pixel, and probe GI
+  colour bleeding that disappears with neutral-wall/disabled-GI controls and converges over refreshes.
 
 The first real-device runs ([Cycle A](./docs/handoff.md)) found four engine bugs the headless layer
 could not see, all fixed with regression tests: cascade texel snapping was a no-op (shimmer), Hi-Z
@@ -101,7 +102,7 @@ does is math that a screenshot cannot falsify: phase functions that must integra
 parameterizations that must round-trip, a slice-accumulated volume whose segments must compose, and
 CPU mirrors of GPU kernels that are pinned against invariants rather than against each other.
 
-Not yet on a GPU: probe GI (colour bleeding), atmosphere/aerial perspective, post effects, and the
+Not yet on a GPU: probe leak bounds and local-reflection fidelity, atmosphere/aerial perspective, post effects, and the
 shadow atlas — see the [handoff](./docs/handoff.md) for what is next.
 
 ### Not in the box (yet)
