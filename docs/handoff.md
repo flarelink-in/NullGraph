@@ -35,7 +35,7 @@ existing commits; each checkpoint was rebuilt and revalidated before committing:
 | 3.1 ? system skeleton and tick | `203c829` | 34 | 51/51 |
 | 3.2 ? sensing and newborn/block cadence | `32afb2a` | 36 | 63/63 |
 | 3.3 ? act and bounded steering | `f5ca5a4` | 38 | 72/72 |
-| 3.4 ? RuleBrain and app stages | recorded in the final checkpoint note | 43 | 90/90 |
+| 3.4 ? RuleBrain and app stages | `a610cad` | 43 | 90/90 |
 
 All checkpoint GPU runs used Node/Dawn and Chrome on AMD GCN-5, with **zero WebGPU errors**.
 Phase 3.1's reconstructed suite includes the later-added obs-buffer A13 comparison (51 rather
@@ -124,6 +124,7 @@ a full shader validator; device validation remains required.
 Min+gzip: full entry **13,428 B**, system/declarations/RuleBrain **10,593 B**, below 16 KB.
 No commit/publication/frontend/core changes or new screenshot/drive review; earlier local work preserved.
 **Next: phase 3.5**, agent arrows, Herd & Wolves GPU preview route and interactive drive validation.
+Implementation commits are local, not pushed; phase 3.5 has not started.
 
 It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn with arrows) and
 4.1 → 4.5. §1.5 lists where it refines `agents-design.md`.
@@ -1020,3 +1021,14 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   36 agent + 17 core headless checks, 63/63 GPU checks on Node/Dawn and Chrome, zero GPU errors
   (AMD GCN-5). A2 max 2.38e-7 initial / 2.98e-7 tuned, flipped-axis injection caught. Full min+gzip
   11,080 B; system/declarations 8,349 B. No commit or publication. Next: phase 3.3.
+
+
+### Session checkpoint ? sequential phase commits (2026-10-11)
+
+Confirmed phase 3.3 complete and split the combined local work into four sequential, buildable
+commits: `203c829` (3.1), `32afb2a` (3.2), `f5ca5a4` (3.3), `a610cad` (3.4). Each checkpoint passed
+headless/build and both GPU-host validation. Final state: 43 agent + 17 core checks, 90/90 GPU
+checks per host, zero WebGPU errors. Original complete source/tests were preserved externally
+and compared against the restored final contents (only newline normalization). No implementation
+was lost; tracked generated core bundles had no content changes after rebuilding.
+No push/publication, no phase-3.5 implementation or new visual/drive review.
