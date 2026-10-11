@@ -674,7 +674,9 @@ needed. If S1 is under ~1 ms at 20,000, `OrtBrain` is comfortable interactively 
      without `byteOffset` (U1b). The suite's exit 1 was seen on a real failure: unclamped spawn
      speed, now fixed (§5.1).
    - **Bundle:** `agents.js` 5,138 B min + gzip, much of it error text; core +0 B.
-2. The grid (P2 stages A–C) and the k-nearest query — U2, U3, A1. With it, the first **GPU debug
+2. **Started — CPU references only.** `spatial/gridMath.ts` and `agents/agentGridMath.ts` pin U2/U3
+   with five checks; GPU stages and A1 remain pending. The grid (P2 stages A–C) and the k-nearest query
+   — U2, U3, A1. With it, the first **GPU debug
    views** in `null-graph/debug-ui` (today two DOM performance widgets). The physics plan already
    names `debug-ui` as the home of debug drawing (P8), so these are its first GPU members:
    - **`groundGrid()`** — the anti-aliased minor/major floor grid with distance fade and a field edge,
