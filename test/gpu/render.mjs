@@ -13,8 +13,8 @@
 //   }
 //
 // `lib` carries the built library — lib.core, lib.geometry, lib.materials, lib.lights,
-// lib.cameras, lib.visibility, lib.shadows, lib.environment, lib.post, lib.loaders — plus
-// lib.glMatrix, so a scene file needs no import paths and runs from anywhere. The sequence must
+// lib.cameras, lib.visibility, lib.shadows, lib.environment, lib.post, lib.loaders, lib.picking,
+// lib.text — plus lib.glMatrix, so a scene file needs no import paths and runs from anywhere. The sequence must
 // end in a pass with `isMainScreenPass: true`: that pass is the image. `seconds` advances 1/60
 // per frame, deterministically.
 //
@@ -64,7 +64,8 @@ const lib = {
     core: await dist('index'), geometry: await dist('geometry'), materials: await dist('materials'),
     lights: await dist('lights'), cameras: await dist('cameras'), visibility: await dist('visibility'),
     shadows: await dist('shadows'), environment: await dist('environment'), post: await dist('post'),
-    loaders: await dist('loaders'), glMatrix: await import('gl-matrix'),
+    loaders: await dist('loaders'), picking: await dist('picking'), text: await dist('text'),
+    glMatrix: await import('gl-matrix'),
 };
 
 const engine = new lib.core.NullGraph();

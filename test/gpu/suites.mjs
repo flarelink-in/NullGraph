@@ -12,6 +12,7 @@ export const SUITES = [
     { name: 'core', file: 'test/core-gpu/run.js', key: '__CORE_GPU_RESULTS__' },
     { name: 'onnx', file: 'test/onnx-gpu/run.js', key: '__ONNX_RESULTS__' },
     { name: 'picking', file: 'test/picking-gpu/run.js', key: '__PICKING_RESULTS__' },
+    { name: 'text', file: 'test/text-gpu/run.js', key: '__TEXT_RESULTS__' },
 ];
 
 /**
