@@ -359,7 +359,15 @@ grid round-trips, the trilinear mirror, SH-L1 constant-environment energy, ringi
 validity fallback, parallax-from-capture-point, weight conservation, scheduler fairness, the
 unchanged contract, the binding budget, and config validation.
 
-GPU integration (colour bleeding, leak bound, multi-bounce convergence, parallax stability) needs a
-browser harness — [`lighting-probes-design.md`](../lighting-probes-design.md) §10 T1–T7. **T4 is
-worth running first**: a feedback gain > 1 shows up as a room that brightens forever, and nowhere
-else.
+**Colour bleeding and refresh convergence are GPU-verified:**
+`npm run test:gpu -- --only probes` (Node/Dawn) or
+`npm run test:gpu:browser -- --only probes` (Chrome). The shared `test/probes-gpu` harness has six
+checks: finite/nonblank linear-HDR floor patches; near versus far red excess; disabled-volume and
+neutral-wall controls; direct-only versus feedback captures; and bounded late-refresh change.
+It uses 24 probes, one capture per frame, and 16 complete refresh cycles; the final four cycles
+must change by less than 0.001 linear RGB and less than 10% of the initial step. No tone mapping
+or byte quantization can hide divergence. Both NVIDIA/Dawn and AMD/Chrome pass.
+
+The initial estimate includes global-environment fallback; convergence need not be monotonic.
+This fixture proves feedback and convergence for a red-wall/open-floor scene, **not** the enclosed
+white-room energy test (§10 T4), leak bounds, or reflection parallax. Those checks remain unwritten.
