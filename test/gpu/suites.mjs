@@ -22,4 +22,6 @@ export const SUITES = [
  */
 export const RENDER_SCENES = [
     { name: 'render:quick-start', file: 'test/gpu/scenes/quick-start.mjs' },
+    { name: 'render:instancing', file: 'test/gpu/scenes/instancing.mjs' },
+    { name: 'render:culling', file: 'test/gpu/scenes/culling.mjs' },
 ];

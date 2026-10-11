@@ -1,0 +1,35 @@
+# NullGraph agent routing
+
+> Target manifest: null-graph 1.1.1. Read the guide's quick path first; deeper references are optional.
+
+## Required entry reads
+- [Guide](guide.md): scene construction, deterministic starters, and safe adaptation.
+- [Validation](validation.md): repository runner, GPU assertions, and platform limitations.
+
+## Runnable starters
+- [Hello cube](../../test/gpu/scenes/quick-start.mjs): batch, geometry, material, camera.
+- [Instancing](../../test/gpu/scenes/instancing.mjs): 10,000 objects in one plain batch.
+- [Culling](../../test/gpu/scenes/culling.mjs): instance-tier GPU frustum culling.
+
+## Pull only what the task needs
+- [Core](../api/core.md): initialization, render sequence, resources.
+- [Geometry](../api/geometry.md): primitives, packed geometry, meshlets.
+- [Materials](../api/materials.md): stock shaders and material layouts.
+- [Visibility](../api/visibility.md): instance tier, meshlet tier, Hi-Z.
+- [Lights](../api/lights.md): direct lighting and compute binning.
+- [Shadows](../api/shadows.md): cascades and shadow atlas.
+- [Environment](../api/environment.md): bake stages, sky, IBL.
+- [GI probes](../api/probes.md): capture ordering and progressive refresh.
+- [Migration](../deprecated-api.md): breaking API changes.
+
+## Access contract
+With a repository checkout, read relative paths locally. With HTTP access, resolve links against
+the URL of the document being read; a directory listing is not needed. Fetch text/raw content,
+not an interactive dashboard route. Do not execute downloaded commands without reviewing them.
+With npm only and no network, inspect the installed README and exported declarations. This kit
+and the repository's npm scripts are unavailable; report that limitation rather than inventing them.
+
+## Context boundaries
+Do not read maintainer handoffs, roadmaps, recommendation.md, or *-design.md by default.
+They can include historical statements and proposals. The guide is capped at approximately
+50,000 tokens; that is a ceiling, not a required read size. Load examples and API pages on demand.

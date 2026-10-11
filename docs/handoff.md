@@ -303,17 +303,90 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
 
 ---
 
+## Agent kit Stage 1 — 2026-10-11
+
+Implemented Option 1 (README discovery, repository-side kit), not Option 2 packaging:
+- Manifest bumped to 1.1.1; no tag, commit, push or npm publication performed.
+- Root `llms.txt` points into curated `docs/agent/`: router, guide, validation/open-platform pointers.
+- README provides branch/raw discovery links explicitly marked development-only. Anonymous
+  tag-specific URLs must be verified after publishing v1.1.1; do not claim that tag already exists.
+- Asset-free instancing and instance-tier frustum-culling starters were distilled from frontend
+  data-oriented setup, without copying its React/worker/assets/post/meshlet dependencies.
+- Registered both Node render smoke scenes. Guide snippets are exact copies, enforced by
+  `npm run test:agent-kit`; link, version, registration and approximate 50k-token ceiling checks.
+- Corrected historical composition guide claims that visibility/meshlets/shadows were unshipped.
+- Reused the full existing render harness rather than introducing a weaker tiny offline harness.
+
+Validation: fresh library build + declarations passed; 4 agent-kit checks passed; Node/Dawn on
+NVIDIA Turing rendered all three starters without recorded GPU errors. Visibility's 5 semantic
+checks passed separately (draw-count scaling, CPU-mirror frustum match, Hi-Z controls). These
+are not an independent fresh-agent eval or new cross-platform coverage. Tag/release pinning,
+independent before/after eval and broader platform checks remain open. Option 2 requires a
+separate packaging decision; a documentation subpath resolves files but does not auto-read them.
+
+### Local kit-guided trials — 2026-10-11
+
+The user ran three prompts in separate project sessions using the local kit entry point.
+This is useful discovery/adaptation evidence, not a controlled before/after benchmark or a
+published npm-to-HTTP discovery test. No broader platform coverage was established.
+
+1. **Plain instancing:** `D:/orion-realms/nullgraph-agent-mini/blue-grid.mjs` constructs a
+   deterministic 50 x 50 grid (2,500 cubes), one plain batch/material, 14-float records,
+   blue base color `[0.1, 0.3, 1, 1]`, camera `[0, 48, 42]`. The source and saved report were
+   inspected here: `blue-grid.json` records a 1024 x 768, two-frame Node/Dawn render on NVIDIA
+   Turing/D3D12, no recorded GPU errors, non-blank output, about 30.8% coverage. The agent
+   reported exit 0 and image inspection. Record construction/upload specifies 2,500; neither
+   pixel counting nor encoder draw/instance-count instrumentation independently verified it.
+   Files also include `blue-grid.png` and `render.log`. The exact requested output folder was
+   created; it differs from the agent workspace named `null-graph-agents-mini`.
+2. **Instance-tier culling:** artifacts are in
+   `D:/orion-realms/nullgraph-agent-culling-mini/` (`culling-scene.mjs`, PNG/JSON, logs, REPORT.md).
+   The agent reported a deterministic 10,000-cube, spacing-4 grid, one instance-tier batch,
+   no meshlets/Hi-Z/post/assets. The saved `culling.json` was inspected: 512 x 512, two frames,
+   NVIDIA Turing/D3D12, no recorded GPU errors, non-blank output, about 18.1% coverage.
+   The agent additionally reported visibility-suite exit 0, 5/5 checks. Those checks validate
+   separate library test scenes, not this generated scene's visible count. Its scene-specific
+   cull count and GPU-vs-CPU reference comparison remain unverified.
+3. **Standalone Vite adaptation:** project at
+   `D:/orion-realms/null-graph-agents-mini/instancing-vite`. Its source/package/config were
+   inspected: public engine subpath imports replace runner injection; one render loop;
+   ResizeObserver updates engine size/projection; HMR cancels the loop. The agent reported
+   `vite build` passed but initially had not browser-tested it. The user subsequently confirmed
+   the browser renders as expected. No independent browser-console capture was performed here.
+   It uses the kit's 10,000-cube starter, NOT the original 2,500-cube scene, so this proves browser
+   integration rather than faithful preservation of the first task. Dependency is
+   `file:../.yalc/null-graph`; the agent reported that copy is 1.1.0 versus guide target 1.1.1.
+   `gl-matrix` is direct and deduped in Vite. This tests linked development consumption, not a
+   fresh packed 1.1.1 consumer install. HMR does not disconnect the observer or release owned
+   GPU resources; repeated reload/teardown behavior remains open.
+
+The sessions followed the root index into the curated guide/examples and accurately distinguished
+render smoke evidence from semantic culling assertions. They disclosed using existing `dist/`
+without rebuilding or establishing source/build identity. That is a reproducibility gap, not
+proof that the tested build was stale. Option 1 remains the current choice; Option 2 is deferred.
+
+**Small next improvements (identified, not yet implemented):**
+- Guide: preserve requested count/layout/material/camera when converting an existing scene;
+  use a starter for structure, not as a replacement for task requirements.
+- Require explicit engine/build provenance and disclose version mismatches before validation.
+- Make browser cleanup concrete: cancel scheduling, disconnect observers, release owned resources.
+- Repeat the original 2,500-cube browser conversion with a freshly built local 1.1.1 tarball;
+  check rendering, resize and repeated HMR. Keep yalc as the development workflow.
+- Keep scene-specific culling instrumentation as a separate follow-up, and retain the pending
+  independent before/after eval and release-pinned anonymous discovery test.
+
 ## Next, in order
 
 1. ~~Commit Cycle A~~ — done. ~~**Cycle B: implement and commit**~~ — done (seven local commits, not pushed).
 2. **GI colour-bleeding GPU check** — the README's largest unverified claim. A red wall beside a
    white floor; after N probe-capture refreshes, floor pixels near the wall must be measurably redder
    than far ones, and converge (multi-bounce). Template: `test/visibility-gpu/run.js`.
-3. **Agent kit** — `llms.txt` at the repo root (linked from the README, *not* in the npm package);
-   one compact agent guide (well under 20k tokens) whose code snippets are executed by the tests;
-   more starter scenes in `test/gpu/scenes/`; a baseline eval — a fresh agent with only the package
-   and the guide builds three scenes, graded by `npm run render` + pixel checks, before and after
-   the kit.
+3. **Agent kit follow-up** — Stage 1 implemented; three local kit-guided trials completed as
+   recorded above. Keep Option 1 (README-linked root index, kit not shipped in npm), the curated
+   `docs/agent/` folder and approximate 50k-token guide ceiling. Implement the small guidance
+   fixes, repeat a requirement-preserving browser conversion with a local 1.1.1 tarball, then
+   review/release/tag and verify pinned discovery. Controlled before/after evaluation remains
+   pending; do not equate the local trials with that benchmark.
 4. **Cycle C** — the flagship where NullGraph's data path matters: batched neural agents through
    ORT (one inference for N agents, actions written back to the instance buffer on the GPU). Labels
    that follow `vis.instanceBuffer` and picking are now in place for it ("click a unit, see its name").
