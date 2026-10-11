@@ -68,7 +68,9 @@ the CPU never iterates the scene.
 | **Fog & aerial perspective** | 32³ froxel volume (256 KB) · one fullscreen apply over opaque, injected layout for transparents · closed-form exponential height fog · one unified medium set, so extinction can't be double-counted |
 | **Materials** | PBR (Cook-Torrance), Lambert, Toon, Matcap, Emissive, Basic — one portable definition per family, shared by every draw path |
 | **Post** | 16 effects · lifetime-aliased render targets · zero-allocation param arena |
-| **Platform** | Worker rendering via OffscreenCanvas · capability negotiation · zero-copy buffer contracts throughout |
+| **Picking** | "What is under this pixel?" for GPU-culled instances and plain batches — instance index, depth, world position, pick radius · off the frame path, ~0.5 ms, free when idle |
+| **Text labels** | Screen-space MSDF/SDF labels · 600,000 glyphs in one draw, GPU-culled · halos · labels that follow GPU-driven positions with zero CPU work · msdf-atlas-gen or runtime Canvas atlases |
+| **Platform** | Worker rendering via OffscreenCanvas · headless rendering (Node + Dawn) · adopt another library's device (ONNX Runtime) · capability negotiation · zero-copy buffer contracts throughout |
 
 Three properties hold across all of it: **draw calls scale with material count, not object count**;
 **the frame path allocates nothing** (measured, not assumed); and **the baseline runs on core WebGPU**
@@ -78,16 +80,16 @@ with no optional features required.
 
 Two layers, one command each:
 
-- **Headless — 428 checks** across six suites, covering the pure math, every generated WGSL
+- **Headless — 457 checks** across eight suites, covering the pure math, every generated WGSL
   module, and system wiring through mock devices:
-  `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post`.
-- **On a real GPU — 41 checks** across five suites, plus a render smoke test of the
+  `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post · test:picking · test:text`.
+- **On a real GPU — 58 checks in Node / 59 in Chrome** across seven suites, plus a Node render smoke test of the
   [quick start](./docs/quick-start.md): `npm run test:gpu` (Node + Dawn — headless, no browser)
   and `npm run test:gpu:browser` (headless Chrome). The same test files run on both hosts. They
   measure what a mock cannot: one indirect draw per mesh at 13,000 instances, the GPU cull matching
   its CPU mirror instance-for-instance, Hi-Z hiding what is behind a wall, shadow cascades moving by
-  whole texels only, a sun disc of the size it was asked for, and an ONNX Runtime output consumed
-  with zero copies.
+  whole texels only, a sun disc of the size it was asked for, an ONNX Runtime output consumed
+  with zero copies, picks that agree with a CPU ray cast, and labels placed to the pixel.
 
 The first real-device runs ([Cycle A](./docs/handoff.md)) found four engine bugs the headless layer
 could not see, all fixed with regression tests: cascade texel snapping was a no-op (shimmer), Hi-Z
@@ -259,6 +261,23 @@ temporal effects. `ParamArena` keeps every effect's uniforms in one arena with z
 allocation, and `ShaderComposer` generates each pass's WGSL — 16 effects including Bloom, SSAO,
 Bokeh, FXAA, and tonemapping.
 
+### `null-graph/picking`
+`picker.pick(x, y, camera)` resolves to the source, the **app's own instance index**, the depth and
+the world position under a pixel — for GPU-culled `VisibilitySystem` instances and stock-material
+plain batches, with an optional pick radius for thin geometry. A pick is one more view: a camera
+zoomed onto the clicked pixels, culled and drawn through the paths the scene already uses, then a
+few texels read back — its own submission, off the frame path. The pick culls ride the visibility
+chain disabled, so a picker that is not picking costs nothing.
+
+### `null-graph/text`
+Labels in the world at object scale. Glyphs are flat 16-byte records (laid out by the pure,
+Worker-safe `layoutText`), culled on the GPU into one `drawIndexedIndirect` — 600,000 glyphs, one draw.
+Screen-space, pixel-snapped, MSDF/MTSDF/SDF antialiasing with halos, depth-tested at the anchor or
+always on top. Labels can **follow positions in any GPU buffer** — a `VisibilitySystem`'s instances,
+a simulation's output — so moving 50,000 labelled agents costs the CPU nothing. Atlases come from
+msdf-atlas-gen or are built at runtime from any browser font. No shaping (Latin, Cyrillic, Greek,
+CJK — not Arabic or Devanagari).
+
 ### `null-graph/cameras`
 Orbital, Fly, Follow, and Path controllers as pure state objects — spherical-coordinate math with
 no DOM dependency — plus optional event proxies, so the same controller runs on the main thread or
@@ -309,6 +328,8 @@ lists the acceptance tests up front.
 - [Post-Processing](./docs/post-processing-design.md) — how the `PostChain` is architected
 - [Post-Processing Presets](./docs/post-presets.md) — ready-made Bloom / SSAO / Tonemap bundles
 - [Transient Pool](./docs/transient-pool.md) — render-target recycling internals
+- [Picking](./docs/picking-design.md) — a pick as one more culled view, the source-index touchpoint
+- [Text Labels](./docs/text-labels-design.md) — glyph records, GPU cull, MSDF/SDF antialiasing, atlases
 
 ### API References
 - [Core (`null-graph`)](./docs/api/core.md) · [Core Reference](./docs/api/core-reference.md)
@@ -319,10 +340,12 @@ lists the acceptance tests up front.
 - [Lights (`null-graph/lights`)](./docs/api/lights.md) · [Shader & Compute Reference](./docs/api/lights-shader-reference.md)
 - [Loaders (`null-graph/loaders`)](./docs/api/loaders.md)
 - [Materials (`null-graph/materials`)](./docs/api/materials.md)
+- [Picking (`null-graph/picking`)](./docs/api/picking.md)
 - [Post-Processing (`null-graph/post`)](./docs/api/post.md)
 - [Probes (`null-graph/environment`, Phase 2)](./docs/api/probes.md) · [Shader & Buffer Reference](./docs/api/probes-shader-reference.md)
 - [Profiler (`null-graph/profiler`)](./docs/api/profiler.md)
 - [Shadows (`null-graph/shadows`)](./docs/api/shadows.md) · [Shader & Buffer Reference](./docs/api/shadows-shader-reference.md)
+- [Text (`null-graph/text`)](./docs/api/text.md)
 - [Visibility (`null-graph/visibility`)](./docs/api/visibility.md) · [Shader & Buffer Reference](./docs/api/visibility-shader-reference.md)
 ## Roadmap
 
@@ -375,6 +398,16 @@ NullGraph is the high-performance rendering backbone for the Axion Engine.
 - [ ] Morph Targets / Shape Keys
 
 - [ ] GPU-Driven Particle Systems (Compute-based)
+
+---
+
+### Interaction & Text
+
+- [x] **GPU Picking** — instance index, depth and world position under a pixel; GPU-culled instances and plain batches; pick radius
+
+- [x] **Text Labels** — MSDF/SDF screen-space labels, 600k glyphs in one draw, halos, labels that follow GPU-driven positions
+
+- [ ] Label decluttering · picking labels · world-size labels
 
 ---
 

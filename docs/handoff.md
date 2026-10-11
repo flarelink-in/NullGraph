@@ -8,19 +8,109 @@ log at the bottom is append-only.
 
 ## Where things stand — 2026-10-11
 
-**Cycle A — "verifiable, agent-operable" — is complete.** The engine can now run without a canvas
-and on a device someone else created; every GPU harness runs headless on a real GPU from one
-command, on two hosts (Node + Dawn, headless Chrome), and fails on any uncaptured WebGPU error. The
-first real-device runs found **four engine bugs** the headless layer could not see; all are fixed
-with regression tests that were watched failing first.
+**Cycle B — picking + text labels — is complete and committed** (seven commits; see below), with a live demo in the
+test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). **Cycle A —
+"verifiable, agent-operable" — is complete and committed** (`c76fccc`..`e8c17c6` on `master`, not pushed).
 
 | Layer | Command | Result |
 |---|---|---|
-| Headless (mock devices, math, WGSL) | `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post` | **428 checks, 0 failing** |
-| Real GPU — Node + Dawn | `npm run test:gpu` | **5 suites + render smoke, 42 checks, 0 WebGPU errors** (~11 s) |
-| Real GPU — headless Chrome | `npm run test:gpu:browser` | **5 suites, 41 checks, 0 WebGPU errors** |
+| Headless (mock devices, math, WGSL) | `npm run test:core · test:visibility · test:shadows · test:environment · test:geometry · test:post · test:picking · test:text` | **457 checks, 0 failing** |
+| Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **7 suites: 58 checks + 1 render smoke, 0 WebGPU errors** |
+| Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **7 suites, 59 checks, 0 WebGPU errors** |
 
-Committed 2026-10-11 on `master` as six commits, `c76fccc`..`e8c17c6` (not pushed) — see [Commits](#uncommitted-work--suggested-commit-split).
+---
+
+## Cycle B — picking + text labels
+
+Specs first, as house style: [`picking-design.md`](./picking-design.md),
+[`text-labels-design.md`](./text-labels-design.md). API docs: [`api/picking.md`](./api/picking.md),
+[`api/text.md`](./api/text.md).
+
+### What shipped
+
+| | Picking (`null-graph/picking`) | Text (`null-graph/text`) |
+|---|---|---|
+| What | `picker.pick(x, y, camera, { radius })` → source, the app's instance index, depth, world position | Screen-space labels: `TextSystem` + `FontAtlas` + pure `layoutText` |
+| How | One more view: a camera zoomed onto the (2R+1)² clicked pixels, culled by the visibility system's own kernel, drawn into an `rgba32uint` target, a few texels read back. Its own submission, off the frame path | Glyphs are 16-byte records; a GPU cull compacts visible glyphs into one `drawIndexedIndirect`; MSDF/MTSDF/SDF antialiasing with halos; pixel-snapped; depth test at the anchor |
+| Sources / inputs | `VisibilitySystem` instances (`addInstances`), stock-material plain batches (`addBatch`), custom layouts (`shaderCode: (tag) => wgsl`) | msdf-atlas-gen JSON + image (`fromMSDF`), runtime Canvas SDF from any browser font (`fromCanvas`), raw (`fromSDF`) |
+| Headline | ~0.5 ms per pick (NVIDIA, Node); free when idle (pick culls ride the chain disabled) | 600,000 glyphs, one draw; labels **follow any GPU buffer** (e.g. `vis.instanceBuffer`) with zero CPU work |
+| Headless tests | `test/picking.test.mjs` — 11 | `test/text.test.mjs` — 18 |
+| GPU tests | `test/picking-gpu` P1–P8, every expectation checked against a **CPU ray cast** | `test/text-gpu` X1–X9 (+X4b) — position to the pixel, constant size, cull = CPU mirror, follow, depth, halo, AA coverage, scale; X9 (real font via Canvas) browser-only |
+| Bundle (min+gz) | 4,150 B, opt-in import | 8,417 B, opt-in import |
+
+**Core: untouched by Cycle B** (`index.js` 5,972 B before and after). Engine touchpoints, both in
+`null-graph/visibility` (+35 B):
+- **Compacted instance records carry `sourceIndex`** — the instance cull writes each survivor's index
+  in the app's buffer into the record's last field (was `_pad`; `INSTANCE_SOURCE_INDEX_OFFSET` = 23).
+  Picking reports it; any custom instance-tier shader can now find its own per-instance data.
+- **`VisibilitySystem.instanceBuffer` is public read-only** — so labels (or a simulation) can read the
+  same GPU records with no copy.
+
+### Decisions (Cycle B)
+
+| Decision | Why |
+|---|---|
+| A pick is an immediate, separate `engine.render()`, not part of the app's frame | No core hook, no per-frame cost, no frame coupling; one GPU round trip of latency |
+| Fonts: the module ships **no font data**; three atlas sources (msdf-atlas-gen, runtime Canvas, raw) | Keeps the package lean (user's standing preference); Canvas gives zero-setup in browsers |
+| Tests use a **synthetic font** of boxes/bar/ring with analytic fields (`test/gpu/synthetic-font.mjs`) | Pixel-exact assertions, no licence, no download; real fonts covered by X9 in Chrome |
+| Labels are screen-space only in v1; one draw batch per `TextSystem` | The use cases (nameplates, map/data labels) are pixel-sized; one cull per view keeps it simple |
+| Glyph-record culling, not per-label expansion | Trivially parallel, no prefix sums; 600k glyphs cull in well under a millisecond on desktop |
+
+### Known gaps (Cycle B)
+
+- Picking: meshlet tier, skinned meshes, labels, rect selection. (Hover works app-side: the demo
+  re-picks on mouse move and every 120 ms.)
+- **`Picker.destroy()` leaves its (empty) pass in `engine.passes`.** Core has no `removePass`, so
+  an app that calls `engine.render()` with **no** sequence after destroying a picker would bind
+  the destroyed pick textures. Sequence-driven apps (all the demos) are unaffected. Fix: a core
+  `removePass`, or keep the pick pass out of the tracked list.
+- Text: decluttering, shaping (Arabic/Devanagari), rich text, world-size labels, picking labels,
+  atlas generation in Node (no OffscreenCanvas — load an msdf-atlas-gen atlas instead).
+- Text draw order inside one system is undefined (atomic compaction), and the depth test uses the
+  anchor's depth across the whole quad. Both are documented with workarounds in `api/text.md` §5.
+  The demo shows the pattern: a second `depthTest: false` system for overlay labels.
+- Real-font quality: `fromCanvas` (Inter 600, 48 px em, range 16) reviewed by eye in the demo, crisp
+  at 13–17 px with 2–3 px halos. An msdf-atlas-gen atlas has still not been looked at.
+- A render-CLI text scene would need an atlas file in Node — none is committed (licence).
+- Fixed while building the demo: `TextSystem.destroy()` left its batch in the pass (same class as
+  Cycle A's caster bug). It now calls `engine.clearBatch`; S5 in `test/text.test.mjs` was watched
+  failing first.
+
+### Demo — Picking & Labels in the test-engine site (2026-10-11)
+
+`D:\NULLGRAPH\Minimal_TypeScript_v6.0.1\starter-vite-ts`, route `/dashboard/engine/picking-labels`.
+- **The scene:** 2,000 capsule agents in four teams wander a 180 m grid. They are GPU-culled through
+  `VisibilitySystem`, one indirect draw per colour variant.
+- **Labels:** every agent has a name label that follows `vis.instanceBuffer` on the GPU.
+- **Interaction:** hover highlights (picks on mouse move); clicking an agent selects it (gold, camera
+  follows, live info label); clicking the ground sends the selection to the exact picked world point.
+- **Highlighting** works by rewriting the instance's `meshIndex` to a variant mesh. No colour channel
+  is needed, and the picker registers every variant.
+
+Verified in headless Chrome (AMD iGPU, 818×824) by a CDP script that hovers and clicks:
+- **Interactions:** every one behaves, with zero console errors and zero WebGPU warnings.
+- **Ground pick accuracy:** a centre click landed at (−0.6, −0.9). Hand-computing it from the orbit
+  angles gives (−0.64, −0.93).
+- **Cost:** GPU 1.7–3.8 ms per frame.
+
+Site changes. The site's git tracks almost nothing, so this list is the record:
+- **New:**
+  - `src/data/engine-demos/demos/AxionEngineLoop/PickingLabels/` (`index.ts`, `agents.ts`, `scene.ts`, `font.ts`)
+  - `…/AxionEngineLoop/PickingLabelsExample.ts`, `…/AxionEngineLoop/PickingLabelsDocumentation.ts`
+  - `src/pages/dashboard/AxionEngineLoop/PickingLabels.tsx`
+  - `src/layouts/components/engine-inspector/controls/picking-labels-controls.tsx`
+- **Wiring:** `demoRegistry.ts`, `demoMap.ts`, `docsMap.ts`, `routes/paths.ts`,
+  `routes/sections/dashboard.tsx`, `layouts/config-nav-dashboard.tsx`, `inspector-tab.tsx`,
+  `store/useDemoControlStore.ts`, `workers/types/types.ts` (`PickingLabelsState`, `PointerClick`).
+- **A click channel the site lacked:**
+  - `EngineCanvas.tsx` posts `POINTER_CLICK` for a press released within 6 px and 500 ms (drags still orbit).
+  - `MessageRouter.ts` and `StateStore.ts` keep `click {x, y, button, seq}`.
+  - `EngineCore.ts` adds `click` to every demo's `getInput()`, so any demo can use it.
+
+To refresh the site after null-graph changes, run `npm run yalc:push` here, then `npm run dev`
+there (port 8081). `yalc:push` pushes to **three** local consumers (this site,
+`D:\NULLGRAPH-STARTER\…v6.1.0`, `D:\orion-realms\orion-engine-test`) and leaves a **production**
+`dist/` in this repo. Run `npm run build:lib` before committing.
 
 ---
 
@@ -170,9 +260,27 @@ subgroup-accelerated light binning is therefore not exercised by any GPU suite y
 
 ---
 
-## Uncommitted work — suggested commit split
+## Cycle B — commit record
 
-**Done — committed as below** (`c76fccc` indirect dispatch · `424e346` core · `c495a7e` fixes · `f43154f` GPU tests · `e623777` docs · `e8c17c6` dist). The README / roadmap / architecture-tree edits from before Cycle A went in with the docs commit; `package.json` went in with the GPU-test commit. Kept for the record:
+**Cycle B — committed locally, not pushed.** Seven dependency-ordered commits:
+1. `be3b6bf` — picking and text design specs.
+2. `e6629eb` — visibility source indices, public instance buffer, API notes.
+3. `92fab9b` — picking implementation, build entry point, package export, API docs.
+4. `846fac8` — picking headless/GPU tests, test script, suite registration.
+5. `e142a74` — text implementation, font atlases, build entry point, package export, API docs.
+6. `102729a` — text headless/GPU tests, synthetic font, test script, render-CLI integration.
+7. Final Cycle B docs commit — README, architecture tree, this handoff (see `git log`).
+
+Final-tree verification on 2026-10-11: development build + TypeScript pass; all eight headless
+test groups pass (457 checks); Chrome passes 59 GPU checks; Node passes 58 GPU checks plus the
+render smoke, all with zero WebGPU errors. Node's full command exceeded the execution tool's
+30-second limit, so every suite was rerun successfully via `--only` in smaller groups.
+The extra Chrome check is X9 (Canvas font); it is intentionally skipped in Node.
+Isolated historical commit-boundary verification was attempted but timed out; it is not claimed
+as completed. The tracked core `dist/index.js` and source map rebuild without changes;
+other bundles remain ignored, matching the existing repository policy.
+
+Cycle A, for the record — **done, committed as below** (`c76fccc` indirect dispatch · `424e346` core · `c495a7e` fixes · `f43154f` GPU tests · `e623777` docs · `e8c17c6` dist). The README / roadmap / architecture-tree edits from before Cycle A went in with the docs commit; `package.json` went in with the GPU-test commit. Kept for the record:
 
 Nothing from this cycle was committed, and the working tree also held **in-flight work from before
 it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/core/BatchManager.ts`,
@@ -197,7 +305,7 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
 
 ## Next, in order
 
-1. ~~Commit~~ — done.
+1. ~~Commit Cycle A~~ — done. ~~**Cycle B: implement and commit**~~ — done (seven local commits, not pushed).
 2. **GI colour-bleeding GPU check** — the README's largest unverified claim. A red wall beside a
    white floor; after N probe-capture refreshes, floor pixels near the wall must be measurably redder
    than far ones, and converge (multi-bounce). Template: `test/visibility-gpu/run.js`.
@@ -206,12 +314,11 @@ it** (indirect dispatch). Five files mix the two — use `git add -p` for `src/c
    more starter scenes in `test/gpu/scenes/`; a baseline eval — a fresh agent with only the package
    and the guide builds three scenes, graded by `npm run render` + pixel checks, before and after
    the kit.
-4. **Cycle B** — picking (ID pass + async one-pixel readback, one frame late) and MSDF labels
-   (glyphs as instances, worker-fillable, GPU-culled).
-5. **Cycle C** — the flagship where NullGraph's data path matters: batched neural agents through
-   ORT (one inference for N agents, actions written back to the instance buffer on the GPU).
-6. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
-7. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
+4. **Cycle C** — the flagship where NullGraph's data path matters: batched neural agents through
+   ORT (one inference for N agents, actions written back to the instance buffer on the GPU). Labels
+   that follow `vis.instanceBuffer` and picking are now in place for it ("click a unit, see its name").
+5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
+6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
 ### After Cycle B — the ONNX/AI product plan (agreed with the user, 2026-10-11)
 
@@ -306,3 +413,24 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   harnesses for the first time; fixed 4 engine bugs and 8 harness defects; measured bundle cost.
   Decision recorded: agent docs on GitHub, not in the package.
 - **2026-10-11 — Claude.** Committed Cycle A as six commits (your pre-existing indirect-dispatch work first, separately). Rebuilt `dist/` as a dev build — a production build had replaced it in the meantime.
+- **2026-10-11 — Claude (Opus 5.5).** Cycle B: specs, then `null-graph/picking` and `null-graph/text`;
+  the `sourceIndex` touchpoint; `vis.instanceBuffer` public. 28 headless + 18 GPU checks, every key
+  check watched failing on broken code (sourceIndex revert → every pick returns #0; doubled pixel
+  range → 11% coverage instead of 30%; no off-screen cull → 1,058 vs 237 glyphs). Green on Node/NVIDIA
+  and Chrome/AMD. Core bundle unchanged. Not committed yet.
+- **2026-10-11 — Claude (Opus 5.5).** Built the Picking & Labels demo in the test-engine site, at the
+  user's request, before committing Cycle B.
+  - **Site:** added a click channel to the site's worker plumbing. Drove the demo in headless Chrome
+    over CDP (hover → select → command → arrive → release) and fixed what the screenshots showed: the
+    far-label pile-up, the info label being unreadable, and a waypoint label hidden by nearer ground.
+  - **Library fix:** `TextSystem.destroy()` now takes its batch out of the pass (S5 failed first).
+  - **Docs:** `api/text.md` gained the draw-order and depth notes.
+  - **Tests:** all 13 headless suites and 8 Node GPU suites green. Cycle B still not committed — the
+    user wanted to see the demo first.
+- **2026-10-11 — Cline.** Picked up Cycle B and committed it in seven dependency-ordered commits.
+  Preserved the existing implementation and split shared build/package/registry changes by feature.
+  Rebuilt development `dist/`; confirmed 457 headless checks, all seven Node GPU suites plus the
+  render smoke, and all seven Chrome GPU suites, with zero WebGPU errors. Corrected the README's
+  stale headless count and clarified Node versus Chrome GPU totals. Historical boundary checks
+  exceeded the tool timeout; final-tree verification completed. No push, demo-site edits, or
+  unrelated follow-on work. Next: the GI colour-bleeding GPU check.
