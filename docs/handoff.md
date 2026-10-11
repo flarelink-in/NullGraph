@@ -6,18 +6,6 @@ log at the bottom is append-only.
 
 ---
 
-
-## Sequential checkpoint — phase 3.3 (2026-10-11)
-
-Generated steering/custom act stage after sensing and before tick. Dead records unchanged; live/frozen age handling, exponent-bit sanitization and X-then-Z wall reflection. Brain/app stages remain deferred.
-
-Phases 3.1–3.3 are complete at this checkpoint.
-The original combined implementation was split into buildable phase commits after phase 3.4.
-Later stages are deliberately absent from this revision, not lost. Validation for this reconstructed
-checkpoint is run before committing; the completed phase-3.4 source is backed up outside the repo.
-Next: phase 3.4. No phase-3.5/frontend/renderer work in this checkpoint.
-
-
 ## Where things stand — 2026-10-11
 
 **Cycle B — picking + text labels — is complete and committed** (seven commits; see below), with a live demo in the
@@ -32,8 +20,31 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 
 ### Cycle C — in progress: C1 steps 1–2 done (2026-10-11)
 
-**C1 steps 3–4 are designed, not implemented:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
-kept separate from the parent plan. It specifies:
+**C1 steps 3–4 are designed; phases 3.1–3.4 are implemented:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
+kept separate from the parent plan. **Current state overrides the historical phase notes below:**
+phases 3.1?3.4 are complete and checkpointed; phase 3.3 is not outstanding. The live chain is
+**grid ? queries ? sense ? think ? act ? app stages ? tick**. A brain is required.
+No phase-3.5 arrow renderer, Herd & Wolves route, new screenshots or interactive drive review
+has been started. Next is phase 3.5, followed by step 4's renderer/inspector integration.
+
+Sequential history was reconstructed from the combined local implementation without rewriting
+existing commits; each checkpoint was rebuilt and revalidated before committing:
+
+| Phase | Commit | Headless agents | GPU checks on each host |
+|---|---|---:|---:|
+| 3.1 ? system skeleton and tick | `203c829` | 34 | 51/51 |
+| 3.2 ? sensing and newborn/block cadence | `32afb2a` | 36 | 63/63 |
+| 3.3 ? act and bounded steering | `f5ca5a4` | 38 | 72/72 |
+| 3.4 ? RuleBrain and app stages | recorded in the final checkpoint note | 43 | 90/90 |
+
+All checkpoint GPU runs used Node/Dawn and Chrome on AMD GCN-5, with **zero WebGPU errors**.
+Phase 3.1's reconstructed suite includes the later-added obs-buffer A13 comparison (51 rather
+than the original 50 checks). Latest validation also includes 17 core checks, library/TypeScript
+and IDE builds, syntax and whitespace checks. Nothing was pushed or published.
+The complete pre-split files remain backed up outside the repository at
+`D:/orion-realms/null-graph-phase-checkpoint-20261011`; generated agents bundles are git-ignored
+and rebuilt by `npm run build:lib`. Historical "Next" entries below describe their phase boundaries,
+not the current task. The design specifies:
 - the GPU sense → think → act loop, repeated per fixed step from prebuilt chains;
 - one `PointGrid` shared by one query per `nearest` sensor;
 - a GPU tick stage;
@@ -41,6 +52,78 @@ kept separate from the parent plan. It specifies:
 - race-free app step stages for game logic (catches, respawn);
 - `agentArrows()`;
 - instance output, highlight, labels, picking and `inspect(i)`.
+
+**Phase 3.1 complete (2026-10-11), committed in sequential phase checkpoints (see current-state table in handoff).** `AgentSystem` allocates agent,
+neighbour, obs, act, reason, state and species buffers; owns one `PointGrid`; builds one query per
+nearest sensor into a shared buffer; caches chains for 0..maxStepsPerFrame; uploads dirty staging
+records/species only; supports validated live species tuning, lockstep `step()` and idempotent
+teardown. Tick and run-long overflow counters are GPU state. No frame readback or core change.
+The skeleton intentionally runs without a brain until phase 3.4; sense/act/brain/app stages and
+renderer output remain unimplemented. `thinkEvery` currently validates/stores the construction value.
+U8's sense/think predicate assertion waits for those stages.
+
+**Verified:** 34 headless agents + 17 core checks; library/TypeScript and IDE builds;
+50/50 GPU checks on Node/Dawn and Chrome, zero WebGPU errors, both AMD GCN-5.
+A13 compares three repeated chains with three submissions using a test-only tick-reading/moving
+stub and catches an injected CPU-written-uniform tick fault. U16 pins default query text to step 2
+and compares both shared sensor slices against the CPU oracle. Overflow counters, empty rebuild,
+lockstep and disabled cached stages after destroy are covered.
+Min+gzip level 9: whole agents entry **9,985 B**, tree-shaken system/declarations **7,241 B**.
+Existing local design/handoff changes are preserved. No frontend changes or publication.
+**Next:** phase 3.2, the sense generator and A2.
+
+**Phase 3.2 complete (2026-10-11), committed in sequential phase checkpoints (see current-state table in handoff).** Generated GPU self/nearest/bounds/custom
+sensing is in `agentSenseShaders.ts`, integrated before tick. Shared GPU `thinksNow` gates live
+records by 64-agent block, with a newborn override; skipped/dead rows retain their values.
+Custom signatures fail by name before allocation. All five bindings survive sparse layouts without
+cross-row observation reads. Think/act/app stages and rendering are still deferred; age-zero records
+continue sensing every step until the act stage begins advancing age in phase 3.3.
+**Verified:** 36 headless agents, 17 core checks, library/TypeScript and IDE builds; 63/63 agent GPU
+checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). A2 compares 9,890 live rows
+per 10,000-slot initial/tuned scene, skips/counts six near-boundary observers, reports max error
+2.38e-7 initial / 2.98e-7 tuned and exact presence. Exact-radius fixtures and a watched-failing flipped
+side axis pass; cadence/newborn/dead retention and sparse layouts pass. A13 includes obs equivalence.
+Full entry min+gzip **11,080 B**, system/declarations **8,349 B**. No commit/publication/frontend/core
+changes; phase 3.1 local changes preserved. **Next: phase 3.3**, the act generator, A3/A14/A7.
+
+**Phase 3.3 complete (2026-10-11), committed in sequential phase checkpoints (see current-state table in handoff).** `agentActShaders.ts` generates steering
+and validated custom actions. Chain: grid → queries → sense → act → tick. Act advances age every
+live step, zeros frozen velocity, leaves dead rows untouched, sanitizes NaN/Infinity by exponent
+bits, accelerates toward clamped throttle and integrates/reflects X then Z at radius-inset walls.
+Custom act receives act/agents/species and DT after shared age/frozen handling. Zero-initialized
+steering rows mean half throttle; brain generation remains deferred to phase 3.4.
+**Verified:** 38 headless agents, 17 core checks, library/TypeScript/IDE builds, syntax/whitespace;
+72/72 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5).
+A3 compares 10,000 slots with `stepAll`; max heading 2.38e-7, velocity 8.34e-7, position 1.91e-6.
+Bounds include trig error and f32 rounding, including age; unchanged/dead fields are byte-exact.
+Missing reflection and sanitize fault injections are rejected. A14 poisons either action component
+on-GPU with NaN/+Inf/-Inf and verifies finite braking to zero. A7 repeats two seeded 600-step runs,
+asserts no overflow and obtains byte-identical records. Full-chain newborn/cadence and custom act
+CPU agreement pass. Sensor-only fixtures explicitly disable act; no production brain is added.
+Min+gzip: full entry **11,791 B**, system/declarations **9,075 B**, under 16 KB.
+All existing local work preserved; no commit/publication/frontend/core changes or new visual review.
+**Next: phase 3.4**, RuleBrain and app stages. Phase 3.5 remains the interactive drive/arrow demo.
+
+**Phase 3.4 complete (2026-10-11), committed in sequential phase checkpoints (see current-state table in handoff).** `RuleBrain.ts` and `agentThinkShaders.ts`
+provide stage brains, the shared sensing/thinking cadence, exact JS/WGSL PCG hash, helper functions
+and app-stage generators. Chain: grid → queries → sense → think → act → app stages → tick.
+`getComputeStages()`/`step()` require a brain. `setBrain()` validates dims/signature/buffer budget,
+disables the previous think stage and rebuilds cached chains; app stages validate signatures,
+duplicate names and ≤3 caller-owned group-1 buffers within the device's remaining storage budget.
+Brains and auxiliary buffers remain caller-owned; async scheduling is explicitly deferred to C2.
+App code must write only self, never fields peers read in the same dispatch. Catches and respawn
+are separate dispatches. Respawn resets age/velocity; random positions respect radius-inset bounds.
+**Verified:** 43 headless agents, 17 core checks, library/TypeScript/IDE builds, syntax/whitespace;
+90/90 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5).
+A15 has byte-exact actions/reasons vs a JS twin for 10,000 CPU-built obs rows, including high-bit
+hash inputs. A16 verifies cadence/newborn/dead retention and rejects ungated think. A13 compares
+production brain repeated/separate chains. A18 runs catches/respawn twice for 600 steps, asserts
+zero overflow, finite/inset positions and byte-identical records/obs/actions/reasons/score. Group-1
+brain/app bindings and caller ownership survive teardown. Signature-only WGSL validation is not
+a full shader validator; device validation remains required.
+Min+gzip: full entry **13,428 B**, system/declarations/RuleBrain **10,593 B**, below 16 KB.
+No commit/publication/frontend/core changes or new screenshot/drive review; earlier local work preserved.
+**Next: phase 3.5**, agent arrows, Herd & Wolves GPU preview route and interactive drive validation.
 
 It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn with arrows) and
 4.1 → 4.5. §1.5 lists where it refines `agents-design.md`.
@@ -64,6 +147,44 @@ agents on NVIDIA Turing and 0.28–0.34 ms on the AMD iGPU. Four decisions follo
   cost); by block it costs 32–42%.
 - **C2's network clamps `tanh` inputs to ±15.** Node/Dawn's FXC path returns NaN for |x| ≥ 89 on
   both GPUs. Chrome (DXC) is finite, and no engine shader uses `tanh`.
+
+**Committed 2026-10-11, in the order the user asked:**
+- `4ebfe99`: Cline's step 2, unchanged;
+- `e312eab`: the steps 3–4 design docs;
+- `41768c3`: the S3 spike and its results.
+
+**Demo: Think Kernel — spike S3, live (2026-10-11).** The route is `/dashboard/agents/think-kernel`
+in the test-engine site, under Agent Experiments.
+- **What it shows:** 4,096 agents in rows of 64, one row per workgroup. The S3 kernel runs each
+  step with the chosen stagger and records which agents it ran. A second compute stage writes each
+  tile's `meshIndex` into `vis.instanceBuffer`, after `vis.upload()` in the same submission, so a
+  lit tile is the GPU's own record. Orange row markers are busy workgroups. Beside the grid, live
+  bars time the five S3 kernels on the viewer's GPU with timestamp queries, at 1k, 20k or 100k
+  agents.
+- **Checks on screen:** the network against a CPU forward pass (max error 3.2e-7 on the AMD iGPU),
+  and the `tanh` probe.
+- **Files:**
+  - `src/data/engine-demos/demos/AgentsExperiments/ThinkKernel/{index,kernels}.ts`, plus its
+    `Example` and `Documentation` files;
+  - the page `src/pages/dashboard/AgentsExperiments/ThinkKernel.tsx`;
+  - the controls `think-kernel-controls.tsx`;
+  - wiring in `paths`, `dashboard` routes, the nav, `demoMap`, `docsMap`, `demoRegistry`, `types`
+    (`ThinkKernelState`), the control store and the inspector tab.
+- **Measuring inside a page:** a fixed 30 ms gap between passes locked each kernel to the same
+  phase of the page's frames, which inflated whichever kernel came first: "everyone" read 480 µs
+  against uniform's 316, where the spike measured them equal. The gaps are now random, a 1 ms
+  untimed pass warms the clocks before each timed one, and each bar shows the fastest of its
+  last 15 passes. In Chrome on the AMD iGPU the bars then match the spike to within a few
+  percent: at 20,000 agents, 300 µs, 91% by agent and 34% by block; at 100,000, 1,254 µs, 99%,
+  36%, and workgroup 2,800 µs.
+- **Verified:**
+  - frontend `tsc --noEmit` and ESLint (zero errors) on every touched file;
+  - three `npm run drive` runs against the live Vite server on :8081, each with zero
+    console/WebGPU errors, clicking the stagger and size buttons;
+  - screenshots reviewed.
+- **Caveat:** `eslint --fix` also re-sorted existing import lists, by the site's own line-length
+  rule, in `docsMap.ts`, `useDemoControlStore.ts` and `types.ts`. The change is order only. These
+  integration files are untracked in the site repo; nothing was committed there.
 
 **C1 step 2 implemented and validated.** Shared XZ point-grid math lives in
 `src/extras/spatial/gridMath.ts`: bin, exclusive prefix with a terminal offset, scatter, and excess
@@ -638,9 +759,8 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
        spikes S1, S2, S4 and S5 run before C2's ORT step.
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
-      §13, and accepted. ~~Phase 3.0 (S3)~~ is done. **Next: phase 3.1**, the `AgentSystem`
-      skeleton: buffers, the species uniform, the shared-buffer queries, chains, the tick stage and
-      `step()`, tested by U8, U16 and A13.
+      §13, and accepted. Phases 3.0 (S3) and 3.1 (the GPU system skeleton) are done.
+      Phase 3.2 sensing is also done. **Next: phase 3.3**, the act generator, A3/A14/A7.
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -874,5 +994,29 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
   - **Committed** at the user's request, in three commits: Cline's step 2 unchanged, then the
     steps 3–4 docs, then the spike with its results.
   - **Next:** phase 3.1, the `AgentSystem` skeleton.
-
-Checkpoint revalidation: library/TypeScript + IDE builds, 38 headless agent checks and 72/72 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). A3 CPU agreement, A14 non-finite braking/fault injection, wall-reflection injection and two deterministic 600-step A7 runs passed.
+- **2026-10-11 — Claude (Opus 5.5).** Committed the three commits the user ordered.
+  - `4ebfe99` is Cline's step 2, unchanged. It was re-verified first: headless agent checks green,
+    36/36 agents GPU checks.
+  - `e312eab` is the docs; `41768c3` is the spike.
+  - `agents-design.md` and `handoff.md` held both agents' edits, so a script built each commit's
+    intermediate version. Every cut had to match exactly once, and the intermediates were staged
+    with `git update-index`, so the working files were never rewound. Each split was diffed
+    against HEAD and against its neighbours before committing.
+  - Before committing, a production `dist/index.js` (from a `yalc:push`) was replaced with the
+    committed dev build via `npm run build:lib`. It matched byte for byte.
+  - The user had opened `/dashboard/agents/herd-wolves-gpu`, which returns 404 because it is
+    phase 3.5's demo. The handoff line naming it now says it is not built yet.
+  - **Built the Think Kernel live demo** (record above), so S3 can be seen today.
+  - **Next:** phase 3.1, the `AgentSystem` skeleton.
+- **2026-10-11 — Cline.** Implemented phase 3.1 at the user's request: GPU buffer ownership,
+  dirty uploads, validated live species tuning, one shared grid, per-sensor query slices, cached
+  chains, GPU tick/overflow counters, lockstep stepping and teardown. Added five headless checks
+  and fourteen GPU checks; 34 agents / 17 core headless checks and 50/50 GPU checks on each of
+  Node/Dawn and Chrome passed, zero GPU errors (both AMD GCN-5). Full entry min+gzip 9,985 B;
+  tree-shaken system/declarations 7,241 B. Preserved existing docs changes; no commit, publication,
+  frontend or core change. Sense/act/brain stages remain later phases. Next: phase 3.2.
+- **2026-10-11 — Cline.** Implemented phase 3.2: generated GPU sensing, custom signature guards,
+  shared block/newborn predicate and sense-stage integration. U9/A2 and regression tests pass:
+  36 agent + 17 core headless checks, 63/63 GPU checks on Node/Dawn and Chrome, zero GPU errors
+  (AMD GCN-5). A2 max 2.38e-7 initial / 2.98e-7 tuned, flipped-axis injection caught. Full min+gzip
+  11,080 B; system/declarations 8,349 B. No commit or publication. Next: phase 3.3.

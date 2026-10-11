@@ -13,7 +13,7 @@ file so the parent stays a plan.
 - One debug draw in `null-graph/debug-ui`.
 
 **Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
-and §7.3 record what it decided. Next is phase 3.1.
+and §7.3 record what it decided. ✅ Phases 3.1–3.4 are implemented and validated. Next is phase 3.5.
 It is built in phases 3.0–3.5 and 4.1–4.5 (§13), each with its own exit criteria. §1.5 lists where
 this document refines the parent, and §13.3 records the user's decisions.
 
@@ -834,6 +834,128 @@ need. Visibility grows by about 60 B, `debug-ui` by about 1 KB (`agentArrows`), 
 
 ## 13. Build order — phases
 
+### Phase 3.4 implementation result — 2026-10-11
+
+`RuleBrain.ts` defines the stage-brain seam, validates the required signature and exports the
+PCG-style `rand01` JS twin. `agentThinkShaders.ts` generates think and app-step modules. Production
+chains now run grid → queries → sense → think → act → app stages in registration order → tick.
+Think shares sensing's `thinksNow` predicate, including newborn override; act and app stages run
+every live step. `getComputeStages()` and `step()` now refuse a missing brain, even for zero steps.
+Async brains remain explicitly refused until C2; no async scheduling has been implemented.
+
+`setBrain()` validates signatures/dimensions/buffer budgets, builds/binds a new stage, disables the
+previous stage and rebuilds cached chains. `addStepStage()` checks signatures, duplicate names and
+the available storage budget (five system storage buffers, at most three caller buffers).
+Group-1 declarations belong to the supplied WGSL and must reference their bindings. Brains and
+their auxiliary buffers are caller-owned; the system does not invoke `brain.destroy()` or destroy
+app buffers. Failed synchronous binding disables the new stage and preserves the previous chain.
+As with other pipelines, full WGSL validation is performed by the device, not the signature guard.
+
+Helpers: `obs`, `setAct`, `setReason`, species/layout constants, `rand01`, neighbour slice constants,
+`NO_AGENT`, `randomPointInWorld`, and `respawn`. The random hash uses wrapping u32 math and the upper
+24 bits divided by 2^24, exactly representable in f32 and in [0,1). Random spawn positions respect
+radius-inset bounds, collapsing oversized radii to the world midpoint. Respawn preserves Y/radius,
+clears velocity, wraps heading and resets age, so the next sense/think refreshes the slot.
+App safety remains a contract: write only self, never fields other invocations read in that dispatch.
+Catches and respawn must be separate dispatches; the library cannot statically prove arbitrary WGSL safe.
+
+Validation: **43 headless agent checks**, **17 core checks**, library/TypeScript and IDE builds,
+syntax and whitespace checks. GPU: **90/90 on Node/Dawn and Chrome**, zero WebGPU errors, both
+AMD GCN-5 (not cross-architecture coverage). A15 compares 10,000 CPU-built observation rows with
+a random/obs fixture brain at tick 0xffffffff: action bytes and reason words are exact. A16 checks
+six full-chain ticks, block cadence, both retained action/reason rows, dead retention and a newborn
+reusing a stale slot; the ungated-think injection is rejected. A13 additionally compares production
+RuleBrain repeated chains with separate submissions, including reason. Group-1 brain/app buffers
+work and survive system teardown; replacement disables the prior cached think stage.
+A18 catches/respawns all 64 prey in its first step and runs twice for 600 steps, checking finite
+radius-inset positions, cleared catch flags, reset age/velocity, zero overflow and byte-identical
+records/obs/actions/reasons/score. The score uses a caller-owned group-1 atomic buffer.
+Earlier sensor/act fixtures install explicit no-op brains; reason fixtures initialize via GPU
+dispatch rather than adding COPY_DST to the production GPU-owned reason buffer.
+
+Bundle minified ESM + gzip level 9: **13,428 B whole entry**, **10,593 B system/declarations/RuleBrain**.
+No frame readback, production renderer/core/frontend changes, publication or commit. Existing local
+work is preserved. No new interactive drive/screenshots: next is phase 3.5's arrow preview and demo.
+
+### Phase 3.3 implementation result — 2026-10-11
+
+`agentActShaders.ts` generates the in-place `actAgent` twin. The current production chain is
+grid → queries → sense → act → tick. Act runs every step, independently of sensing cadence.
+Dead records are untouched; live records age; frozen records zero velocity and return before
+custom/built-in integration. Steering sanitizes both components with the exponent-bit test,
+clamps turn/throttle, approaches target speed at species acceleration, wraps heading, integrates
+XZ and reflects X then Z against radius-inset walls (oversized radii collapse to the midpoint).
+Custom actions must define `fn NAME(i: u32)`; validation precedes GPU allocation. Their bindings
+are act/agents/species, with DT available, and age/frozen handling precedes the custom call.
+
+Validation: **38 headless agent checks**, **17 core checks**, library/TypeScript and IDE builds,
+syntax/whitespace checks; **72/72 GPU checks on Node/Dawn and Chrome**, zero WebGPU errors.
+Both hosts use AMD GCN-5, not distinct architectures. A3 compares 10,000 slots against `stepAll`,
+including dead/frozen, clamped actions, wrap, four walls, corners and oversized radii. Heading
+uses wrapped differences; velocity allows speed × 2^-11 plus f32 rounding, position scales the
+trig contribution by DT. Age also allows f32 rounding (GPU DT is f32; the CPU adds a double).
+Unchanged fields and dead rows remain byte-exact. Both hosts measured maxima **2.384185791015625e-7
+radians heading**, **8.344650268554688e-7 velocity**, **1.9073486328125e-6 position**.
+Removing reflection is rejected. A14 writes NaN/+Inf/-Inf into either component on the GPU,
+verifies finite records and braking to zero, and rejects removed sanitization. Full-chain cadence
+confirms a frozen newborn ages out of the override. A7 repeats 600 lockstep steps twice from
+identical seeded records/actions, asserts zero overflow and compares complete records byte-exactly.
+Custom act also matches its CPU mirror. Earlier sensing fixtures explicitly disable act to keep
+their sensor-only oracles intact. Parser-only validation missed reserved WGSL words; both-host
+validation caught them and the final generators/fixtures use valid identifiers.
+
+Bundle minified ESM + gzip level 9: **11,791 B whole entry**, **9,075 B system/declarations**.
+The zero-initialized steering action means half throttle, not stop; until phase 3.4, tests/callers
+provide action rows directly. No production brain/app/renderer, frontend/core changes, publication
+or commit. No new interactive `npm run drive`/screenshot review; that remains phase 3.5.
+Next: phase 3.4, RuleBrain and app stages.
+
+### Phase 3.2 implementation result — 2026-10-11
+
+`agentSenseShaders.ts` generates self, nearest, bounds and custom sensor blocks in declaration
+order. `AgentSystem` now runs grid → queries → sense → tick. The shared `thinksNow` generator
+implements the §7.3 block cadence and newborn override; dead/off-cadence rows retain their values.
+Custom sensor signatures are checked by name before buffer allocation (comments do not satisfy
+the check). Sparse layouts retain all five auto-layout bindings using `arrayLength` references,
+without reading another invocation's observation row.
+
+U9 (sense) and custom signature checks pass: **36 headless agent checks**, **17 core checks**,
+library/TypeScript and IDE builds. GPU: **63/63 on Node/Dawn and Chrome**, zero WebGPU errors;
+both hosts AMD GCN-5. A13 now also compares observation buffers between repeated and separate
+submissions. A2's 10,000-slot scene includes different species radii/speeds, all sensor kinds,
+deaths, frozen records and live tuning. Each pass compares 9,890 live rows; six near-boundary
+observers are skipped/count-reported. Presence is exact; maximum error on both hosts is
+**2.384185791015625e-7 initial**, **2.980232238769531e-7 tuned**, below 7e-4.
+Exact-radius/heading/corner/padding fixtures, scaled speed, newborn/block cadence, retained dead
+rows and custom-only/bounds-only layouts pass. Injecting a flipped side axis is rejected by A2.
+
+Bundle minified ESM + gzip level 9: **11,080 B whole entry**, **8,349 B system/declarations**.
+No act stage yet: age does not advance, so age-zero records remain newborn until phase 3.3 lands.
+No think/brain/app-stage or renderer implementation, no core/frontend changes. Next: phase 3.3.
+
+### Phase 3.1 implementation result — 2026-10-11
+
+`AgentSystem` owns the buffers, species staging table, one `PointGrid`, shared-slice query
+stages and the tick stage. `advance()` selects cached chains; `step()` uploads, submits one
+chain and awaits the queue without changing the selected frame chain. `setSpecies()` uses
+`defineAgents()` validation and updates a system-owned definition, including future spawn defaults.
+No-nearest layouts allocate a four-byte dummy neighbour buffer and no query stage.
+
+**Phase boundary:** chains currently run grid → queries → tick, without a brain requirement.
+Sense, act, `setBrain()`/the no-brain refusal and app stages are not implemented yet. `thinkEvery`
+is validated and retained, but has no compute effect until phase 3.4. U8's chain/allocation part
+is green; its shared sense/think predicate assertion waits for those generators.
+
+Validation: 34 headless agent checks, 17 core checks, library/TypeScript and IDE builds;
+50/50 agent GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5).
+U16 compares default query text byte-for-byte against committed step 2. A13 uses a test-only
+tick-reading/moving stub inserted before tick, compares three chain copies with three submissions,
+and detects an injected CPU-uniform tick fault. Shared query slices also match the CPU nearest oracle.
+Raw atomic scatter order is not compared; counts, offsets, neighbours and deterministic outputs are.
+
+Bundle, esbuild minified ESM + gzip level 9: **9,985 B whole entry**, **7,241 B** for the
+tree-shaken `AgentSystem`/`defineAgents`/`Sensors`/`Actions` entry. No core or frontend changes.
+
 ### 13.1 Phases
 
 Every phase ends the same way:
@@ -842,34 +964,34 @@ Every phase ends the same way:
 - the parent's step entry and the handoff are updated;
 - the change is committed separately when the user asks.
 
-| Phase | Builds | Exit criteria | What becomes visible |
-|---|---|---|---|
-| **3.0** ✅ | Spike **S3** (parent §13, C0): `test/spikes/s3-think-kernel/`, `npm run spike:s3`. A script with no library code: the 24→32→32→2 network as one kernel, one invocation per agent, at 1k / 20k / 100k agents. It compares weights in storage (runtime-sized or fixed-size), uniform and workgroup memory, loops against unrolled code, index against block staggering, and probes `tanh` at large inputs | Done 2026-10-11 on NVIDIA Turing and AMD GCN-5 under Node/Dawn, and AMD under Chrome; every variant matched the CPU forward pass. Numbers are in the parent. The entry returns early (§7.1), and the stagger is by block (§7.3) | — |
-| **3.1** | `AgentSystem` skeleton: buffers, `upload()`, the species uniform, `setSpecies`, `PointGrid` + query stages into the shared buffer, chains, the tick stage, `step()`, `destroy()` | U8, U16; A13 over grid, queries and tick, with a stub brain that reads `tick` (re-run as each stage lands) | — |
-| **3.2** | The sense generator | U9 (sense); A2 | — |
-| **3.3** | The act generator | U9 (act); A3, A14, A7 | — |
-| **3.4** | The think stage, `RuleBrain`, helpers, `thinkEvery`, app step stages | U17; A15, A16, A18 | — |
-| **3.5** | `agentArrows()`; a live demo in the test-engine site (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`), route `/dashboard/agents/herd-wolves-gpu` under Agent Experiments, beside the CPU preview (`/dashboard/agents/herd-wolves-preview`): about 4,000 agents, the preview's brain ported to WGSL, catches and respawn as app stages, the grid overlay as a toggle | `npm run drive` exits 0 with zero WebGPU errors; screenshots reviewed | The herd running entirely on the GPU, drawn as arrows |
-| **4.1** | `vis.setInstanceCount` + `instanceSource` | U18, watched failing first | — |
-| **4.2** | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal | U19; A17 | Darts instead of arrows |
-| **4.3** | Picking and labels on GPU agents | A10, A11, A12 | Hover, click, wolf names |
-| **4.4** | `inspect(i)` and the site inspector panel | U20; A19 | "See its brain" from GPU values, with overflow shown |
-| **4.5** | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` started | A20; `npm run drive` clean; numbers in the handoff | The step-3 demo with the CPU nearly idle |
+| Phase     | Builds                                                                                                                                                                                                                                                                                                                                                                                                  | Exit criteria                                                                                                                                                                                                                   | What becomes visible                                                                                                                                    |
+|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **3.0** ✅ | Spike **S3** (parent §13, C0): `test/spikes/s3-think-kernel/`, `npm run spike:s3`. A script with no library code: the 24→32→32→2 network as one kernel, one invocation per agent, at 1k / 20k / 100k agents. It compares weights in storage (runtime-sized or fixed-size), uniform and workgroup memory, loops against unrolled code, index against block staggering, and probes `tanh` at large inputs | Done 2026-10-11 on NVIDIA Turing and AMD GCN-5 under Node/Dawn, and AMD under Chrome; every variant matched the CPU forward pass. Numbers are in the parent. The entry returns early (§7.1), and the stagger is by block (§7.3) | Live in the test-engine site at `/dashboard/agents/think-kernel`: the kernel on the viewer's GPU, the staggering drawn tile by tile, and live cost bars |
+| **3.1** ✅ | `AgentSystem` skeleton: buffers, `upload()`, the species uniform, `setSpecies`, `PointGrid` + query stages into the shared buffer, chains, the tick stage, `step()`, `destroy()`                                                                                                                                                                                                                        | U8, U16; A13 over grid, queries and tick, with a stub brain that reads `tick` (re-run as each stage lands)                                                                                                                      | —                                                                                                                                                       |
+| **3.2** ✅ | The sense generator                                                                                                                                                                                                                                                                                                                                                                                     | U9 (sense); A2                                                                                                                                                                                                                  | —                                                                                                                                                       |
+| **3.3**   | The act generator                                                                                                                                                                                                                                                                                                                                                                                       | U9 (act); A3, A14, A7                                                                                                                                                                                                           | —                                                                                                                                                       |
+| **3.4** ✅ | The think stage, `RuleBrain`, helpers, `thinkEvery`, app step stages                                                                                                                                                                                                                                                                                                                                    | U17; A15, A16, A18                                                                                                                                                                                                              | —                                                                                                                                                       |
+| **3.5**   | `agentArrows()`; a live demo in the test-engine site (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`), route `/dashboard/agents/herd-wolves-gpu` under Agent Experiments, beside the CPU preview (`/dashboard/agents/herd-wolves-preview`): about 4,000 agents, the preview's brain ported to WGSL, catches and respawn as app stages, the grid overlay as a toggle                           | `npm run drive` exits 0 with zero WebGPU errors; screenshots reviewed                                                                                                                                                           | The herd running entirely on the GPU, drawn as arrows                                                                                                   |
+| **4.1**   | `vis.setInstanceCount` + `instanceSource`                                                                                                                                                                                                                                                                                                                                                               | U18, watched failing first                                                                                                                                                                                                      | —                                                                                                                                                       |
+| **4.2**   | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal                                                                                                                                                                                                                                                                                                                    | U19; A17                                                                                                                                                                                                                        | Darts instead of arrows                                                                                                                                 |
+| **4.3**   | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
+| **4.4**   | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |
+| **4.5**   | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` started                                                                                                                                                                                                                                                                      | A20; `npm run drive` clean; numbers in the handoff                                                                                                                                                                              | The step-3 demo with the CPU nearly idle                                                                                                                |
 
 Step 5 follows in the parent plan: the 20,000-agent Herd & Wolves demo, with A9's step time
 measured.
 
 ### 13.2 Deferred — with the reason
 
-| Item | Reason |
-|---|---|
-| A fused multi-sensor query (one scan, several top-k lists) | Measure the S separate scans first |
-| Gating queries for agents that do not think this step | App stages read neighbours every step; measure first |
-| Indirect dispatch over live agents only | Dispatching over capacity costs early returns, not work |
-| Killing and creating agents on the GPU (free lists), and the `visibleIf` text option it needs | Phase 2's birth and death |
-| Time-budgeted think slicing beyond the index stagger, and live `thinkEvery` changes | No measured need yet |
-| `addStepStage({ when: 'frame' })` for once-per-frame logic | No consumer yet |
-| Per-species brains (`setBrain(brain, { species })`) | C2 decides it with behaviour cloning; one network for two policies needs a species input or two networks |
+| Item                                                                                             | Reason                                                                                                                                                                                                    |
+|--------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A fused multi-sensor query (one scan, several top-k lists)                                       | Measure the S separate scans first                                                                                                                                                                        |
+| Gating queries for agents that do not think this step                                            | App stages read neighbours every step; measure first                                                                                                                                                      |
+| Indirect dispatch over live agents only                                                          | Dispatching over capacity costs early returns, not work                                                                                                                                                   |
+| Killing and creating agents on the GPU (free lists), and the `visibleIf` text option it needs    | Phase 2's birth and death                                                                                                                                                                                 |
+| Time-budgeted think slicing beyond the index stagger, and live `thinkEvery` changes              | No measured need yet                                                                                                                                                                                      |
+| `addStepStage({ when: 'frame' })` for once-per-frame logic                                       | No consumer yet                                                                                                                                                                                           |
+| Per-species brains (`setBrain(brain, { species })`)                                              | C2 decides it with behaviour cloning; one network for two policies needs a species input or two networks                                                                                                  |
 | Network weights staged in workgroup memory, or read from a uniform buffer, where measured faster | S3: staging is 2.1–2.3× faster on NVIDIA and as much slower on AMD; a uniform buffer is 10–19% faster on NVIDIA and level on AMD. Staging needs an additive entry variant that keeps uniform control flow |
 
 ### 13.3 Decisions — settled with the user, 2026-10-11
@@ -881,16 +1003,3 @@ measured.
 3. **Phase 3.5's arrow preview is kept.** Its live demo goes in the test-engine site, linked from
    here and from the handoff (§13.1).
 4. **Implementation starts with phase 3.0**, spike S3.
-
-
-## Sequential checkpoint — phase 3.3 (2026-10-11)
-
-Generated steering/custom act stage after sensing and before tick. Dead records unchanged; live/frozen age handling, exponent-bit sanitization and X-then-Z wall reflection. Brain/app stages remain deferred.
-
-Phases 3.1–3.3 are complete at this checkpoint.
-The original combined implementation was split into buildable phase commits after phase 3.4.
-Later stages are deliberately absent from this revision, not lost. Validation for this reconstructed
-checkpoint is run before committing; the completed phase-3.4 source is backed up outside the repo.
-Next: phase 3.4. No phase-3.5/frontend/renderer work in this checkpoint.
-
-Checkpoint revalidation: library/TypeScript + IDE builds, 38 headless agent checks and 72/72 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). A3 CPU agreement, A14 non-finite braking/fault injection, wall-reflection injection and two deterministic 600-step A7 runs passed.
