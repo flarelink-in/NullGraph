@@ -63,6 +63,10 @@
     "./picking": {
       "types": "./dist/extras/picking/index.d.ts",
       "import": "./dist/picking.js"
+    },
+    "./text": {
+      "types": "./dist/extras/text/index.d.ts",
+      "import": "./dist/text.js"
     }
   },
   "scripts": {
