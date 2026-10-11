@@ -18,7 +18,38 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — in progress: C1 step 1 done (2026-10-11)
+### Cycle C — in progress: C1 step 1 done; step 2 started (2026-10-11)
+
+**C1 step 2 has started, CPU reference only.** Shared XZ point-grid math lives in
+`src/extras/spatial/gridMath.ts`: bin, exclusive prefix with a terminal offset, scatter, and excess
+entries over the scan budget. `agentGridMath.ts` supplies the 3×3-cell query reference. U2/U3 add
+five checks (4,096 positions, 64 prefix arrays, 512 random scenes compared with brute force,
+scatter-order-independent ties, crowded-cell accounting). `npm run test:agents` now runs 29 checks.
+GPU bin/scan/scatter/query stages, A1 on-device comparison, `groundGrid()` and the reusable GPU
+occupancy overlay are **not implemented yet**; step 2 is not complete.
+
+**Demo: Spatial Grid — CPU Reference (2026-10-11).** A separate test-engine experiment at
+`/dashboard/agents/spatial-grid` visualizes 256 static seeded points, 15×15 occupancy cells,
+overflow, bounded nearest neighbours and brute-force misses. Herd & Wolves is unchanged.
+Controls select uniform/boundary/crowded layouts, scan budget 1–64 and agent index 0–255.
+Grid construction and queries run on the CPU only; rendering/culling run on the GPU. The shared
+grid reference is exported through `null-graph/agents`; there is no new package subpath.
+- **Validated after visual/type fixes:** frontend `tsc --noEmit`, IDE build, library build and
+  29 agent checks passed. Targeted ESLint has zero errors (12 style warnings in integration/demo
+  files); the five new experiment files pass Prettier. Existing integration formatting and unrelated
+  frontend diff-check failures were left alone.
+- **Browser:** forced Vite on port 8083; 11 driver steps, four screenshots, exit 0, no recorded
+  console/WebGPU errors. Uniform/boundary: zero overflow and zero mismatches. Crowded/budget 2:
+  105 excess entries and 136/256 mismatched queries. Tiles and unobscured label visually reviewed;
+  wheel zoom exercised. This run did not exercise drag/orbit. Four warnings are React Router
+  future flags and the Windows ignored power-preference warning (forwarded twice).
+- **Evidence:** `C:/Users/Vikas/AppData/Local/Temp/nullgraph-spatial-grid-reviewed/` contains
+  `report.json`, `console.log` and uniform/boundaries/crowded/zoomed screenshots. The shell wrapper
+  timed out after 30 seconds, but the driver completed and its saved report records success.
+- **Frontend commit caveat:** root `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1` has existing staged
+  unrelated work and most integration files are untracked. Do not stage entire integration files
+  as an experiment-only commit without establishing their baseline. Local bundle/declaration copies
+  were refreshed previously; nothing was published or pushed.
 
 **C1 step 1 is done, headless only.** It adds `src/extras/agents/` (`agentLayout`, `agentRecords`,
 `agentMath`) with the 64-byte record, the observation and action layouts derived from declared
@@ -707,3 +738,18 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
     - Workers ran before the device watch existed — now a before-script instrumentation breakpoint.
   - **Plan:** the step 2 entry now includes `groundGrid()` and the grid-occupancy overlay.
   - **Pointer:** label decluttering, in the Cycle B known gaps.
+- **2026-10-11 — Cline.** Committed the page driver, script wiring and associated documentation as
+  `68ab721` (`feat(tooling): add interactive WebGPU page driver`). Syntax check, 4/4 agent-kit checks
+  and the live text GPU harness driven through Chrome passed; artifacts are in the local temp
+  directory `nullgraph-driver-check`. No push or publication.
+  - **Started C1 step 2:** shared point-grid CPU reference and bounded nearest-query mirror;
+    `test/agents-grid.test.mjs` joins `npm run test:agents`. New work remains uncommitted.
+  - **Semantics:** closed maximum faces/outside positions clamp to edge cells; cells are X-major;
+    offsets are exclusive with a terminal total; scatter retains all live entries; overflow is
+    excess entries counted once per cell/build, not multiplied by query count. Exact query agreement
+    is claimed only below the scan budget; overflowing GPU scatter will not have stable membership.
+  - **Validated:** library build/declarations and IDE build, 24 existing + 5 new agent checks, 4 kit
+    checks. Farthest-first and higher-index-tie mutations each failed the intended test; restoring
+    the generated bundle returned 5/5 passing. Tracked core bundles are unchanged.
+  - **Next:** implement GPU stages and hierarchical prefix scan against these definitions, add A1
+    Node/Dawn + Chrome readback comparisons, then debug views and site overlay/driver screenshots.
