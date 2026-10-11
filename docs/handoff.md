@@ -20,6 +20,26 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 
 ### Cycle C — in progress: C1 steps 1–2 done (2026-10-11)
 
+**C1 steps 3–4 are designed, not implemented:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
+kept separate from the parent plan. It specifies:
+- the GPU sense → think → act loop, repeated per fixed step from prebuilt chains;
+- one `PointGrid` shared by one query per `nearest` sensor;
+- a GPU tick stage;
+- `RuleBrain`;
+- race-free app step stages for game logic (catches, respawn);
+- `agentArrows()`;
+- instance output, highlight, labels, picking and `inspect(i)`.
+
+It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn with arrows) and
+4.1 → 4.5. §1.5 lists where it refines `agents-design.md`.
+
+**The user accepted it all on 2026-10-11:**
+- every refinement;
+- the C1 bundle line raised to 16 KB;
+- the arrow preview phase kept;
+- live demos in the test-engine site; phase 3.5's demo will be `/dashboard/agents/herd-wolves-gpu`,
+  beside the CPU preview. It is not built yet.
+
 **C1 step 2 implemented and validated.** Shared XZ point-grid math lives in
 `src/extras/spatial/gridMath.ts`: bin, exclusive prefix with a terminal offset, scatter, and excess
 entries over the scan budget. `agentGridMath.ts` supplies the 3×3-cell query reference. U2/U3 add
@@ -590,7 +610,8 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
        draws (U2, U3, A1). **Next: spike S3**, the built-in kernel's cost, before step 3; the ORT spikes S1,
       S2, S4 and S5 run before C2's ORT step.
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
-      half.
+      half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
+      §13, and accepted. **Next: phase 3.0**, spike S3.
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -778,3 +799,28 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
     the generated bundle returned 5/5 passing. Tracked core bundles are unchanged.
   - **Next:** implement GPU stages and hierarchical prefix scan against these definitions, add A1
     Node/Dawn + Chrome readback comparisons, then debug views and site overlay/driver screenshots.
+- **2026-10-11 — Claude (Opus 5.5).** Designed C1 steps 3–4 at the user's request: design only, in
+  a new file, [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), so the parent plan stays
+  a plan.
+  - **Read first:** Cline's step 2 (`PointGrid`, `AgentGrid`, the query generator, the debug
+    draws, `api/agent-grid.md`).
+  - **Verified against source:** every fact in its §3, with file:line citations —
+    `RenderPipeline`, `BatchManager`'s `layout: 'auto'`, `VisibilitySystem`, `TextSystem`, `Picker`,
+    the step 1 mirrors and the step 2 generators.
+  - **Found while designing, and designed around:**
+    - The grid zeroes `overflow` every step, so run-long counters live in a GPU tick stage.
+    - Repeated chain copies share nodes, so `thinkEvery` must be gated on the GPU, not with
+      `enabled`.
+    - Marking a catch and respawning in the same stage would be a data race, so they are two stages
+      under an own-record rule.
+    - The parent's A2 bound of 1e-5 is not promised by WGSL's `sin`/`cos`, so it is now derived.
+    - Headings must be compared as wrapped angles.
+    - Dead agents' labels need no text touchpoint in C1, because the CPU kills and can call
+      `setLabelHidden`.
+  - **Changed only** that doc, pointers in `agents-design.md` (status line, the step 3/4 entries)
+    and this file. Cline's uncommitted step 2 code is untouched; nothing is committed.
+  - **Next:** the user answers the design's §13.3 questions, then phase 3.0 (spike S3).
+- **2026-10-11 — Claude (Opus 5.5).** The user accepted the steps 3–4 design: every refinement, a
+  16 KB C1 bundle line, the arrow preview kept, and live demos in the test-engine site. The
+  decisions are recorded in both docs.
+  - **Next:** phase 3.0, spike S3.
