@@ -25,6 +25,7 @@ async function build() {
                 'environment':'src/extras/environment/index.ts',
                 'picking':'src/extras/picking/index.ts',
                 'text':'src/extras/text/index.ts',
+                'agents':'src/extras/agents/index.ts',
             },
 
             outdir: 'dist', // NEW: Outputs to dist/index.js and dist/geometry.js

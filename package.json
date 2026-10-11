@@ -67,6 +67,10 @@
     "./text": {
       "types": "./dist/extras/text/index.d.ts",
       "import": "./dist/text.js"
+    },
+    "./agents": {
+      "types": "./dist/extras/agents/index.d.ts",
+      "import": "./dist/agents.js"
     }
   },
   "scripts": {
@@ -90,6 +94,7 @@
     "test:shadows": "node test/shadows-csm.test.mjs",
     "test:picking": "node test/picking.test.mjs",
     "test:text": "node test/text.test.mjs",
+    "test:agents": "node test/agents.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",
     "test:tod": "node test/environment-timeofday.test.mjs",
     "test:night": "node test/environment-night.test.mjs",
