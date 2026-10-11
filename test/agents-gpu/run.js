@@ -178,5 +178,88 @@ try { grid.getComputeStages(); } catch { refused = true; }
 check('wrapper: teardown disables cached stages and refuses reuse', refused && stages.every(s => !s.enabled) && floorPass.batches.length === 0 && overlayPass.batches.length === 0);
 check('wrapper: caller-owned records survive teardown', (await read(records, rec.data.length)).length === rec.data.length);
 records.destroy();
-await finish('All agent grid GPU checks passed.');
-device.destroy();
+// Phase 3.1 A13: a test-only brain seam before tick. It observes tick and moves records so
+// subsequent grid/query builds must consume the preceding step, not only count dispatches.
+const loopDef = A.defineAgents({ capacity: 128, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    maxScanPerCell: 128,
+    species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
+    sensors: [A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }), A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 3 })] });
+// Phase-local fixtures do not yet include integration.
+function senseOnly(s) { return s; }
+function system(definition = loopDef) {
+    const s = senseOnly(new A.AgentSystem(engine, definition));
+    for (let i = 0; i < s.capacity; i++) s.spawn(i, { position: [-6 + (i % 16) * 0.75, 0, -3 + Math.floor(i / 16) * 0.75], species: i % 2 });
+    s.upload();
+    return s;
+}
+function stub(s, cpuTick = false) {
+    const uniform = cpuTick ? device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }) : null;
+    const code = `${A.AGENT_STRUCT_WGSL}${A.AGENT_STATE_WGSL}
+@group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
+@group(0) @binding(1) var<storage, read> state: AgentState;
+@group(0) @binding(2) var<storage, read_write> act: array<f32>;
+${cpuTick ? '@group(0) @binding(3) var<uniform> cpuState: vec4<u32>;' : ''}
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= ${s.capacity}u) { return; }
+    let tick = ${cpuTick ? 'cpuState.x + (state.tick & 0u)' : 'state.tick'};
+    act[i * 2u] = act[i * 2u] * 4.0 + f32(tick + 1u);
+    agents[i].posRadius.x += f32(tick + 1u) * 0.125;
+}`;
+    const stage = engine.createComputeStage({ name: 'A13 test-only tick reader', shaderCode: code, dispatchCount: [2, 1, 1] });
+    engine.setComputePassBindGroup(stage, [s.buffer, s.state, s.act, ...(uniform ? [uniform] : [])].map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
+    if (uniform) stage.preClearBuffers.push({ buffer: uniform, offset: 0, data: new Uint32Array([0, 0, 0, 0]) });
+    s.advance(loopDef.dt);
+    const one = s.getComputeStages();
+    return { stage, uniform, chain: [...one.slice(0, -1), stage, one.at(-1)] };
+}
+const batch = system(), single = system(), broken = system();
+const batchStub = stub(batch), singleStub = stub(single), brokenStub = stub(broken, true);
+engine.render([...batchStub.chain, ...batchStub.chain, ...batchStub.chain]);
+engine.render([...brokenStub.chain, ...brokenStub.chain, ...brokenStub.chain]);
+for (let n = 0; n < 3; n++) { engine.render(singleStub.chain); await device.queue.onSubmittedWorkDone(); }
+for (const [name, words] of [['buffer', 128 * 16], ['act', 128 * 2], ['neighbours', 128 * 4], ['obs', 128 * loopDef.obsDim], ['state', 4]]) {
+    check(`A13: three chain copies equal three submissions (${name})`, equal(await read(batch[name], words), await read(single[name], words)));
+}
+check('A13 watched failing: submission-wide CPU tick is detected', !equal(await read(batch.act, 256), await read(broken.act, 256)));
+const loopAct = new Float32Array((await read(batch.act, 256)).buffer);
+check('A13: stub observed ticks 0,1,2 in order', loopAct.every((v, i) => i % 2 ? v === 0 : v === 27));
+check('A13: tick state increments once per step, no overflow', equal(await read(batch.state, 4), new Uint32Array([3, 0, 0, 0])));
+check('A13: grid counts and offsets agree across submissions',
+    equal(await read(batch.grid.cellCounts, 16), await read(single.grid.cellCounts, 16)) &&
+    equal(await read(batch.grid.cellOffsets, 17), await read(single.grid.cellOffsets, 17)));
+// Verify both sensor slices against a fresh CPU record image, reflecting positions before the
+// third stub ran (the queries are before it in the chain).
+const gpuRecords = await read(batch.buffer, 128 * 16);
+const queryRecords = new A.AgentRecords(loopDef, new Float32Array(gpuRecords.buffer));
+for (let i = 0; i < 128; i++) queryRecords.data[i * 16] -= 3 * 0.125;
+const shared = await read(batch.neighbours, 128 * 4);
+let slicesMatch = true;
+for (let i = 0; i < 128; i++) {
+    for (const [mask, k, base] of [[2, 1, 0], [1, 3, 1]]) {
+        const out = [], n = A.nearestNeighbours(loopDef, queryRecords, i, mask, 4, k, out);
+        for (let j = 0; j < k; j++) if (shared[i * 4 + base + j] !== (j < n ? out[j] : 0xffffffff)) slicesMatch = false;
+    }
+}
+check('U16 GPU: both shared query slices equal the CPU nearest oracle', slicesMatch);
+const crowdedDef = A.defineAgents({ capacity: 8, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    maxScanPerCell: 2, species: [loopDef.species[0]], sensors: [A.Sensors.nearest({ k: 1 })] });
+const crowded = new A.AgentSystem(engine, crowdedDef);
+for (let i = 0; i < 8; i++) crowded.spawn(i, { position: [1, 0, 1], species: 0 });
+crowded.upload(); crowded.advance(3 * crowdedDef.dt); engine.render(crowded.getComputeStages());
+check('tick: overflow is folded once per build in a repeated chain', equal(await read(crowded.state, 4), new Uint32Array([3, 3, 18, 0])));
+await crowded.step();
+check('step: lockstep submits exactly one step', equal(await read(crowded.state, 4), new Uint32Array([4, 4, 24, 0])));
+for (let i = 0; i < 8; i++) crowded.kill(i);
+await crowded.step();
+check('tick: empty rebuild preserves run-long overflow counters', equal(await read(crowded.state, 4), new Uint32Array([5, 4, 24, 0])));
+check('upload: killed records leave query rows padded', (await read(crowded.neighbours, 8)).every(v => v === 0xffffffff));
+const cached = crowded.getComputeStages();
+for (const item of [batchStub, singleStub, brokenStub]) { item.stage.enabled = false; item.uniform?.destroy(); }
+for (const s of [batch, single, broken, crowded]) { s.destroy(); s.destroy(); }
+engine.render(cached);
+check('destroy: cached skeleton stages are disabled', cached.every(stage => !stage.enabled));
+
+
+allocated.splice(0).forEach(b => b.destroy());
+await finish('All phase 3.1 agent GPU checks passed.');

@@ -4,11 +4,16 @@ import { AGENT_STRUCT_WGSL, MAX_NEAREST_K, type AgentDefinition } from './agentL
 
 /** Output is k indices per agent, padded with 0xffffffff. Dead query agents match the CPU mirror.
  * Atomic scatter order is unspecified: over-budget query subsets may vary between builds. */
-export function buildAgentGridQueryWGSL(def: AgentDefinition, mask: number, radius: number, k: number): string {
+export function buildAgentGridQueryWGSL(def: AgentDefinition, mask: number, radius: number, k: number,
+    options: { stride?: number; base?: number } = {}): string {
+    const stride = options.stride ?? k, base = options.base ?? 0;
     if (!(Number.isFinite(radius) && radius >= 0 && radius <= def.cellSize &&
         Number.isInteger(k) && k >= 1 && k <= MAX_NEAREST_K &&
         Number.isInteger(mask) && mask >= 0 && mask <= 0xffffffff)) {
         throw new Error('AgentSystem: grid query radius, k or species mask is invalid.');
+    }
+    if (!(Number.isSafeInteger(stride) && Number.isSafeInteger(base) && base >= 0 && stride >= base + k)) {
+        throw new Error('AgentSystem: grid query stride and base must fit the sensor slice.');
     }
     return `${AGENT_STRUCT_WGSL}
 @group(0) @binding(0) var<storage, read> agents: array<Agent>;
@@ -53,6 +58,6 @@ ${pointCellWGSL(def)}
             }
         }
     }
-    for (var n = 0u; n < ${k}u; n++) { result[i * ${k}u + n] = indices[n]; }
+    for (var n = 0u; n < ${k}u; n++) { result[i * ${stride}u + ${base ? `${base}u + ` : ''}n] = indices[n]; }
 }`;
 }
