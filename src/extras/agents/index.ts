@@ -7,3 +7,5 @@ export * from '../spatial/gridShaders';
 export * from './agentGridShaders';
 export * from '../spatial/PointGrid';
 export * from './AgentGrid';
+export * from './AgentSystem';
+export * from './agentSystemShaders';

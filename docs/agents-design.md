@@ -786,3 +786,16 @@ Every regression test is watched failing on broken code before it passes
    [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §1.5, including the brain seam (the
    system builds the think stage). The C1 bundle line is raised to 16 KB (§12.5), and the arrow
    preview phase is kept. Live demos go in the test-engine site's Agent Experiments section.
+
+
+## Sequential checkpoint — phase 3.1 (2026-10-11)
+
+GPU AgentSystem skeleton, shared nearest-query slices, dirty uploads, live species tuning, cached fixed-step chains and GPU-owned tick/overflow state. Sense, act and brain stages remain deferred.
+
+Phases 3.1 are complete at this checkpoint.
+The original combined implementation was split into buildable phase commits after phase 3.4.
+Later stages are deliberately absent from this revision, not lost. Validation for this reconstructed
+checkpoint is run before committing; the completed phase-3.4 source is backed up outside the repo.
+Next: phase 3.2. No phase-3.5/frontend/renderer work in this checkpoint.
+
+Checkpoint revalidation: library/TypeScript + IDE builds, 34 headless agent checks and 51/51 GPU checks on Node/Dawn and Chrome, zero WebGPU errors (both AMD GCN-5). Includes the later-added obs buffer equivalence check in A13.
