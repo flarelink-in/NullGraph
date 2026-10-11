@@ -15,6 +15,36 @@ for submitted work, writes PNG and JSON, and rejects uniform frames unless expli
 Exit codes: 0 rendered, 1 recorded GPU error or uniform frame, 2 invalid arguments or scene failure.
 Device/bootstrap and other uncaught failures also fail; do not infer success from an absent report.
 
+## Driving a page in headless Chrome
+
+To check an interactive page (a demo site, or a harness page in this repository) the way a person
+would, use the [page driver](../../test/gpu/drive-page.mjs). It moves, clicks, holds keys, scrolls,
+takes screenshots and evaluates expressions, and it captures every console line from the page and
+its workers. It also watches every GPU device the page or a worker creates, so an uncaptured WebGPU
+error or a device loss fails the run even if the page never logs it.
+
+```sh
+npm run drive -- http://localhost:8081/dashboard/agents --wait-for "Demo loaded:" --actions steps.json
+npm run drive -- --serve . test/text-gpu/index.html --wait-for "passed|FAILED"
+```
+
+Steps are a JSON array, for example `[{"click":[0.5,0.5]},{"wait":800},{"shot":"after.png"}]`.
+Coordinates `[fx, fy]` are fractions of the `--canvas` element; `pageClick` takes page pixels. The
+full list (`move`, `click`, `key`, `wheel`, `waitFor`, `eval`, `end`) is in the script header.
+With `--interactive`, the driver loads once and then runs `actions-1.json`, `actions-2.json` and so
+on from `--out` as each appears. Look at a screenshot, then decide the next step.
+
+Output goes to `--out` (default `drive-out`): the screenshots, `console.log`, and `report.json` with
+steps, eval results and errors. Exit codes:
+- **0** — no uncaught exception, no console error, no WebGPU error.
+- **1** — one of those, each listed in the report.
+- **2** — the driver could not run: bad arguments, no Chrome, a page that failed to load or answered
+  HTTP 400 or above, or a timed-out `--wait-for`.
+
+Under Git Bash, pass `--serve` paths without a leading `/`; Git Bash rewrites `/x.html` into a
+Windows path, and the driver refuses it by name. Exit 0 means nothing errored, not that the frames
+look right — read the screenshots.
+
 ## What each layer proves
 
 | Layer | Evidence | Not proved |
@@ -22,6 +52,7 @@ Device/bootstrap and other uncaught failures also fail; do not infer success fro
 | Agent-kit checks | Links, version identity, example/doc equality, example registration, budget | GPU execution |
 | Starter renders | No recorded GPU errors; non-uniform output | Correct cull counts or requested appearance |
 | Visibility GPU suite | Draw counts at 1k/13k; GPU frustum vs CPU mirror; Hi-Z wall controls | Every application integration |
+| Page driver | A page ran the scripted interactions with no exception, console error or WebGPU error; screenshots of each state | That the screenshots look right, or any numeric property |
 | Human/image review | Camera composition, visible artifacts and requested content | General energy stability |
 | Fresh-agent evaluation | Ability to discover, build, debug and validate unaided | Not run merely by engine tests |
 

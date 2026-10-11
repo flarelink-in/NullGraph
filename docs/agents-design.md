@@ -674,7 +674,17 @@ needed. If S1 is under ~1 ms at 20,000, `OrtBrain` is comfortable interactively 
      without `byteOffset` (U1b). The suite's exit 1 was seen on a real failure: unclamped spawn
      speed, now fixed (§5.1).
    - **Bundle:** `agents.js` 5,138 B min + gzip, much of it error text; core +0 B.
-2. The grid (P2 stages A–C) and the k-nearest query — U2, U3, A1.
+2. The grid (P2 stages A–C) and the k-nearest query — U2, U3, A1. With it, the first **GPU debug
+   views** in `null-graph/debug-ui` (today two DOM performance widgets). The physics plan already
+   names `debug-ui` as the home of debug drawing (P8), so these are its first GPU members:
+   - **`groundGrid()`** — the anti-aliased minor/major floor grid with distance fade and a field edge,
+     extracted from the two site demos that each carry a copy.
+   - **A grid-occupancy overlay** — the agent grid's cells drawn at `cellSize`, tinted by the
+     `cellCounts` the GPU just wrote, with `overflow` cells marked. A binning bug is visible at a
+     glance, not only in A1's numbers.
+
+   Verified by A1 (GPU grid = CPU mirror) and by `npm run drive` screenshots of the overlay in the
+   site demo.
 3. Sensors → `obs`, `RuleBrain`, steering, fixed step — U8, U9, A2, A3, A7.
 4. Instance output, `vis.setInstanceCount`, highlight, inspector — A10–A12.
 5. **Site demo "Herd & Wolves":** 20,000 agents, rule brains, names, picking, an inspector panel;
