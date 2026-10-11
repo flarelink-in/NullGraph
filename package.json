@@ -59,6 +59,10 @@
     "./environment": {
       "types": "./dist/extras/environment/index.d.ts",
       "import": "./dist/environment.js"
+    },
+    "./picking": {
+      "types": "./dist/extras/picking/index.d.ts",
+      "import": "./dist/picking.js"
     }
   },
   "scripts": {
