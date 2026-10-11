@@ -40,6 +40,8 @@ has without being squeezed into a single page-wide diagram.
 | [15](#15-tooling--debug) | Tooling & Debug | `null-graph/profiler`, `/debug-ui` | ✅ |
 | [16](#16-platform) | Platform | (core) | ✅ |
 | [17](#17-raytracing) | RayTracing | — | ⛔ |
+| [18](#18-picking) | Picking | `null-graph/picking` | ✅ |
+| [19](#19-text) | Text | `null-graph/text` | ✅ |
 
 ---
 
@@ -931,6 +933,43 @@ RayTracing
 **The rule:** detect-and-adopt. Do **not** stub BLAS/TLAS types now — they would encode guesses
 about an API that does not exist. The screen-space and probe-based approximations are legitimate
 techniques in their own right, not placeholders waiting to be swapped out.
+
+---
+
+## 18. Picking
+
+**Package:** `null-graph/picking` · **Status:** ✅ Cycle B · **Spec:** [`picking-design.md`](./picking-design.md)
+
+```
+Picking
+├── Pick camera (projection zoomed onto (2R+1)² pixels)          ✅  pure maths, pinned headless
+├── Instance sources (VisibilitySystem, culled by its own kernel) ✅  cull stage rides the chain disabled
+├── Plain-batch sources (stock 14-float layout, custom WGSL)      ✅  shares the source's storage
+├── Hit: source, app instance index, depth, world position, radius ✅  ~0.5 ms, off the frame path
+├── Meshlet tier                                                  ◻  needs {instanceId, meshletId}
+├── Skinned meshes                                                ◻  pick shader needs the skeleton
+└── Hover / rect selection, GPU-side highlight without readback   ◻
+```
+
+The one touchpoint: compacted instance records carry `sourceIndex` (§3 visibility) — also what lets
+any custom instance-tier shader find its own per-instance data.
+
+## 19. Text
+
+**Package:** `null-graph/text` · **Status:** ✅ Cycle B · **Spec:** [`text-labels-design.md`](./text-labels-design.md)
+
+```
+Text
+├── Layout (per codepoint, kerning, align, baseline, wrap)        ✅  pure, Worker-safe
+├── Atlases: msdf-atlas-gen JSON · runtime Canvas SDF · raw       ✅  MSDF / MTSDF / SDF
+├── GPU cull → one drawIndexedIndirect                            ✅  600k glyphs, one draw
+├── Screen-space, pixel-snapped, halo, depth test at the anchor   ✅
+├── Follow any GPU buffer (instances, simulation output)          ✅  zero CPU work per frame
+├── Decluttering (label collision)                                ◻  a compute pass over the same records
+├── Shaping (Arabic, Devanagari…), bidi                           ◻  non-goal for now
+├── Picking labels, world-size labels, rich text                  ◻
+└── Atlas generation in Node                                      ◻
+```
 
 ---
 
