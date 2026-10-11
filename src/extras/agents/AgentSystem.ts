@@ -6,13 +6,14 @@ import { AgentRecords, type AgentInit } from './agentRecords';
 import { FixedStep } from './agentMath';
 import { buildAgentGridQueryWGSL } from './agentGridShaders';
 import { buildAgentTickWGSL } from './agentSystemShaders';
+import { buildAgentSenseWGSL } from './agentSenseShaders';
 
 export interface AgentSystemOptions {
     /** Fixed at construction; shared sense/think cadence, staggered by 64-agent block. */
     thinkEvery?: number;
 }
 
-/** Phase 3.1: GPU grid/query/tick loop.
+/** Phase 3.2: GPU grid/query/sense/tick loop.
  * Records are a CPU staging area, not a read-back mirror. No readback on the frame path. */
 export class AgentSystem {
     public readonly capacity: number;
@@ -47,6 +48,7 @@ export class AgentSystem {
         this.clock = new FixedStep(def.dt, def.maxStepsPerFrame, def.maxFrameDelta);
         this.speciesData = packSpecies(this.definition);
         this.neighbourStride = def.sensors.reduce((n, s) => n + (s.kind === 'nearest' ? s.k : 0), 0);
+        const senseCode = buildAgentSenseWGSL(def, this.thinkEvery);
         const sizes = [AGENT_BYTES * def.capacity, Math.max(4, def.capacity * this.neighbourStride * 4),
             Math.max(4, def.capacity * def.obsDim * 4), def.capacity * def.actDim * 4, def.capacity * 4, 16];
         const limit = Math.min(engine.device.limits.maxStorageBufferBindingSize, engine.device.limits.maxBufferSize);
@@ -74,6 +76,7 @@ export class AgentSystem {
                 [this.buffer, grid.cellCounts, grid.cellOffsets, grid.cellBodies, this.neighbours], Math.ceil(def.capacity / 64));
                 base += sensor.k;
             }
+            this.stage('sense', senseCode, [this.buffer, this.neighbours, this.state, this.obs, this.species], Math.ceil(def.capacity / 64));
             this.stage('tick', buildAgentTickWGSL(), [grid.overflow, this.state], 1);
             const step = [...grid.getComputeStages(), ...this.stages];
             for (let n = 0; n <= def.maxStepsPerFrame; n++) {

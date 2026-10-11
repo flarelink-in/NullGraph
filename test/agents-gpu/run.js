@@ -260,6 +260,125 @@ for (const s of [batch, single, broken, crowded]) { s.destroy(); s.destroy(); }
 engine.render(cached);
 check('destroy: cached skeleton stages are disabled', cached.every(stage => !stage.enabled));
 
+// A2: 10,000 observers, all built-ins, two species masks, different observer radii and speeds.
+const extraSensor = A.Sensors.custom({ name: 'extra', width: 2,
+    wgsl: 'fn extra(i: u32, a: Agent) -> array<f32, 2> { return array<f32, 2>(a.state.w, f32(i % 7u)); }',
+    mirror(d, u, i, out, at) { out[at] = d[i * 16 + 11]; out[at + 1] = i % 7; } });
+const senseDef = A.defineAgents({ capacity: 10000, world: { min: [-100, -100], max: [100, 100] }, cellSize: 4,
+    maxScanPerCell: 64,
+    species: [{ name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 2, radius: 0.4 },
+        { name: 'wolf', maxSpeed: 5, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+    sensors: [A.Sensors.self(), A.Sensors.nearest({ species: 'wolf', k: 1 }),
+        A.Sensors.nearest({ species: 'prey', k: 3 }), A.Sensors.bounds(), extraSensor] });
+const sensing = senseOnly(new A.AgentSystem(engine, senseDef));
+for (let i = 0; i < senseDef.capacity; i++) {
+    sensing.spawn(i, { position: [-99.9 + random() * 199.8, 0, -99.9 + random() * 199.8], species: i % 2,
+        heading: -Math.PI + random() * 2 * Math.PI, speed: random() * (i % 2 ? 5 : 3),
+        speedScale: 0.5 + random() * 0.5, energy: random() * 4 - 2, user0: random() * 2 - 1,
+        frozen: i % 101 === 0, age: 1 });
+    if (i % 97 === 0) sensing.kill(i);
+}
+// Skip/count random radius-boundary observers as required by §6.3. Use CPU cell membership
+// for the boundary scan only; the observation oracle remains the brute-force senseAll mirror.
+function boundaryObservers(def, rec) {
+    const grid = A.buildPointGrid(def, rec.data, 16, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
+    const skip = new Set();
+    for (let i = 0; i < def.capacity; i++) {
+        if (!rec.isAlive(i)) continue;
+        const x = rec.data[i * 16], z = rec.data[i * 16 + 2], c = A.pointCell(def, x, z);
+        const cx = c % def.grid.cellsX, cz = Math.floor(c / def.grid.cellsX);
+        const radius = def.species[rec.u32[i * 16 + 12]].senseRadius;
+        for (let zz = Math.max(0, cz - 1); zz <= Math.min(def.grid.cellsZ - 1, cz + 1); zz++) {
+            for (let xx = Math.max(0, cx - 1); xx <= Math.min(def.grid.cellsX - 1, cx + 1); xx++) {
+                const cell = zz * def.grid.cellsX + xx;
+                for (let at = grid.cellOffsets[cell]; at < grid.cellOffsets[cell + 1]; at++) {
+                    const j = grid.cellBodies[at];
+                    if (j !== i && Math.abs(Math.hypot(rec.data[j * 16] - x, rec.data[j * 16 + 2] - z) - radius) < 1e-4) skip.add(i);
+                }
+            }
+        }
+    }
+    return skip;
+}
+function compareSense(actual, expected, def, rec, skip = new Set()) {
+    let maximum = 0, compared = 0, badPresence = 0;
+    for (let i = 0; i < def.capacity; i++) {
+        if (!rec.isAlive(i) || skip.has(i)) continue;
+        compared++;
+        for (let k = 0; k < def.obsDim; k++) {
+            const error = Math.abs(actual[i * def.obsDim + k] - expected[i * def.obsDim + k]);
+            if (!Number.isFinite(error)) return { ok: false, maximum: Infinity, compared, badPresence };
+            maximum = Math.max(maximum, error);
+            if (def.obsNames[k].endsWith('.present') && error !== 0) badPresence++;
+        }
+    }
+    return { ok: maximum <= 7e-4 && badPresence === 0, maximum, compared, badPresence };
+}
+for (const tuned of [false, true]) {
+    if (tuned) sensing.setSpecies('prey', { senseRadius: 3, maxSpeed: 4 });
+    await sensing.step();
+    const current = sensing.definition;
+    const skip = boundaryObservers(current, sensing.records);
+    const expected = A.senseAll(current, sensing.records);
+    const actual = new Float32Array((await read(sensing.obs, current.capacity * current.obsDim)).buffer);
+    const result = compareSense(actual, expected, current, sensing.records, skip);
+    console.log(`A2 ${tuned ? 'tuned' : 'initial'}: maximum ${result.maximum}, compared ${result.compared}, boundary observers skipped ${skip.size}`);
+    check(`A2 ${tuned ? 'tuned' : 'initial'}: GPU observations match CPU within 7e-4, presence exact`, result.ok && result.compared > 9800);
+    check(`A2 ${tuned ? 'tuned' : 'initial'}: scene is overflow-free`, (await read(sensing.state, 4))[1] === 0);
+}
+// Compile the actual generated sense kernel with a flipped side basis: the oracle must reject it.
+const flippedCode = A.buildAgentSenseWGSL(sensing.definition).replace('vec2<f32>(cs, -sn)', 'vec2<f32>(-cs, sn)');
+const flippedEncoder = device.createCommandEncoder();
+dispatch(flippedEncoder, flippedCode, [sensing.buffer, sensing.neighbours, sensing.state, sensing.obs, sensing.species], Math.ceil(senseDef.capacity / 64));
+device.queue.submit([flippedEncoder.finish()]);
+const flipped = new Float32Array((await read(sensing.obs, senseDef.capacity * senseDef.obsDim)).buffer);
+check('A2 watched failing: flipped side axis is rejected', !compareSense(flipped, A.senseAll(sensing.definition, sensing.records),
+    sensing.definition, sensing.records, boundaryObservers(sensing.definition, sensing.records)).ok);
+sensing.destroy();
+
+// Exact radius, absent/padded ranks, rotated axes, wall ties and speedScale > 1 are explicit fixtures.
+const fixtureDef = A.defineAgents({ capacity: 6, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: [loopDef.species[0]], sensors: [A.Sensors.self(), A.Sensors.nearest({ k: 3 }), A.Sensors.bounds(), extraSensor] });
+const fixture = senseOnly(new A.AgentSystem(engine, fixtureDef));
+for (const [i, position, heading] of [[0, [0, 0, 0], 0], [1, [4, 0, 0], Math.PI / 2],
+    [2, [0, 0, 4], -Math.PI / 2], [3, [-8, 0, -8], Math.PI], [4, [8, 0, 8], -Math.PI]]) {
+    fixture.spawn(i, { position, heading, species: 0, speedScale: 2, speed: 6, age: 1 });
+}
+await fixture.step();
+const fixtureObs = new Float32Array((await read(fixture.obs, 6 * fixtureDef.obsDim)).buffer);
+check('A2 fixtures: exact radius, heading quadrants, corner ties, empty ranks and scaled speed',
+    compareSense(fixtureObs, A.senseAll(fixtureDef, fixture.records), fixtureDef, fixture.records).ok && fixtureObs[6] === 1);
+fixture.destroy();
+
+// No act stage exists yet: age is supplied explicitly to exercise non-newborn cadence.
+const cadenceDef = A.defineAgents({ ...loopDef, world: { min: [-8, -8], max: [8, 8] }, sensors: [A.Sensors.self()] });
+const cadence = senseOnly(new A.AgentSystem(engine, cadenceDef, { thinkEvery: 3 }));
+for (let i = 0; i < 128; i++) cadence.spawn(i, { position: [0, 0, 0], species: 0, age: 1, energy: 0.25 });
+cadence.spawn(65, { position: [0, 0, 0], species: 0, age: 0, energy: 0.75 });
+await cadence.step();
+let cadenceObs = new Float32Array((await read(cadence.obs, 256)).buffer);
+check('sense cadence: block 0 runs at tick 0; newborn in block 1 runs immediately',
+    cadenceObs[1] === 0.25 && cadenceObs[129] === 0 && cadenceObs[131] === 0.75);
+cadence.spawn(0, { position: [0, 0, 0], species: 0, age: 1, energy: 0.5 });
+cadence.kill(65);
+await cadence.step();
+cadenceObs = new Float32Array((await read(cadence.obs, 256)).buffer);
+check('sense cadence: off-cadence and dead rows retain their previous values', cadenceObs[1] === 0.25 && cadenceObs[131] === 0.75);
+await cadence.step();
+cadenceObs = new Float32Array((await read(cadence.obs, 256)).buffer);
+check('sense cadence: block 1 runs at tick 2, block 0 retains its row', cadenceObs[129] === 0.25 && cadenceObs[1] === 0.25);
+await cadence.step();
+check('sense cadence: block 0 refreshes at tick 3', new Float32Array((await read(cadence.obs, 256)).buffer)[1] === 0.5);
+cadence.destroy();
+// These layouts must retain all auto-layout bindings even without any neighbour/custom use.
+for (const sensors of [[A.Sensors.bounds()], [extraSensor]]) {
+    const sparseDef = A.defineAgents({ ...fixtureDef, world: { min: [-8, -8], max: [8, 8] }, sensors });
+    const sparse = new A.AgentSystem(engine, sparseDef);
+    sparse.spawn(0, { position: [0, 0, 0], species: 0 });
+    await sparse.step();
+    check(`sense sparse: ${sensors[0]?.kind ?? 'empty'} layout submits with all bindings`, (await read(sparse.state, 4))[0] === 1);
+    sparse.destroy();
+}
 
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All phase 3.1 agent GPU checks passed.');
+await finish('All phase 3.2 agent GPU checks passed.');
