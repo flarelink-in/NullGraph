@@ -15,3 +15,4 @@ export * from './RuleBrain';
 export * from './agentThinkShaders';
 export * from './agentInstances';
 export * from './agentInspect';
+export * from './mlpMath';
