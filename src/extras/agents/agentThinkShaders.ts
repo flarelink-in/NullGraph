@@ -1,4 +1,4 @@
-import { AGENT_STRUCT_WGSL, constantsWGSL, type AgentDefinition } from './agentLayout';
+import { AGENT_STRUCT_WGSL, constantsWGSL, speciesConstantName, type AgentDefinition } from './agentLayout';
 import { AGENT_STATE_WGSL } from './agentSystemShaders';
 import { buildAgentThinkPredicateWGSL } from './agentSenseShaders';
 import { agentSignatureMatches, assertThinkSignature } from './RuleBrain';
@@ -14,7 +14,7 @@ fn rand01(i: u32, tick: u32, stream: u32) -> f32 {
 function speciesConstants(def: AgentDefinition): string {
     const names = new Set<string>();
     return def.species.map(s => {
-        const name = `SPECIES_${s.name.toUpperCase()}`;
+        const name = speciesConstantName(s.name);
         if (names.has(name) || Object.hasOwn(def.constants, name)) {
             throw new Error(`AgentSystem: generated constant "${name}" is declared twice.`);
         }
