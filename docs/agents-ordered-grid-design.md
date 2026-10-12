@@ -19,7 +19,8 @@ teacher data is reproducible even when crowded cells overflow the scan budget.
 
 **Status:** ✅ design decided 2026-10-13 (`b7050b7`); ✅ 5.5 measurements and initial 5.6
 implementation committed (`e4eaad2`); ✅ 5.6 correctness verified 2026-10-13 (results below).
-Next: 5.7, performance and bundle acceptance; no performance acceptance is claimed yet.
+5.7 measured 2026-10-13; **acceptance paused for the user** because whole-step regressions
+exceed the ~10% rule (results below). No performance acceptance or 5.8 closure is claimed.
 
 **Target:**
 - `src/extras/spatial/`: the grid's scatter and the CPU mirror;
@@ -346,3 +347,53 @@ reason depends only on the species.
   layout, named radix limit refusals, and allocation/binding failure cleanup. Caller records survive.
 - **Next:** 5.7 measures the unchanged spike in isolation and checks bundle size. The 10% rule
   still applies before guide closure or teacher-data work.
+
+## Phase 5.7 results — 2026-10-13: acceptance paused
+
+The unchanged phase 5.5 spike was run after a fresh development build, Node adapters sequentially,
+then Chrome separately, without concurrent GPU validation. GPU timestamps, median of 5 trials,
+same workload and measurement protocol as 5.5. Both Node adapters and Chrome completed with
+zero GPU errors. The two 200-step recordings now differ in **zero** record, observation, action
+and reason words on every host; every step overflowed.
+
+**Whole-step time**, milliseconds; parentheses show change from the recorded 5.5 baseline:
+
+| Agents / layout | Node NVIDIA | Node AMD | Chrome AMD |
+|---|---|---|---|
+| 4,096 / spread | 0.523 (+2.9%) | 0.960 (+7.4%) | 0.891 (+20.5%) |
+| 4,096 / flocked | 1.024 (+40.7%) | 2.119 (+11.7%) | 1.833 (+3.9%) |
+| 65,536 / spread | 14.123 (+1.2%) | 99.353 (+51.6%) | 65.358 (+4.6%) |
+| 65,536 / flocked | 30.802 (+28.4%) | 159.252 (+28.3%) | 140.981 (+22.3%) |
+
+**Grid build alone**, milliseconds:
+
+| Agents / layout | Node NVIDIA | Node AMD | Chrome AMD |
+|---|---|---|---|
+| 4,096 / spread | 0.064 | 0.068 | 0.076 |
+| 4,096 / flocked | 0.046 | 0.070 | 0.075 |
+| 65,536 / spread | 0.266 | 1.763 | 1.428 |
+| 65,536 / flocked | 0.266 | 1.298 | 1.453 |
+
+The build increase alone is less than 10% of the old step in every measured case (largest about
+9.3%, NVIDIA 4,096 spread). **The whole ordered-query change is not:** multiple whole-step cases
+exceed 10%. These measurements do not isolate causation. Rotating bounded-query access and changed
+simulation trajectories are possible contributors; clock variation and the time-budgeted evolving
+step window also warrant an interleaved baseline rerun before attributing the entire difference.
+No optimization, alternate scatter path or policy change was made in response.
+
+**Bundle**, same source-based esbuild browser ESM/minify + default gzip settings as 6.3. Baseline
+source at `b7050b7` was bundled with the same installed toolchain, reproducing 18,178 B:
+
+| Import set | Before | After | Increase |
+|---|---:|---:|---:|
+| Whole agents entry | 18,178 B | 19,305 B | 1,127 B |
+| Rule path | 12,741 B | 13,566 B | 825 B |
+| Rule path + MlpBrain | 14,657 B | 15,495 B | 838 B |
+
+The whole entry is below the 21,495 B ceiling by **2,190 B**. Rule-only imports still exclude all
+MLP markers. This leaves little margin for the estimated ~2 KB `fromOnnx` work.
+
+**Decision needed:** review the regressions before 5.8 or teacher-data work. Suggested next
+investigation: interleaved before/after measurements from identical fixed snapshots, separating
+stable-sort cost from windowed-query cost. The agreed stable ordering/window semantics remain
+unchanged pending that discussion.
