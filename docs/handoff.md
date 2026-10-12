@@ -18,15 +18,45 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — step 3 (phases 3.0–3.5) committed; step 4 started (2026-10-12)
+### Cycle C — step 3 committed; step 4 phases 4.1–4.2 committed (2026-10-12)
 
 **C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
 phases 3.1–3.5 are complete and committed (3.5 as `f5cfd46`, 2026-10-12); phase 3.3 is not
-outstanding. The live chain is **grid → queries → sense → think → act → app stages → tick**. A
-brain is required. **Phase 3.5** is the arrow debug draw plus the GPU Herd & Wolves route in the
-test-engine site. Step 4 (instances, highlight, picking, labels, inspector) is next, from phase 4.1.
-Nothing is pushed or published.
+outstanding. The live chain is **grid → queries → sense → think → act → app stages → tick**, then
+once per frame **instances** when `toInstances` is on. A brain is required. **Phase 3.5** is the
+arrow debug draw plus the GPU Herd & Wolves route in the test-engine site. **Phases 4.1 and 4.2 are
+committed**: 4.1 as `04a991b`, 4.2 in the commit that carries this record (record below). 4.3
+(picking and labels on GPU agents) is next. Nothing is pushed or published.
+
+**Step 4, phases 4.1–4.2 (2026-10-12, Claude Opus 5.5).** Details and evidence are in the design
+doc's §13 results notes.
+- **4.1, visibility:** `vis.setInstanceCount(n)` drops the adopted CPU array, so `upload()` writes
+  only cull params, and `vis.instanceSource` reads `'gpu'`/`'cpu'`. U18 was watched failing before
+  the method existed and against an injected keep-the-array bug; V4 (visibility GPU) checks that
+  rows written straight into `vis.instanceBuffer` survive `upload()`, and fails (0 drawn instead
+  of 10) with that bug. +125 B min+gzip for visibility (estimate 40–60 B; the second refusal
+  message). Docs: `api/visibility.md`, the shader reference.
+- **4.2, agents:** `agents.toInstances(vis, { firstInstance })` and `agents.setHighlight({ selected,
+  hovered })` in `agentInstances.ts` + `AgentSystem`. The instance stage closes every chain, the
+  no-step chain included. Five refusals all happen before any allocation, and `setSpecies`
+  re-checks bounds atomically. New `test/agents-instances.test.mjs` (U19 twin and layout, U9, U14,
+  chains, highlight; joins `npm run test:agents`) and A17 in the agents GPU suite:
+  - rows equal the twin (rotation within 2⁻¹¹, measured 2.38e-7; the rest bit-exact, untouched rows kept);
+  - the cull draws exactly the 1,714 live agents with their variants;
+  - a cleared highlight applies with no step;
+  - a flipped sign fails it.
+- **Totals:** 53 headless agent checks and 97/97 agents GPU checks on both hosts, zero WebGPU errors.
+- **Bundle:** `agents.js` 14,607 B, frame path 11,493 B (16 KB line).
+- **Found on the device:** `meta` is a WGSL reserved word that `wgsl_reflect` accepted. The rows now
+  use visibility's own member names.
+- **Site:** the GPU demo draws lit **darts** by default ("Draw agents as: Darts | Arrows"), and darts
+  stop at 262,144 agents. The site's `node_modules/null-graph/dist` was refreshed from this build
+  (only agents and visibility differed). Driven clean on a temporary Vite at :8083, since :8081
+  was down; that process is stopped. **Note:** this session's GPU ran about 3–4× slower than earlier
+  runs (4K: 8.7 ms per step with arrows, against 2.5 ms before). Probably another page shares the
+  iGPU; it was the same for darts and arrows. The guard therefore refused 256K here, so darts at
+  256K were not exercised.
 
 **Phase 3.5 results (2026-10-11):** `debug-ui` exports `agentArrows(engine, pass, agents, { colors? })`.
 One procedural triangle per agent reads GPU position/heading/radius/species/alive directly;
@@ -859,8 +889,10 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
       §13, and accepted. ~~Step 3 (phases 3.0–3.5)~~ is done and committed (3.5 as `f5cfd46`).
-      **Next: step 4, phases 4.1 → 4.5.** Then step 5 with A9, which should take up grid-ordered
-      neighbour queries (the stress-test finding in the 3.5 sanity-check record above).
+      Step 4: ~~4.1~~ (`04a991b`) and ~~4.2~~ committed. **Next: 4.3**, picking and labels on
+      GPU agents (A10–A12), then 4.4 (`inspect`) and 4.5 (the site route, `docs/api/agents.md`).
+      Then step 5 with A9, which should take up grid-ordered neighbour queries (the stress-test
+      finding in the 3.5 sanity-check record above).
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -1145,3 +1177,13 @@ No push/publication, no phase-3.5 implementation or new visual/drive review.
   - **Committed at the user's request:** phase 3.5 as `f5cfd46` (code, tests, design-doc status),
     then this record. Grid-ordered queries wait for step 5 / A9; step 4 starts now. Site changes
     stay uncommitted (untracked integration files).
+- **2026-10-12 — Claude (Opus 5.5).** At the user's request: committed phase 3.5 (`f5cfd46`) and
+  the handoff (`e26c69e`), then started step 4.
+  - **4.1:** `vis.setInstanceCount` / `instanceSource` with U18 watched failing and V4 on both GPUs.
+  - **4.2:** `toInstances`, the instance stage and `setHighlight`, with U19/U9/U14 headless and A17
+    on both GPUs, A17 watched failing.
+  - **Site:** the GPU demo draws instanced darts by default.
+  - **Committed at the user's request** as two checkpoints: 4.1 (`04a991b`, validated alone in a
+    temporary worktree: headless suites and the visibility GPU suite), then 4.2 with this record.
+    The site stays uncommitted.
+  - **Next:** 4.3.

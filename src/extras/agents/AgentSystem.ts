@@ -10,6 +10,9 @@ import { buildAgentSenseWGSL } from './agentSenseShaders';
 import { buildAgentActWGSL } from './agentActShaders';
 import type { Brain } from './RuleBrain';
 import { buildAgentThinkWGSL, buildAgentStepWGSL } from './agentThinkShaders';
+import { buildAgentInstanceWGSL, assertInstanceBounds, INSTANCE_ROW_FLOATS, HIGHLIGHT_NONE,
+    type AgentHighlight } from './agentInstances';
+import type { VisibilitySystem } from '../visibility/VisibilitySystem';
 
 export interface AgentSystemOptions {
     /** Fixed at construction; shared sense/think cadence, staggered by 64-agent block. */
@@ -21,6 +24,11 @@ export interface AgentStepStageOptions {
     wgsl: string;
     /** Caller-owned group-1 buffers; WGSL declares and uses these bindings in order. */
     buffers?: readonly GPUBuffer[];
+}
+
+export interface AgentInstanceOptions {
+    /** Row of `vis.instanceBuffer` that agent 0 writes; agent i writes `firstInstance + i`. Default 0. */
+    firstInstance?: number;
 }
 
 /** GPU grid/query/sense/think/act/app/tick loop.
@@ -48,6 +56,9 @@ export class AgentSystem {
     private destroyed = false;
     private thinkStage?: ComputeStageNode;
     private readonly appStages = new Map<string, ComputeStageNode>();
+    private instanceStage?: ComputeStageNode;
+    private highlightBuffer?: GPUBuffer;
+    private readonly highlightData = new Uint32Array([HIGHLIGHT_NONE, HIGHLIGHT_NONE, 0, 0]);
 
     constructor(public readonly engine: NullGraph, def: AgentDefinition, options: AgentSystemOptions = {}) {
         this.thinkEvery = options.thinkEvery ?? 1;
@@ -131,6 +142,8 @@ export class AgentSystem {
         for (let n = 0; n <= this.definition.maxStepsPerFrame; n++) {
             const chain: ComputeStageNode[] = [];
             for (let j = 0; j < n; j++) chain.push(...step);
+            // Once per frame, after the last step — also with no step, so a highlight still shows.
+            if (this.instanceStage) chain.push(this.instanceStage);
             this.chains.push(chain);
         }
     }
@@ -170,6 +183,69 @@ export class AgentSystem {
         this.rebuildChains();
     }
 
+    /**
+     * Step 4 (§9.2): write each agent's VisibilitySystem row on the GPU, once per frame after the last
+     * step — `translate(position) · rotateY(heading)`, the species' bounds, and its mesh, hover or
+     * selected variant by `setHighlight`. Call `vis.setInstanceCount(n)` first, with n ≥
+     * `firstInstance + capacity`, and splice `vis.getComputeStages()` after this system's stages.
+     * Calling again retargets. Destroy this system before `vis`: the stage binds its buffer.
+     */
+    public toInstances(vis: VisibilitySystem, options: AgentInstanceOptions = {}): void {
+        this.assertAlive();
+        if ((vis as unknown as { engine: NullGraph }).engine !== this.engine) {
+            throw new Error('AgentSystem: that VisibilitySystem belongs to a different engine.');
+        }
+        const first = options.firstInstance ?? 0;
+        if (!(Number.isInteger(first) && first >= 0)) {
+            throw new Error(`AgentSystem: toInstances() firstInstance ${first} must be a whole number ≥ 0.`);
+        }
+        const room = Math.floor(vis.instanceBuffer.size / (INSTANCE_ROW_FLOATS * 4));
+        if (first + this.capacity > room) {
+            throw new Error(`AgentSystem: toInstances() needs maxInstances ≥ ${first + this.capacity}; this VisibilitySystem has ${room}.`);
+        }
+        if (vis.instanceSource !== 'gpu') {
+            throw new Error('AgentSystem: toInstances() writes vis.instanceBuffer on the GPU; use vis.setInstanceCount(n), not setInstances() (it re-uploads every frame).');
+        }
+        assertInstanceBounds(this.definition);
+        const highlight = this.highlightBuffer ?? this.allocate('highlight', 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        if (!this.highlightBuffer) {
+            this.highlightBuffer = highlight;
+            this.engine.device.queue.writeBuffer(highlight, 0, this.highlightData);
+        }
+        const next = this.stage('instances', buildAgentInstanceWGSL(this.definition, first),
+            [this.buffer, vis.instanceBuffer, this.species, highlight], Math.ceil(this.capacity / 64));
+        if (this.instanceStage) {
+            this.instanceStage.enabled = false;
+            this.stages.splice(this.stages.indexOf(this.instanceStage), 1);
+        }
+        this.instanceStage = next;
+        this.rebuildChains();
+    }
+
+    /**
+     * Step 4 (§9.3): draw `selected` and `hovered` (agent indices, -1 for none) with their species'
+     * selected and hover meshes. Writes the 16-byte uniform only when something changed; an omitted
+     * field keeps its value.
+     */
+    public setHighlight(highlight: Partial<AgentHighlight>): void {
+        this.assertAlive();
+        const selected = this.highlightIndex(highlight.selected, this.highlightData[0]);
+        const hovered = this.highlightIndex(highlight.hovered, this.highlightData[1]);
+        if (selected === this.highlightData[0] && hovered === this.highlightData[1]) return;
+        this.highlightData[0] = selected;
+        this.highlightData[1] = hovered;
+        if (this.highlightBuffer) this.engine.device.queue.writeBuffer(this.highlightBuffer, 0, this.highlightData);
+    }
+
+    private highlightIndex(v: number | undefined, current: number): number {
+        if (v === undefined) return current;
+        if (v === -1) return HIGHLIGHT_NONE;
+        if (!(Number.isInteger(v) && v >= 0 && v < this.capacity)) {
+            throw new Error(`AgentSystem: index ${v} is outside capacity ${this.capacity}.`);
+        }
+        return v;
+    }
+
     public spawn(i: number, init: AgentInit): void { this.assertAlive(); this.records.spawn(i, init); }
     public kill(i: number): void { this.assertAlive(); this.records.kill(i); }
 
@@ -180,6 +256,7 @@ export class AgentSystem {
         const checked = defineAgents({ ...def, species,
             world: { min: [def.world.minX, def.world.minZ], max: [def.world.maxX, def.world.maxZ] },
             maxCells: def.grid.cellTotal });
+        if (this.instanceStage) assertInstanceBounds(checked);
         // Keep the object AgentRecords holds; replace only the validated species table.
         Object.assign(def, { species: checked.species });
         packSpecies(def, this.speciesData);
