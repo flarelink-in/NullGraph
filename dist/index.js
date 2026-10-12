@@ -170,6 +170,11 @@ var PROGRESSION_FEATURES = [
   "bgra8unorm-storage",
   "dual-source-blending"
 ];
+var PROGRESSION_LIMITS = [
+  "maxStorageBuffersPerShaderStage",
+  "maxStorageBufferBindingSize",
+  "maxBufferSize"
+];
 var HEADLESS_SCREEN_FORMAT = "rgba8unorm";
 var WebGPUContext = class {
   device;
@@ -314,13 +319,19 @@ var WebGPUContext = class {
         }
       }
     }
+    const requiredLimits = {};
     if (options.autoNegotiate ?? true) {
       for (const feature of PROGRESSION_FEATURES) {
         if (adapter.features.has(feature)) requested.add(feature);
       }
+      for (const limit of PROGRESSION_LIMITS) {
+        const value = adapter.limits[limit];
+        if (typeof value === "number") requiredLimits[limit] = value;
+      }
     }
     this.device = await adapter.requestDevice({
-      requiredFeatures: [...requested]
+      requiredFeatures: [...requested],
+      requiredLimits
     });
     this.ownsDevice = true;
     this.capabilities = buildCapabilities(this.device, info);
@@ -1039,6 +1050,7 @@ export {
   HEADLESS_SCREEN_FORMAT,
   NullGraph,
   PROGRESSION_FEATURES,
+  PROGRESSION_LIMITS,
   RenderBatch,
   RenderPassNode,
   RenderPipeline,

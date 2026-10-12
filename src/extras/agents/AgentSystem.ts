@@ -154,7 +154,9 @@ export class AgentSystem {
     }
 
     private checkExtraBuffers(name: string, buffers: readonly GPUBuffer[]): void {
-        const left = Math.min(3, this.engine.device.limits.maxStorageBuffersPerShaderStage - 5);
+        // 3 on a default device; more when the device was created with a higher limit (core's
+        // PROGRESSION_LIMITS, or an adopted device's own).
+        const left = this.engine.device.limits.maxStorageBuffersPerShaderStage - 5;
         if (buffers.length > left) throw new Error(`AgentSystem: ${name} binds ${buffers.length} buffers; ${left} are left after the system's 5.`);
     }
 
