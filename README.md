@@ -3,8 +3,15 @@
 A data-oriented WebGPU rendering library with explicit render and compute scheduling, flat
 instance data, and optional GPU-driven rendering and simulation modules.
 
-[![npm version](https://img.shields.io/npm/v/null-graph)](https://www.npmjs.com/package/null-graph)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+<div align="center">
+
+[![npm version](https://img.shields.io/npm/v/null-graph?style=for-the-badge&color=33e6cc&labelColor=0a0a0a)](https://www.npmjs.com/package/null-graph)
+[![npm downloads](https://img.shields.io/npm/dm/null-graph?style=for-the-badge&color=ff6b6b&labelColor=0a0a0a)](https://www.npmjs.com/package/null-graph)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/null-graph?style=for-the-badge&color=fcc419&labelColor=0a0a0a)](https://bundlephobia.com/package/null-graph)
+[![license: MIT](https://img.shields.io/badge/license-MIT-51cf66?style=for-the-badge&labelColor=0a0a0a)](./LICENSE)
+[![stars](https://img.shields.io/github/stars/Vikas593-cloud/NullGraph?style=for-the-badge&color=ff922b&labelColor=0a0a0a)](https://github.com/Vikas593-cloud/NullGraph/stargazers)
+
+</div>
 
 NullGraph has no retained scene graph. Applications supply geometry, buffers, batches and an
 ordered sequence of compute stages and render passes. This makes resource ownership and execution
@@ -57,23 +64,23 @@ match documentation to the release or commit you use.
 Modules are separate package subpaths so applications can import only what they use. Bundle size
 depends on the imported features and the application's bundler.
 
-| Import | Implemented features | Documentation |
-|---|---|---|
-| `null-graph` | Device initialization/adoption, cameras, buffer and texture management, batches, compute stages, render passes, indirect drawing and headless rendering | [Usage](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/core.md) · [Reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/core-reference.md) |
-| `null-graph/geometry` | Vertex layouts, primitives, geometry builders, dynamic geometry, unified vertex/index pools, meshlets and LOD-chain construction | [Geometry](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/geometry.md) |
-| `null-graph/materials` | PBR, Lambert, Toon, Basic, Emissive and Matcap materials; composable WGSL shader builders | [Materials](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/materials.md) |
-| `null-graph/loaders` | GLB parsing, animation timeline evaluation and skeletal data management for GPU vertex skinning | [Loaders and animation](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/loaders.md) |
-| `null-graph/visibility` | GPU instance and meshlet culling, frustum and Hi-Z occlusion tests, normal-cone rejection, screen-space-error LOD and indirect draw generation | [Visibility](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/visibility.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/visibility-shader-reference.md) |
-| `null-graph/lights` | Buffer-backed lights with standard, tiled-forward and clustered-forward lighting | [Lights](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/lights.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/lights-shader-reference.md) |
-| `null-graph/shadows` | Cascaded directional shadows, punctual-light shadow atlas, cached tiles and caster culling integrated with visibility | [Shadows](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/shadows.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/shadows-shader-reference.md) |
-| `null-graph/environment` | Image-based diffuse/specular lighting, environment prefiltering, BRDF LUTs, irradiance volumes, GPU probe capture and parallax-corrected reflection probes | [Environment](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/environment.md) · [Probes](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/probes.md) |
-| `null-graph/post` | Explicit post-processing chains, reusable transient render targets, uniform arenas and effects including bloom, SSAO, depth of field, FXAA and tone mapping | [Post-processing](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/post.md) · [Presets](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/post-presets.md) |
-| `null-graph/picking` | On-demand GPU picking for supported batches and visibility instances, returning source instance index, depth and world position | [Picking](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/picking.md) |
-| `null-graph/text` | GPU-culled SDF/MSDF labels, halos, depth modes, atlas generation/loading and labels following GPU-buffer positions | [Text](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/text.md) |
-| `null-graph/agents` | GPU fixed-step sense → think → act simulation, spatial neighbour queries, WGSL rule policies, small dense-network inference, custom sensors/actions, inspection and instance output | [Agents](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/agents.md) · [Spatial grid](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/agent-grid.md) |
-| `null-graph/cameras` | Orbit, fly, follow and path controllers with DOM-independent state and optional input proxies | [Cameras](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/cameras.md) |
-| `null-graph/debug-ui` | Debug views and telemetry, including grid and agent visualization | [Debug UI](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/debug-ui.md) |
-| `null-graph/profiler` | WebGPU timestamp-query profiling on devices that support it | [Profiler](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/profiler.md) |
+| Import                   | Implemented features                                                                                                                                                                | Documentation                                                                                                                                                                                                  |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `null-graph`             | Device initialization/adoption, cameras, buffer and texture management, batches, compute stages, render passes, indirect drawing and headless rendering                             | [Usage](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/core.md) · [Reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/core-reference.md)                                |
+| `null-graph/geometry`    | Vertex layouts, primitives, geometry builders, dynamic geometry, unified vertex/index pools, meshlets and LOD-chain construction                                                    | [Geometry](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/geometry.md)                                                                                                                         |
+| `null-graph/materials`   | PBR, Lambert, Toon, Basic, Emissive and Matcap materials; composable WGSL shader builders                                                                                           | [Materials](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/materials.md)                                                                                                                       |
+| `null-graph/loaders`     | GLB parsing, animation timeline evaluation and skeletal data management for GPU vertex skinning                                                                                     | [Loaders and animation](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/loaders.md)                                                                                                             |
+| `null-graph/visibility`  | GPU instance and meshlet culling, frustum and Hi-Z occlusion tests, normal-cone rejection, screen-space-error LOD and indirect draw generation                                      | [Visibility](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/visibility.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/visibility-shader-reference.md) |
+| `null-graph/lights`      | Buffer-backed lights with standard, tiled-forward and clustered-forward lighting                                                                                                    | [Lights](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/lights.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/lights-shader-reference.md)             |
+| `null-graph/shadows`     | Cascaded directional shadows, punctual-light shadow atlas, cached tiles and caster culling integrated with visibility                                                               | [Shadows](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/shadows.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/shadows-shader-reference.md)          |
+| `null-graph/environment` | Image-based diffuse/specular lighting, environment prefiltering, BRDF LUTs, irradiance volumes, GPU probe capture and parallax-corrected reflection probes                          | [Environment](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/environment.md) · [Probes](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/probes.md)                              |
+| `null-graph/post`        | Explicit post-processing chains, reusable transient render targets, uniform arenas and effects including bloom, SSAO, depth of field, FXAA and tone mapping                         | [Post-processing](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/post.md) · [Presets](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/post-presets.md)                              |
+| `null-graph/picking`     | On-demand GPU picking for supported batches and visibility instances, returning source instance index, depth and world position                                                     | [Picking](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/picking.md)                                                                                                                           |
+| `null-graph/text`        | GPU-culled SDF/MSDF labels, halos, depth modes, atlas generation/loading and labels following GPU-buffer positions                                                                  | [Text](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/text.md)                                                                                                                                 |
+| `null-graph/agents`      | GPU fixed-step sense → think → act simulation, spatial neighbour queries, WGSL rule policies, small dense-network inference, custom sensors/actions, inspection and instance output | [Agents](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/agents.md) · [Spatial grid](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/agent-grid.md)                              |
+| `null-graph/cameras`     | Orbit, fly, follow and path controllers with DOM-independent state and optional input proxies                                                                                       | [Cameras](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/cameras.md)                                                                                                                           |
+| `null-graph/debug-ui`    | Debug views and telemetry, including grid and agent visualization                                                                                                                   | [Debug UI](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/debug-ui.md)                                                                                                                         |
+| `null-graph/profiler`    | WebGPU timestamp-query profiling on devices that support it                                                                                                                         | [Profiler](https://github.com/Vikas593-cloud/NullGraph/blob/main/docs/api/profiler.md)                                                                                                                         |
 
 ### Lighting and environmental effects
 
@@ -152,8 +159,8 @@ for setup, output reports and image inspection.
 
 ### Screenshots
 
-| GPU culling | PBR materials | Skeletal animation |
-|---|---|---|
+| GPU culling                                            | PBR materials                                            | Skeletal animation                                                           |
+|--------------------------------------------------------|----------------------------------------------------------|------------------------------------------------------------------------------|
 | ![GPU culling demo](./showcases-images/GPUCulling.png) | ![PBR material demo](./showcases-images/rusty_metal.png) | ![Skeletal animation demo](./showcases-images/animation-post-processing.png) |
 
 ## Contributing and license
