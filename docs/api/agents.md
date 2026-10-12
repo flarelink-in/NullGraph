@@ -82,7 +82,10 @@ These are steering agents, not a rigid-body collision solver.
 
 Nearest queries use the bounded grid search described in [agent-grid.md](./agent-grid.md).
 Use `senseRadius <= cellSize`. Dense cells can exceed `maxScanPerCell`: all indices remain
-stored, but a query scans only its budget. Overflow counters expose that loss of perception.
+stored, but a query scans only its budget. Overflow counters expose that loss of perception. It
+also costs determinism: which entries a crowded cell yields follows GPU timing. Flocks pack far
+above their mean density (Herd & Wolves overflowed in 85% of steps at the default 64), so size the
+budget or the cell for the peak, and watch `overflowSteps`.
 
 ## The frame and fixed-step paths
 
@@ -100,8 +103,8 @@ blocks; newborns get an immediate decision. Act/app/tick still run each simulati
 Observations/actions can therefore represent an earlier decision than the current position.
 
 `await agents.step()` uploads and submits one step, waiting for GPU completion. It is the
-lockstep experiment/test path, not a replacement for the regular frame loop. No cross-device
-bit-exact replay guarantee is made by this API.
+lockstep experiment/test path, not a replacement for the regular frame loop. Reruns on one device
+are bit-exact only with built-in sensors and no grid overflow; no cross-device guarantee is made.
 
 **CPU records are a staging area, not a live mirror.** After GPU movement, `agents.records`
 does not contain current positions. `spawn(i, init)` and `kill(i)` dirty individual records;
