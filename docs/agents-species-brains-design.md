@@ -9,7 +9,8 @@
 
 **Builds on:** the brain seam ([`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §9.1);
 `MlpBrain` and its measurements ([`agents-mlp-design.md`](./agents-mlp-design.md), A4, phase 6.3).
-**Status:** ✍ designed 2026-10-12, ready for phase 7.1. No agents code yet.
+**Status:** ✍ designed 2026-10-12. ✅ Phase 7.1 (weight-table rows, headless) is implemented and
+validated, not yet committed. 7.2 (rows on the GPU) is next.
 **Target:** `src/extras/agents/` (`MlpBrain.bySpecies`, a new `speciesBrain.ts`), headless and GPU
 tests, the API guide. `AgentSystem`'s brain seam and core are unchanged by this part.
 
@@ -228,21 +229,21 @@ C2's allowance: at most 21,495 B min+gzip ([`work/plan.md`](./work/plan.md) §5,
 
 ## 11. Errors (verbatim)
 
-| Where | Message |
-|---|---|
-| `MlpBrain.bySpecies` | `MlpBrain: no network for species "<name>"; give one per species.` |
-| `MlpBrain.bySpecies` | `MlpBrain: "<name>" is not a declared species.` |
+| Where                | Message                                                                                                                   |
+|----------------------|---------------------------------------------------------------------------------------------------------------------------|
+| `MlpBrain.bySpecies` | `MlpBrain: no network for species "<name>"; give one per species.`                                                        |
+| `MlpBrain.bySpecies` | `MlpBrain: "<name>" is not a declared species.`                                                                           |
 | `MlpBrain.bySpecies` | `MlpBrain: the network for "<name>" differs in shape from "<first>" at layer <k>; use SpeciesBrain for different shapes.` |
-| `setWeights` | `MlpBrain: this brain holds one network per species; call setWeights(network, { species }).` |
-| `setWeights` | `MlpBrain: setWeights({ species }) needs a brain from MlpBrain.bySpecies.` |
-| `SpeciesBrain` | `SpeciesBrain: species "<name>" has no brain; list every species.` |
-| `SpeciesBrain` | `SpeciesBrain: "<name>" is not a declared species.` |
-| `SpeciesBrain` | `SpeciesBrain: the brain for "<name>" is not a stage brain.` |
-| `SpeciesBrain` | `SpeciesBrain: the brain for "<name>" maps <o> → <a>; the definition needs <obsDim> → <actDim>.` |
-| `SpeciesBrain` | `SpeciesBrain: brains cannot nest; list the inner brain's species directly.` |
-| `SpeciesBrain` | `SpeciesBrain: the brain for "<name>" declares @binding(<j>) but supplies <n> buffer(s).` |
-| `SpeciesBrain` | `SpeciesBrain: the brains for "<a>" and "<b>" both declare <name>; rename one, or combine them into one RuleBrain.` |
-| `SpeciesBrain` | `SpeciesBrain: the brain for "<name>" must define fn think(i: u32, species: u32, tick: u32).` |
+| `setWeights`         | `MlpBrain: this brain holds one network per species; call setWeights(network, { species }).`                              |
+| `setWeights`         | `MlpBrain: setWeights({ species }) needs a brain from MlpBrain.bySpecies.`                                                |
+| `SpeciesBrain`       | `SpeciesBrain: species "<name>" has no brain; list every species.`                                                        |
+| `SpeciesBrain`       | `SpeciesBrain: "<name>" is not a declared species.`                                                                       |
+| `SpeciesBrain`       | `SpeciesBrain: the brain for "<name>" is not a stage brain.`                                                              |
+| `SpeciesBrain`       | `SpeciesBrain: the brain for "<name>" maps <o> → <a>; the definition needs <obsDim> → <actDim>.`                          |
+| `SpeciesBrain`       | `SpeciesBrain: brains cannot nest; list the inner brain's species directly.`                                              |
+| `SpeciesBrain`       | `SpeciesBrain: the brain for "<name>" declares @binding(<j>) but supplies <n> buffer(s).`                                 |
+| `SpeciesBrain`       | `SpeciesBrain: the brains for "<a>" and "<b>" both declare <name>; rename one, or combine them into one RuleBrain.`       |
+| `SpeciesBrain`       | `SpeciesBrain: the brain for "<name>" must define fn think(i: u32, species: u32, tick: u32).`                             |
 
 `AgentSystem`'s own errors are unchanged: dims, the group-1 budget, and a destroyed or foreign
 brain.
@@ -264,13 +265,13 @@ brain.
 
 ## 13. Build order
 
-| Phase | Builds | Exit |
-|---|---|---|
-| **7.1** | Rows: `MlpBrain.bySpecies`, the row-aware generator, per-row `setWeights`; U21; a size line | Headless green, U21 watched failing, size within the allowance |
-| **7.2** | Rows on the GPU: A21 on both hosts; the rows cases of §7 | Both hosts green; numbers recorded here |
-| **7.3** | Composite: `SpeciesBrain`; U22; a size line | Headless green, U22 watched failing |
-| **7.4** | Composite on the GPU: A22 on both hosts; the composite and reference cases of §7 | Both hosts green; numbers recorded here |
-| **7.5** | The guide's per-species section with an executable example of each; closure | Example test green; `docs/work` updated |
+| Phase     | Builds                                                                                      | Exit                                                           |
+|-----------|---------------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| **7.1** ✅ | Rows: `MlpBrain.bySpecies`, the row-aware generator, per-row `setWeights`; U21; a size line | Headless green, U21 watched failing, size within the allowance |
+| **7.2**   | Rows on the GPU: A21 on both hosts; the rows cases of §7                                    | Both hosts green; numbers recorded here                        |
+| **7.3**   | Composite: `SpeciesBrain`; U22; a size line                                                 | Headless green, U22 watched failing                            |
+| **7.4**   | Composite on the GPU: A22 on both hosts; the composite and reference cases of §7            | Both hosts green; numbers recorded here                        |
+| **7.5**   | The guide's per-species section with an executable example of each; closure                 | Example test green; `docs/work` updated                        |
 
 Step 7, part 2 (record → train → export per species, the rest timer as an observation) follows
 with its own design doc, from phase 7.6.
@@ -284,3 +285,40 @@ with its own design doc, from phase 7.6.
 - **A fallback brain:** decided against; an `others:` option can be added later without breaking
   anything.
 - **Asynchronous stage creation for swaps:** step 9.
+
+### Phase 7.1 implementation — 2026-10-12
+
+**Built:**
+- `MlpBrain.bySpecies(engine, definition, networks)` packs one row per species into one buffer,
+  in the definition's species order whatever the map's order.
+- `buildMlpThinkWGSL(network, rows?)` adds a name-based row switch (`case SPECIES_WOLF: { row =
+  <offset>u; }`) and a `row + ` term on every weight index.
+- `setWeights(network, { species })` uploads one row at `r × F × 4`.
+- `speciesConstantName` moved into `agentLayout.ts` and is now shared by the think wrapper and the
+  generator, so the two cannot drift apart. It is exported.
+- A single-network `MlpBrain` keeps phase 6's WGSL byte for byte, pinned by a golden string.
+  `AgentSystem` and core are unchanged.
+
+**U21** (`test/agents-mlp.test.mjs`, 6 tests):
+- the golden single-network WGSL;
+- the table layout and row order;
+- the row switch, which parses inside the full wrapper;
+- the per-row upload offset;
+- every refusal of §11, verbatim, before any upload;
+- attachment.
+
+Watched failing three ways: before the feature existed (5 of 6 failed; the golden passed, as it
+should); with rows packed in the map's order (the order test failed); and with a row update
+written at offset 0 (the upload test failed). Each mutation was restored byte for byte.
+
+**Regression:**
+- library build;
+- headless agents 24 reference + 54 node:test, core, agent-kit 4/4;
+- the agents GPU suite at 120/120 on Node/Dawn and in Chrome, with zero WebGPU errors.
+
+That suite does not yet run per-species rows; that is A21, phase 7.2.
+
+**Size** (`size.mjs`): the MLP path grew from 13,793 to **14,314 B** (+521 B, a little over the
+0.3–0.5 KB estimate, mostly the verbatim errors). The whole entry is **17,827 B**, so 3,668 B of
+C2's allowance remains. The rule path is 12,375 B (+6 B, the shared helper) and still carries no
+MLP code.
