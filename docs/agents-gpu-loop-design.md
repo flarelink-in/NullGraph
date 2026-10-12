@@ -16,8 +16,10 @@ file so the parent stays a plan.
 and §7.3 record what it decided. ✅ Phases 3.1–3.5 are implemented, validated and committed
 (3.5 as `f5cfd46`, 2026-10-12). ✅ Phases 4.1 and 4.2 are implemented, validated and committed
 (2026-10-12). ✅ Phase 4.3 is implemented, validated and committed (`a6bf1f0`), with its `Picker`
-fix (`9d9a37e`). ✅ Phase 4.4 (`inspect`) is implemented and validated (2026-10-12), not yet
-committed. 4.5 is next.
+fix (`9d9a37e`). ✅ Phase 4.4 (`inspect`) is implemented, validated and committed as `b29e940`
+(2026-10-12). ✅ Phase 4.5 is complete: A20 teardown/rebuild, the API guide and its executable
+example validation, fresh interactive drive and CPU frame-work measurement. Both hosts pass
+106/106 agents GPU checks, zero WebGPU errors. No library code or bundle growth in 4.5.
 
 **Phase 3.5 results, 2026-10-11:** `debug-ui/agentDrawing.ts` implements the §8.4 draw with
 species RGB overrides, dead clipping and GPU-owned position/heading/radius. Two new headless
@@ -884,6 +886,29 @@ it means 16 KiB. Step 5 should measure before it adds code to `agents.js`. Visib
 
 ## 13. Build order — phases
 
+### Phase 4.5 integration result — 2026-10-12
+
+- **A20:** retired stages disabled; dependents-first teardown and replacement sequence render
+  12 later frames without validation errors; the same engine runs a rebuilt system to inspected
+  tick 3. Fresh Node/Dawn and Chrome runs each pass **106/106**, zero WebGPU errors.
+- **Live route:** the current user's :8081 server serves instances, hover/selection, following
+  labels and the inspector. A fresh drive completed **39 steps, 21 screenshots, zero errors**:
+  pause/resume, restart while running and paused, white hover/gold selection and live inspection,
+  overlays off/on, 4K→16K→4K rebuilds, darts→arrows→darts, and same-worker switch away/re-entry.
+  Screenshots were reviewed; no site source edits were needed.
+- **CPU frame work:** AMD GCN-5, Windows, headless Chrome, 818×824 canvas at DPR 1, warmed Vite
+  demo with thinkEvery 3 and scan budget 64. Twelve-second runs at 4K and 16K each collected
+  47 approximately 250 ms host windows: mean **0.570 / 0.599 ms**, window-mean p95
+  **0.627 / 0.653 ms**, about 60 FPS. Paused with selection: 0.277 ms (39 windows/10 s);
+  running with selection: 0.529 ms (47 windows/12 s). The timer surrounds demo update,
+  camera update and engine render submission, without awaiting the GPU. It excludes async
+  inspection callbacks, main-thread UI and profiler end; this is not whole-process CPU or
+  individual-frame p95. Details and evidence location are in the handoff.
+- **API:** `docs/api/agents.md` documents frame/lockstep paths, ownership, inspection and limits.
+  `test/agents-api-example.test.mjs` type-checks the actual fenced TypeScript using browser
+  bundler resolution, bundles it and parses its generated brain WGSL. Included in `test:agents`.
+- **Remaining:** step 5/A9 and dense-flock query overflow, not an unfinished 4.5 gate.
+
 ### Phase 4.4 implementation result — 2026-10-12
 
 `AgentSystem.inspect(i)` and `agentInspect.ts` (`AgentSnapshot`, `agentSnapshotLayout`,
@@ -1164,10 +1189,13 @@ Every phase ends the same way:
 | **4.2** ✅ | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal                                                                                                                                                                                                                                                                                                                    | U19; A17                                                                                                                                                                                                                        | Darts instead of arrows                                                                                                                                 |
 | **4.3** ✅ | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
 | **4.4** ✅ | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |
-| **4.5**   | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` started                                                                                                                                                                                                                                                                      | A20; `npm run drive` clean; numbers in the handoff                                                                                                                                                                              | The step-3 demo with the CPU nearly idle                                                                                                                |
+| **4.5** ✅ | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` completed                                                                                                                                                                                                                                                                      | A20; `npm run drive` clean; numbers in the handoff                                                                                                                                                                              | The step-3 demo with the CPU nearly idle                                                                                                                |
 
-Step 5 follows in the parent plan: the 20,000-agent Herd & Wolves demo, with A9's step time
-measured.
+Step 5's scope was amended with the user on 2026-10-12: characterize scaling limits, query quality
+and proven bottlenecks, not chase the historical 20K/A9 timing target. Its separate spec is
+[`agents-demo-design.md`](./agents-demo-design.md). The user-reported good frame rates at 65,536 are
+a workload to reproduce, not an independently verified ceiling. Optimizations are conditional;
+broader engine changes require separate evidence-backed proposals, not a core rewrite here.
 
 ### 13.2 Deferred — with the reason
 

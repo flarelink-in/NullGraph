@@ -18,7 +18,15 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — step 3 committed; step 4 phases 4.1–4.3 committed, 4.4 built (2026-10-12)
+### Cycle C — step 3 committed; step 4 phases 4.1–4.4 committed, 4.5 complete (2026-10-12)
+
+**Step 5 direction amended with the user (2026-10-12):**
+[`agents-demo-design.md`](./agents-demo-design.md) now focuses on scaling limits, operating
+conditions, query quality and proven bottlenecks. Reproduce the user's reported good frame rates
+at 65,536; exact settings/throughput remain unverified. Historical 20K/≤2 ms and proposed zero-overflow
+soak gates are not completion targets. Improve only if evidence justifies it; no change is a valid
+outcome. No core rewrite. Detailed experiments remain draft; no new measurements or implementation.
+
 
 **C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
@@ -27,8 +35,55 @@ outstanding. The live chain is **grid → queries → sense → think → act �
 once per frame **instances** when `toInstances` is on. A brain is required. **Phase 3.5** is the
 arrow debug draw plus the GPU Herd & Wolves route in the test-engine site. **Phases 4.1 and 4.2 are
 committed**: 4.1 as `04a991b`, 4.2 as `aa6f4ac`. **Phase 4.3 is committed** as its `Picker` fix
-(`9d9a37e`) and its tests and docs (`a6bf1f0`). **Phase 4.4** (`inspect`) is built and validated
-but not committed (record below). 4.5 is next. Nothing is pushed or published.
+(`9d9a37e`) and its tests and docs (`a6bf1f0`). **Phase 4.4** (`inspect`) is committed as
+`b29e940`, after fresh build, 58 headless agents, 17 core and 103/103 GPU checks on both hosts
+(zero WebGPU errors). **Phase 4.5 is complete**, with A20 teardown/rebuild checks,
+`docs/api/agents.md`, executable example validation, fresh drive and CPU frame-work measurement.
+Nothing is pushed or published; the separate site repository remains uncommitted.
+
+**Phase 4.5 completion (2026-10-12):** added three A20 checks: retired agent stages are disabled,
+dependents-first teardown plus a replacement sequence renders 12 later frames cleanly, and
+the same engine runs a rebuilt system whose inspected tick reaches 3. Both Node/Dawn and Chrome
+pass **106/106**, zero WebGPU errors. IDE build passes; syntax and whitespace checks pass.
+Completed `docs/api/agents.md`, covering the rule loop, staging vs live GPU state, frame/lockstep
+paths, instances/highlights/picking/labels, inspection and ownership. Its actual TypeScript
+example type-checks with browser bundler resolution, bundles, and generates parseable brain WGSL;
+the new `test/agents-api-example.test.mjs` is included in `npm run test:agents`.
+No site or library source changed. The user's :8081 server now serves the current inspect build.
+
+**Fresh live validation:** 39 drive steps, 21 screenshots, exit 0, zero recorded errors. Verified
+white hover, gold selection, following label/inspector with changing snapshot values, release,
+pause/resume, running/paused restart, labels/stats/catches off/on, 4K→16K→4K, darts→arrows→darts,
+and switch to SpatialGrid then back on the **same worker/engine**. The drive retained four
+non-error warnings (React Router future flags and Windows powerPreference, worker messages echoed).
+The Node/Dawn and Chrome agents suites were freshly rerun: **106/106 each, gpuErrors 0**.
+This session's Node/Dawn selected AMD GCN-5 too; these are different hosts, not two physical GPUs.
+
+**CPU methodology:** Windows, headless Chrome/AMD GCN-5, live Vite route, 1440×900 viewport,
+818×824 canvas, DPR 1; thinkEvery 3, scan budget 64, default live rules and overlays. Read the
+existing EngineCore CPU metric **before** the main-thread recycling transfer detaches it,
+via an in-page wrapper around worker.postMessage; no instrumentation source changes. Its
+performance.now timer covers demo update + camera update + engine render submission, not GPU
+completion, async inspection callbacks, UI work or profiler end. Allow two/three seconds after
+restart/rebuild before resetting samples. Each sample is the host's ~250 ms mean, **not** one
+frame. GPU validation had finished before the final running captures.
+
+| Workload | Capture | Windows | Mean CPU ms/frame | Median window mean | p95 window mean | Mean FPS |
+|---|---|---:|---:|---:|---:|---:|
+| 4,096 darts, default running | 12 s | 47 | 0.570 | 0.569 | 0.627 | 60.00 |
+| 16,384 darts, default running | 12 s | 47 | 0.599 | 0.600 | 0.653 | 60.00 |
+| 4,096, selected inspector + follow running | 12 s | 47 | 0.529 | 0.513 | 0.688 | 59.74 |
+| 4,096, selected inspector paused | 10 s | 39 | 0.277 | 0.267 | 0.381 | 60.00 |
+
+These show low host frame work, not a portable throughput guarantee. Zoom/frustum, GPU driver,
+timer precision and flock distribution affect results. Dense-flock overflow remains step 5 work.
+Initial zero-sample captures are retained in the drive report, but are **not measurements**:
+the first listener ran after another listener had already transferred/detached the metric buffer.
+Logs, actions, report and screenshots are in `D:/orion-realms/null-graph-phase45-validation`.
+Phase 4.5 is complete; no push or publication. The unrelated site work is untouched.
+Final checks pass: library/TypeScript build, IDE build, 59 headless agent checks (24 reference
+checks + 35 node:test cases), 18 core checks, JavaScript syntax and `git diff --check`.
+Phase 4.5 changes are **uncommitted** pending review; port 8081 was left running.
 
 **Step 4, phase 4.4 (2026-10-12, Claude Opus 5.5).** Details are in the design doc's §13 results
 note; §9.6 now describes what was built.
@@ -938,9 +993,9 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
       §13, and accepted. ~~Step 3 (phases 3.0–3.5)~~ is done and committed (3.5 as `f5cfd46`).
       Step 4: ~~4.1~~ (`04a991b`), ~~4.2~~ (`aa6f4ac`) and ~~4.3~~ (`9d9a37e`, `a6bf1f0`) are
-      committed. ~~4.4~~ (`inspect`, U20, A19, the site inspector) is built and validated but not
-      committed. **Next: 4.5**: the site route finalized, the CPU's per-frame time measured, and
-      `docs/api/agents.md` started (A20).
+      committed. ~~4.4~~ (`b29e940`: inspect, U20, A19, the site inspector) is committed.
+      ~~4.5~~ is complete: A20, API guide + executable example check, fresh clean drive,
+      same-worker teardown/re-entry and CPU frame-work measurements (results above).
       Then step 5 with A9. It should take up grid-ordered neighbour queries (the stress-test
       finding in the 3.5 sanity-check record above), and choose the cell size and scan budget
       against the flock overflow that 4.4's inspector shows. Only **527 B** remain under
@@ -1271,3 +1326,27 @@ Dense model validation, vec4 packing and f32-aware CPU forward implemented in
 agent-kit regressions pass. No GPU kernel/class yet; phase 6.1 next. Whole entry
 16,569 B min+gzip versus fresh 15,495 B baseline (+1,074 B); combined C2 allowance
 remaining 2,926 B. Step 6 is not complete. See `agents-mlp-design.md`.
+- **2026-10-12 — Cline.** Completed phase 4.5 on the user's live :8081 server.
+  - A20 teardown/rebuild validated: fresh Node/Dawn and Chrome each 106/106, zero GPU errors.
+  - Fresh drive: 39 steps, 21 screenshots, zero errors, including same-worker teardown/re-entry.
+  - Measured integrated CPU frame work: 0.570 ms at 4K, 0.599 ms at 16K; methodology above.
+  - Completed the API guide and added its TypeScript/bundle/generated-WGSL regression test.
+  - Library/IDE builds, 59 headless agents, 18 core, syntax and whitespace checks pass.
+  - No library/site source changed. Left phase 4.5 uncommitted; nothing pushed or published.
+  - **Next:** step 5/A9 and dense-flock query performance; only 527 B of agents budget remains.
+- **2026-10-12 — Cline.** Wrote the separate step-5 draft `agents-demo-design.md` at the user's
+  request and linked it from the parent and steps-3–4 design. Read the current handoff and source
+  scheduling/query conventions; preserved existing uncommitted phase-4.5 work. The draft defines
+  scope, production-chain timing, overflow semantics, proposed quality gates, an asset-free
+  starter and phased closure. Documentation only; no implementation, commit, push or publication.
+- **2026-10-12 — Cline.** Revised step 5 at the user's request into a scaling/bottleneck study,
+  superseding the earlier target-driven draft. Updated A9, the parent step, GPU-loop transition
+  and current handoff. The 84K observation is explicitly user-reported, not independently measured.
+  Removed count/timing/zero-overflow success gates; separated packaging and conditional engine
+  opportunities. Documentation only; existing work preserved, no commit/push/publication.
+- **2026-10-12 — Cline.** User corrected the reported population: **65,536**, not 84K.
+  Corrected current design references; the earlier session entry retains its original wording.
+  Recommendation: do not make the full scaling study a prerequisite for step 6. Before step-7
+  data recording, validate the chosen teacher workload's neighbour coverage and replay quality.
+  Historical AMD timings above already identify query cost as a candidate bottleneck at 65,536;
+  they are not fresh measurements of the user's present configuration. No C2 implementation begun.
