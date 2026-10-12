@@ -14,23 +14,39 @@ export class AgentGrid extends PointGrid {
     constructor(engine: NullGraph, records: GPUBuffer, public readonly definition: AgentDefinition,
         public readonly mask = 0xffffffff, public readonly radius = definition.cellSize, public readonly k = 8) {
         const code = buildAgentGridQueryWGSL(definition, mask, radius, k);
-        if (definition.capacity * k * 4 > engine.device.limits.maxStorageBufferBindingSize) {
+        if (definition.capacity * k * 4 > Math.min(engine.device.limits.maxStorageBufferBindingSize,
+            engine.device.limits.maxBufferSize)) {
             throw new Error('AgentGrid: neighbour buffer exceeds device storage limit.');
+        }
+        if (engine.device.limits.maxStorageBuffersPerShaderStage < 6) {
+            throw new Error('AgentGrid: query requires six storage buffer bindings.');
         }
         super(engine, records, { ...definition, stride: AGENT_FLOATS,
             flagsOffset: AGENT_FLAGS_OFFSET, aliveMask: AGENT_FLAG_ALIVE });
-        this.neighbours = engine.device.createBuffer({ label: 'AgentGrid neighbours',
-            size: definition.capacity * k * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-        this.tick = engine.device.createBuffer({ label: 'AgentGrid tick', size: 4, usage: GPUBufferUsage.STORAGE });
-        const query = engine.createComputeStage({ name: 'AgentGrid nearest', shaderCode: code,
-            dispatchCount: [Math.ceil(definition.capacity / 64), 1, 1] });
-        engine.setComputePassBindGroup(query, [records, this.cellCounts, this.cellOffsets, this.cellBodies, this.neighbours, this.tick]
-            .map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
-        const tick = engine.createComputeStage({ name: 'AgentGrid tick', shaderCode: `
+        const buffers: GPUBuffer[] = [], stages: ComputeStageNode[] = [];
+        try {
+            this.neighbours = engine.device.createBuffer({ label: 'AgentGrid neighbours',
+                size: definition.capacity * k * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+            buffers.push(this.neighbours);
+            this.tick = engine.device.createBuffer({ label: 'AgentGrid tick', size: 4, usage: GPUBufferUsage.STORAGE });
+            buffers.push(this.tick);
+            const query = engine.createComputeStage({ name: 'AgentGrid nearest', shaderCode: code,
+                dispatchCount: [Math.ceil(definition.capacity / 64), 1, 1] });
+            stages.push(query);
+            engine.setComputePassBindGroup(query, [records, this.cellCounts, this.cellOffsets, this.cellBodies, this.neighbours, this.tick]
+                .map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
+            const tick = engine.createComputeStage({ name: 'AgentGrid tick', shaderCode: `
 @group(0) @binding(0) var<storage, read_write> tick: u32;
 @compute @workgroup_size(1) fn cs_main() { tick++; }`, dispatchCount: [1, 1, 1] });
-        engine.setComputePassBindGroup(tick, [{ binding: 0, resource: { buffer: this.tick } }], 0);
-        this.sequence = [...super.getComputeStages(), query, tick];
+            stages.push(tick);
+            engine.setComputePassBindGroup(tick, [{ binding: 0, resource: { buffer: this.tick } }], 0);
+            this.sequence = [...super.getComputeStages(), query, tick];
+        } catch (error) {
+            for (const stage of stages) stage.enabled = false;
+            for (const buffer of buffers) buffer.destroy();
+            super.destroy();
+            throw error;
+        }
     }
 
     public override getComputeStages(): ComputeStageNode[] {

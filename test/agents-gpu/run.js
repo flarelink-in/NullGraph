@@ -147,6 +147,19 @@ for (let i = 0; i < def.capacity; i++) {
     for (let j = 0; j < 8; j++) if (actual[i * 8 + j] !== (j < n ? expected[j] : 0xffffffff)) matches = false;
 }
 check('wrapper: query buffer equals CPU bounded oracle for 10000 agents', matches);
+let previousQuery = actual;
+for (let tick = 2; tick <= 5; tick++) {
+    engine.render(stages);
+    const output = await read(grid.neighbours, def.capacity * 8);
+    let exact = true;
+    for (let i = 0; i < def.capacity; i++) {
+        const expected = [];
+        const n = A.gridNearestNeighbours(def, rec, wrapperCPU, i, 1, 4, 8, expected, tick);
+        for (let j = 0; j < 8; j++) if (output[i * 8 + j] !== (j < n ? expected[j] : 0xffffffff)) exact = false;
+    }
+    check(`A1 AgentGrid tick ${tick}: exact CPU window, advancing between builds`, exact && !equal(output, previousQuery));
+    previousQuery = output;
+}
 
 const camera = new Camera(60, 1, 0.1, 100);
 camera.updateView([0, 18, 0], [0, 0, 0], [0, 0, -1]);
@@ -571,11 +584,44 @@ const overflowBrain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32)
     setReason(i, species + 1u);
 }`);
 const overflowRuns = [];
-for (let run = 0; run < 2; run++) {
+for (let run = 0; run < 4; run++) {
     const s = new A.AgentSystem(engine, overflowDef, { thinkEvery: 3 });
     s.setBrain(overflowBrain);
     s.records.data.set(overflowStart.data); s.records.markDirty(0, 4095);
-    for (let tick = 0; tick < 200; tick++) await s.step();
+    const mutation = run >= 2;
+    let cursors, clear, scatter, chain;
+    if (mutation) {
+        // Test-only regression: overwrite the stable grid with timing-dependent atomic slots.
+        cursors = buffer(overflowDef.grid.cellTotal);
+        clear = engine.createComputeStage({ name: 'A23 mutation reset', shaderCode: `
+@group(0) @binding(0) var<storage, read_write> cursors: array<u32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${overflowDef.grid.cellTotal}u) { cursors[id.x] = 0u; }
+}`, dispatchCount: [Math.ceil(overflowDef.grid.cellTotal / 64), 1, 1] });
+        engine.setComputePassBindGroup(clear, [{ binding: 0, resource: { buffer: cursors } }], 0);
+        scatter = engine.createComputeStage({ name: 'A23 mutation atomic scatter', shaderCode: `
+${A.AGENT_STRUCT_WGSL}${A.pointCellWGSL(overflowDef)}
+@group(0) @binding(0) var<storage, read> agents: array<Agent>;
+@group(0) @binding(1) var<storage, read> offsets: array<u32>;
+@group(0) @binding(2) var<storage, read_write> cursors: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> bodies: array<u32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= 4096u || (agents[i].ids.y & 1u) == 0u) { return; }
+    let cell = pointCell(agents[i].posRadius.xyz);
+    bodies[offsets[cell] + atomicAdd(&cursors[cell], 1u)] = i;
+}`, dispatchCount: [64, 1, 1] });
+        engine.setComputePassBindGroup(scatter, [s.buffer, s.grid.cellOffsets, cursors, s.grid.cellBodies]
+            .map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
+        s.advance(overflowDef.dt);
+        const normal = s.getComputeStages(), gridEnd = s.grid.getComputeStages().length;
+        chain = [...normal.slice(0, gridEnd), clear, scatter, ...normal.slice(gridEnd)];
+        s.upload();
+    }
+    for (let tick = 0; tick < 200; tick++) {
+        if (mutation) { engine.render(chain); await device.queue.onSubmittedWorkDone(); }
+        else await s.step();
+    }
     const state = await read(s.state, 4);
     check(`A23 run ${run + 1}: 200 ticks with overflow every step`, state[0] === 200 && state[1] === 200 && state[2] > 0);
     const result = {};
@@ -583,10 +629,15 @@ for (let run = 0; run < 2; run++) {
         result[name] = await read(s[name], words);
     }
     overflowRuns.push(result); s.destroy();
+    if (mutation) { clear.enabled = false; scatter.enabled = false; cursors.destroy(); }
 }
 for (const name of ['buffer', 'obs', 'act', 'reason']) {
     check(`A23: overflowing reruns are byte-identical (${name})`, equal(overflowRuns[0][name], overflowRuns[1][name]));
 }
+const mutationDifferences = ['buffer', 'obs', 'act'].map(name =>
+    overflowRuns[2][name].reduce((n, word, i) => n + Number(word !== overflowRuns[3][name][i]), 0));
+check(`A23 watched failing: atomic slots break replay (records/obs/act differing words: ${mutationDifferences.join('/')})`,
+    mutationDifferences.some(n => n > 0));
 
 // Custom integration runs only after age/frozen checks, with the same bindings as steering.
 const customDef = A.defineAgents({ capacity: 3, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,

@@ -62,31 +62,37 @@ export class PointGrid {
         if (radix.buckets * 4 > (d.limits.maxComputeWorkgroupStorageSize ?? 16384)) {
             throw new Error('PointGrid: radix histogram exceeds device workgroup storage limit.');
         }
-        this.cellCounts = this.buffer(o.grid.cellTotal, 'counts');
-        this.cellBodies = this.buffer(o.capacity, 'indices');
-        this.overflow = this.buffer(1, 'overflow');
-        this.stage('reset', `
-@group(0) @binding(0) var<storage, read_write> counts: array<u32>;
-@group(0) @binding(1) var<storage, read_write> overflow: u32;
-@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
-    if (id.x < ${o.grid.cellTotal}u) { counts[id.x] = 0u; }
-    if (id.x == 0u) { overflow = 0u; }
-}`, [this.cellCounts, this.overflow], Math.ceil(o.grid.cellTotal / 64));
-        this.stage('bin', buildGridBinWGSL(o, o.capacity, o.stride, flags, o.aliveMask ?? 1, o.maxScanPerCell),
-            [records, this.cellCounts, this.overflow], Math.ceil(o.capacity / 64));
-        this.cellOffsets = this.scan(this.cellCounts, o.grid.cellTotal);
-        const keys = [this.buffer(o.capacity, 'radix keys 0'), this.buffer(o.capacity, 'radix keys 1')];
-        const values = [this.buffer(o.capacity, 'radix indices 0'), this.buffer(o.capacity, 'radix indices 1')];
-        const table = this.buffer(radix.buckets * blocks, 'radix histogram');
-        this.stage('keys', buildGridKeysWGSL(o, o.capacity, o.stride, flags, o.aliveMask ?? 1),
-            [records, keys[0], values[0]], Math.ceil(o.capacity / 64));
-        for (let pass = 0; pass < radix.passes; pass++) {
-            const src = pass % 2, dst = 1 - src, shift = pass * radix.bits;
-            this.stage('histogram', buildGridHistogramWGSL(o.capacity, radix.bits, shift), [keys[src], table], blocks);
-            const offsets = this.scan(table, radix.buckets * blocks);
-            this.stage('stable scatter', buildGridStableScatterWGSL(o.capacity, radix.bits, shift),
-                [keys[src], values[src], offsets, keys[dst],
-                    pass === radix.passes - 1 ? this.cellBodies : values[dst]], blocks);
+        try {
+            this.cellCounts = this.buffer(o.grid.cellTotal, 'counts');
+            this.cellBodies = this.buffer(o.capacity, 'indices');
+            this.overflow = this.buffer(1, 'overflow');
+            this.stage('reset', `
+    @group(0) @binding(0) var<storage, read_write> counts: array<u32>;
+    @group(0) @binding(1) var<storage, read_write> overflow: u32;
+    @compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+        if (id.x < ${o.grid.cellTotal}u) { counts[id.x] = 0u; }
+        if (id.x == 0u) { overflow = 0u; }
+    }`, [this.cellCounts, this.overflow], Math.ceil(o.grid.cellTotal / 64));
+            this.stage('bin', buildGridBinWGSL(o, o.capacity, o.stride, flags, o.aliveMask ?? 1, o.maxScanPerCell),
+                [records, this.cellCounts, this.overflow], Math.ceil(o.capacity / 64));
+            this.cellOffsets = this.scan(this.cellCounts, o.grid.cellTotal);
+            const keys = [this.buffer(o.capacity, 'radix keys 0'), this.buffer(o.capacity, 'radix keys 1')];
+            const values = [this.buffer(o.capacity, 'radix indices 0'), this.buffer(o.capacity, 'radix indices 1')];
+            const table = this.buffer(radix.buckets * blocks, 'radix histogram');
+            this.stage('keys', buildGridKeysWGSL(o, o.capacity, o.stride, flags, o.aliveMask ?? 1),
+                [records, keys[0], values[0]], Math.ceil(o.capacity / 64));
+            for (let pass = 0; pass < radix.passes; pass++) {
+                const src = pass % 2, dst = 1 - src, shift = pass * radix.bits;
+                this.stage('histogram', buildGridHistogramWGSL(o.capacity, radix.bits, shift), [keys[src], table], blocks);
+                const offsets = this.scan(table, radix.buckets * blocks);
+                this.stage('stable scatter', buildGridStableScatterWGSL(o.capacity, radix.bits, shift),
+                    [keys[src], values[src], offsets, keys[dst],
+                        pass === radix.passes - 1 ? this.cellBodies : values[dst]], blocks);
+            }
+        } catch (error) {
+            for (const stage of this.stages) stage.enabled = false;
+            for (const buffer of this.owned) buffer.destroy();
+            throw error;
         }
     }
 
@@ -107,8 +113,8 @@ export class PointGrid {
         }
         const stage = this.engine.createComputeStage({ name: `PointGrid ${name}`, shaderCode,
             dispatchCount: [groups, 1, 1] });
-        this.engine.setComputePassBindGroup(stage, buffers.map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
         this.stages.push(stage);
+        this.engine.setComputePassBindGroup(stage, buffers.map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
     }
 
     private scan(input: GPUBuffer, count: number): GPUBuffer {
