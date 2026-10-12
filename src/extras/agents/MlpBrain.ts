@@ -44,7 +44,7 @@ export class MlpBrain implements Brain {
         const layout = mlpLayout(networks[0]);
         networks.forEach((net, r) => {
             const k = shapeDiffers(net, networks[0]);
-            if (k >= 0) fail(`the network for "${rows!.species[r]}" differs in shape from "${rows!.species[0]}" at layer ${k}; use SpeciesBrain for different shapes.`);
+            if (k >= 0) fail(`the network for "${rows!.species[r]}" differs in shape from "${rows!.species[0]}" at layer ${k}; give it its own brain: setBrain(brain, { species: '${rows!.species[r]}' }).`);
         });
         const table = new Float32Array(layout.floats * networks.length);
         networks.forEach((net, r) => packMlpWeights(net, table.subarray(r * layout.floats, (r + 1) * layout.floats)));

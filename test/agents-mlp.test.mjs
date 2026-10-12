@@ -285,7 +285,7 @@ test('U21: bySpecies and per-row setWeights refuse by name, before any upload', 
         /MlpBrain: "bear" is not a declared species\./);
     const wide = [layer(2, 4, 'tanh'), layer(4, 2, 'sigmoid')];
     assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: wide }),
-        /MlpBrain: the network for "wolf" differs in shape from "prey" at layer 0; use SpeciesBrain for different shapes\./);
+        /MlpBrain: the network for "wolf" differs in shape from "prey" at layer 0; give it its own brain: setBrain\(brain, \{ species: 'wolf' \}\)\./);
     assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: [layer(2, 3, 'relu'), layer(3, 2, 'sigmoid')] }),
         /differs in shape from "prey" at layer 0/);
     assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: [layer(2, 3, 'tanh'), layer(3, 2, 'tanh')] }),
