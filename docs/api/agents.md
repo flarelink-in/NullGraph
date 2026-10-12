@@ -1,9 +1,9 @@
 # GPU agents — rule brains and network brains
 
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
-entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, and `MlpBrain` (C2 step
-6), which runs a small dense network you supply. Training, ONNX import, ONNX Runtime brains,
-camera eyes and a replay/rewind UI are not implemented by this API.
+entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
+which runs a small dense network you supply, and per-species brains (C2 step 7). Training, ONNX
+import, ONNX Runtime brains, camera eyes and a replay/rewind UI are not implemented by this API.
 
 ## Minimal rule simulation
 
@@ -90,7 +90,7 @@ budget or the cell for the peak, and watch `overflowSteps`.
 ## The frame and fixed-step paths
 
 ```text
-Each step: grid → queries → sense → think → act → app stages → tick
+Each step: grid → queries → sense → think (one pass per brain) → act → app stages → tick
 Each frame: instance output (when enabled) → visibility/text → draw
 ```
 
@@ -115,7 +115,8 @@ does not contain current positions. `spawn(i, init)` and `kill(i)` dirty individ
 `setBrain(new RuleBrain(wgsl))` installs WGSL with the exact entry:
 `fn think(i: u32, species: u32, tick: u32)`.
 Use `obs(i, offset)`, `setAct(i, offset, value)` and `setReason(i, word)` with the definition's
-generated constants. A brain is required before `getComputeStages()` or `step()`.
+generated constants. Every species needs a brain before `getComputeStages()` or `step()`:
+`setBrain(brain)` serves all of them, and [per-species brains](#per-species-brains) split them.
 
 `addStepStage({ name, wgsl, buffers? })` adds an app stage after act and before tick, with entry
 `fn step(i: u32, tick: u32)`. App stages see the same tick
@@ -192,8 +193,9 @@ Render it with the same frame function as the rule example: `advance`, `upload`,
 - **Order and meaning:** inputs follow `definition.obsNames`, outputs `definition.actNames`. No
   normalization is added, and matching widths cannot check that a feature means what the network
   expects.
-- **One network for every species:** identical observations give identical actions, whatever the
-  species. Policies that differ by species need a feature that tells them apart.
+- **One network for every species it serves:** identical observations give identical actions,
+  whatever the species. When species need different policies, give them their own brains
+  ([per-species brains](#per-species-brains)).
 - **Numerics:** tanh's input is clamped to ±15 (the FXC compiler behind Dawn's D3D12 backend
   returns NaN beyond about 89);
   sigmoid is evaluated stably; identity and relu outputs are not clipped. The act stage still
@@ -203,19 +205,128 @@ Render it with the same frame function as the rule example: `advance`, `upload`,
 - **Updates:** `brain.setWeights(network)` needs the same shape and activations. It validates the
   whole network, then uploads once into the same buffer: no new stage, no recompile, and work
   submitted afterwards uses it. A different shape needs a new brain and `setBrain`.
-- **Swapping costs a compile:** `setBrain` builds a new think pipeline. For a 24→32→32→2 network
-  that took 76 ms in Chrome on an AMD iGPU and about 1.1 s under Node/Dawn on an NVIDIA GPU. Swap
-  brains at a moment that can absorb a hitch, not every frame.
+- **A new brain costs a compile:** `setBrain` builds a think pipeline for a brain the system does
+  not run yet. For a 24→32→32→2 network that took 76 ms in Chrome on an AMD iGPU and about 1.1 s
+  under Node/Dawn on an NVIDIA GPU. Swap brains at a moment that can absorb a hitch, not every
+  frame. Moving species to a brain the system already runs compiles nothing.
 - **Reasons:** an `MlpBrain` writes reason 0. Inspection shows its observations and actions, not
   a rationale.
 - **Ownership:** the caller owns the brain, and it belongs to its engine's device: `setBrain`
-  refuses a brain from another device or one already destroyed. Replace the brain or destroy the
-  system before `brain.destroy()`, because the think stage binds the weights. `destroy()` is
+  refuses a brain from another device or one already destroyed. Give its species another brain,
+  or destroy the system, before `brain.destroy()`: its think pass binds the weights. `destroy()` is
   idempotent.
 - **Cost:** one think dispatch of a 24→32→32→2 network over 100,000 agents took 0.83–0.88 ms
   (8–9 ns per agent) on the measured GPUs, and `thinkEvery: 3` cuts it to 43–57% of that
   (`npm run spike:mlp-think`). `MlpBrain` adds 1.4 KB min+gzip to an app; rule-only imports
   carry none of it.
+
+## Per-species brains
+
+`setBrain(brain, { species })` gives the named species their own brain, and the other species
+keep theirs. Prey can keep their rules while wolves run a network, and each species can run a
+network of its own shape. Each distinct brain is one think pass that skips other species' agents,
+and the brain's own WGSL runs unchanged.
+
+```ts
+import type { NullGraph } from 'null-graph';
+import { AgentSystem, MlpBrain, RuleBrain, defineAgents, Sensors, type MlpNetwork } from 'null-graph/agents';
+
+export function createHerd(engine: NullGraph) {
+    const definition = defineAgents({
+        capacity: 1024,
+        world: { min: [-40, -40], max: [40, 40] },
+        cellSize: 8,
+        species: [
+            { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 8, radius: 0.4 },
+            { name: 'wolf', maxSpeed: 4, maxTurn: 3, accel: 5, senseRadius: 8, radius: 0.6 },
+        ],
+        sensors: [Sensors.self(),
+            Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }),
+            Sensors.nearest({ name: 'prey', species: ['prey'], k: 1 })],
+    });
+    // One rule brain for both species: prey flee the nearest wolf; wolves chase the nearest prey.
+    const rules = new RuleBrain(`
+fn think(i: u32, species: u32, tick: u32) {
+    if (species == SPECIES_WOLF) {
+        setAct(i, ACT_TURN, sign(obs(i, OBS_PREY_0 + NEAR_SIDE)));
+        setAct(i, ACT_THROTTLE, 1.0);
+        setReason(i, 2u);
+    } else {
+        let near = obs(i, OBS_WOLF_0 + NEAR_PRESENT);
+        setAct(i, ACT_TURN, -sign(obs(i, OBS_WOLF_0 + NEAR_SIDE)) * near);
+        setAct(i, ACT_THROTTLE, 0.4 + 0.6 * near);
+        setReason(i, 1u);
+    }
+}`);
+    // A smooth chase for wolves, hand-set, not trained:
+    // turn = tanh(3 · prey[0].side), throttle = tanh(1).
+    const weights = new Float32Array(2 * definition.obsDim);
+    weights[definition.obsNames.indexOf('prey[0].side')] = 3;
+    const chase: MlpNetwork = [{ input: definition.obsDim, output: 2, activation: 'tanh',
+        weights, biases: new Float32Array([0, 1]) }];
+    const chaser = new MlpBrain(engine, chase);
+
+    const agents = new AgentSystem(engine, definition);
+    agents.setBrain(rules);                          // every species: one think pass
+    agents.setBrain(chaser, { species: 'wolf' });    // wolves only: a second pass, one compile
+    for (let i = 0; i < definition.capacity; i++) {
+        agents.spawn(i, { species: i < 64 ? 'wolf' : 'prey', heading: i * 2.4,
+            position: [(i % 32) * 2.4 - 37, 0, Math.floor(i / 32) * 2.4 - 37] });
+    }
+    agents.upload();
+    return {
+        agents,
+        // The rules already have a pass: this uploads 16 bytes and compiles nothing. The chaser
+        // then serves nobody and leaves the chain.
+        wolvesUseRules() { agents.setBrain(rules, { species: 'wolf' }); },
+        // Builds the chaser's pass again: one compile, from the same shader text as before.
+        wolvesUseNetwork() { agents.setBrain(chaser, { species: 'wolf' }); },
+        destroy() {
+            agents.destroy();   // first: a think pass may bind the chaser's weights
+            chaser.destroy();
+        },
+    };
+}
+```
+
+- **Assignment:**
+  - `setBrain(brain)` gives every species to `brain`, as before.
+  - `{ species: 'wolf' }` or `{ species: ['wolf', 'bear'] }` gives only those species.
+  - An unknown name is refused before anything changes: `AgentSystem: "<name>" is not a
+    declared species.`
+- **Every species needs a brain** before `getComputeStages()` or `step()`. Otherwise both throw
+  `AgentSystem: no brain for species "<name>"; call setBrain(brain, { species: '<name>' }).`
+  There is no fallback brain.
+- **Compiles:**
+  - A brain the system does not run yet compiles its pass, at the cost given under "A new brain
+    costs a compile" above.
+  - Moving species to a brain that already has a pass uploads one 16-byte mask per changed brain
+    and compiles nothing.
+  - A brain left with no species leaves the chain, and may then be destroyed. Giving it species
+    again compiles its pass again, from identical shader text, which a pipeline cache can reuse.
+- **Mixing kinds and shapes:** each pass runs its own brain's code, so rule brains, networks and
+  networks of different shapes mix freely. Every network still maps `obsDim` to `actDim`.
+  Passes write only their own agents' actions, so their order cannot change results.
+- **Many same-shape networks as rows:**
+  - `MlpBrain.bySpecies(engine, definition, { prey: preyNet, wolf: wolfNet })` holds one network
+    per species as rows of one weight table, read in one pass.
+  - `brain.setWeights(network, { species: 'wolf' })` uploads one row.
+  - It needs a network for every declared species, even one that another brain serves; any
+    network of the same shape will do there.
+  - A network of another shape needs its own brain.
+- **Passes or rows: use passes below 8 species and rows from 8.** Measured with a 24→32→32→2
+  network (`npm run spike:mlp-think`):
+  - Each pass reads every agent's record, so passes grow with the number of brains. At 100,000
+    agents, two species as passes cost 1.04–1.52× one shared network when each species fills
+    one contiguous index block, and 1.7–2.0× when species alternate.
+  - Rows cost one pass whatever the species count. But choosing a row per agent stops the
+    compiler from loading weights uniformly: up to 5.6× one network in Chrome on an AMD iGPU,
+    against 0.9–1.1× on an NVIDIA GPU under Node/Dawn.
+  - At 16 species, rows were faster on every measured host. At 8, they were faster everywhere
+    except in Chrome at 20,000–100,000 agents.
+  - Spawn each species in one contiguous index block when you can.
+- **Cost for one brain:** a system with one brain reads one more uniform per thinking agent than
+  before.
 
 ## Instances, highlights, labels and picking
 
@@ -261,19 +372,25 @@ appropriate to their bindings. Remove visibility draw batches before destroying 
 Update the active sequence so later frames do not reference released draws or buffers.
 
 `AgentSystem.destroy()` is idempotent, disables its stages and releases its owned buffers/grid.
-It does not destroy the caller's engine/device, visibility rows, brain or auxiliary app buffers.
+It does not destroy the caller's engine/device, visibility rows, brains or auxiliary app buffers.
 Dispose those caller-owned resources separately once no dependent work can use them.
 
 ## Current validation and limits
 
 Headless tests cover layouts, CPU mirrors, generated WGSL, the MLP's mathematics and validation,
 request queues and refusals. The agents GPU suite covers the production loop, instance output,
-picking, label following, inspection, the allocation/upload budget, teardown (A20) and
-`MlpBrain` on the production chain (A4): 120/120 checks on Node/Dawn and in Chrome, zero WebGPU
-errors. A4's networks, from one affine layer to the largest allowed shape, agree with
+picking, label following, inspection, the allocation/upload budget, teardown (A20), `MlpBrain`
+on the production chain (A4), weight-table rows (A21) and per-species passes (A22). It passes
+124/124 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU and on an NVIDIA GPU, and in
+Chrome. A4's networks, from one affine layer to the largest allowed shape, agree with
 `mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA
-GPU. Both TypeScript examples in this guide are type-checked and bundled, and their generated
-think WGSL parsed, by `test/agents-api-example.test.mjs` in `npm run test:agents`.
+GPU.
+
+`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's three TypeScript
+examples:
+- each one type-checks and bundles, and its generated think WGSL parses;
+- the network example's numbers match its comment;
+- the per-species example runs on a stand-in engine that checks its passes and compiles.
 
 Integrated-demo CPU frame work averaged 0.57 ms at 4,096 agents and 0.60 ms at 16,384 agents on
 an AMD GCN-5/Chrome host: means of the host's roughly 250 ms reporting windows, not GPU time or a

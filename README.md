@@ -101,7 +101,9 @@ Additional environment APIs are documented by feature rather than implementation
 
 `AgentSystem` keeps live simulation state on the GPU and exposes explicit frame and lockstep
 scheduling. `RuleBrain` runs application WGSL; `MlpBrain` evaluates a supplied dense network.
-Neither policy is restricted to predator/prey or flocking behaviour. Applications define their
+Each species can run its own brain (`setBrain(brain, { species })`), so rules and networks of
+different shapes can share one system. Neither policy is restricted to predator/prey or flocking
+behaviour. Applications define their
 observations, action semantics and additional simulation stages.
 
 The built-in movement and neighbour-query model is currently planar (XZ). Neural inference is
