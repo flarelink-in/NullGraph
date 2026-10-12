@@ -1,9 +1,10 @@
 // Bounded nearest query: one invocation per agent, distance/index insertion ordering.
 import { pointCellWGSL } from '../spatial/gridShaders';
+import { GRID_WINDOW_WGSL } from './agentGridWindow';
 import { AGENT_STRUCT_WGSL, MAX_NEAREST_K, type AgentDefinition } from './agentLayout';
 
 /** Output is k indices per agent, padded with 0xffffffff. Dead query agents match the CPU mirror.
- * Atomic scatter order is unspecified: over-budget query subsets may vary between builds. */
+ * Over-budget cells use a deterministic per-agent, per-tick rotating window. */
 export function buildAgentGridQueryWGSL(def: AgentDefinition, mask: number, radius: number, k: number,
     options: { stride?: number; base?: number } = {}): string {
     const stride = options.stride ?? k, base = options.base ?? 0;
@@ -21,6 +22,8 @@ export function buildAgentGridQueryWGSL(def: AgentDefinition, mask: number, radi
 @group(0) @binding(2) var<storage, read> offsets: array<u32>;
 @group(0) @binding(3) var<storage, read> bodies: array<u32>;
 @group(0) @binding(4) var<storage, read_write> result: array<u32>;
+@group(0) @binding(5) var<storage, read> tick: u32;
+${GRID_WINDOW_WGSL}
 ${pointCellWGSL(def)}
 @compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;
@@ -36,9 +39,13 @@ ${pointCellWGSL(def)}
     for (var z = max(0, cz - 1); z <= min(${def.grid.cellsZ - 1}, cz + 1); z++) {
         for (var x = max(0, cx - 1); x <= min(${def.grid.cellsX - 1}, cx + 1); x++) {
             let c = u32(z) * ${def.grid.cellsX}u + u32(x);
-            let end = offsets[c] + min(counts[c], ${def.maxScanPerCell}u);
-            for (var at = offsets[c]; at < end; at++) {
-                let j = bodies[at];
+            let count = counts[c];
+            var start = 0u;
+            if (count > ${def.maxScanPerCell}u) { start = gridWindow(i, tick) % count; }
+            for (var s = 0u; s < min(count, ${def.maxScanPerCell}u); s++) {
+                var at = start + s;
+                if (at >= count) { at -= count; }
+                let j = bodies[offsets[c] + at];
                 if (j == i || (agents[j].ids.y & 1u) == 0u ||
                     ((${mask}u >> agents[j].ids.x) & 1u) == 0u) { continue; }
                 let delta = agents[j].posRadius.xz - pos.xz;

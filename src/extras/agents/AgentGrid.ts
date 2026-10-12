@@ -7,6 +7,7 @@ import { buildAgentGridQueryWGSL } from './agentGridShaders';
  * capacity × k u32 indices, nearest-first, padded with 0xffffffff. */
 export class AgentGrid extends PointGrid {
     public readonly neighbours: GPUBuffer;
+    private readonly tick: GPUBuffer;
     private readonly sequence: ComputeStageNode[];
     private queryDestroyed = false;
 
@@ -20,11 +21,16 @@ export class AgentGrid extends PointGrid {
             flagsOffset: AGENT_FLAGS_OFFSET, aliveMask: AGENT_FLAG_ALIVE });
         this.neighbours = engine.device.createBuffer({ label: 'AgentGrid neighbours',
             size: definition.capacity * k * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+        this.tick = engine.device.createBuffer({ label: 'AgentGrid tick', size: 4, usage: GPUBufferUsage.STORAGE });
         const query = engine.createComputeStage({ name: 'AgentGrid nearest', shaderCode: code,
             dispatchCount: [Math.ceil(definition.capacity / 64), 1, 1] });
-        engine.setComputePassBindGroup(query, [records, this.cellCounts, this.cellOffsets, this.cellBodies, this.neighbours]
+        engine.setComputePassBindGroup(query, [records, this.cellCounts, this.cellOffsets, this.cellBodies, this.neighbours, this.tick]
             .map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
-        this.sequence = [...super.getComputeStages(), query];
+        const tick = engine.createComputeStage({ name: 'AgentGrid tick', shaderCode: `
+@group(0) @binding(0) var<storage, read_write> tick: u32;
+@compute @workgroup_size(1) fn cs_main() { tick++; }`, dispatchCount: [1, 1, 1] });
+        engine.setComputePassBindGroup(tick, [{ binding: 0, resource: { buffer: this.tick } }], 0);
+        this.sequence = [...super.getComputeStages(), query, tick];
     }
 
     public override getComputeStages(): ComputeStageNode[] {
@@ -37,6 +43,7 @@ export class AgentGrid extends PointGrid {
         this.queryDestroyed = true;
         for (const stage of this.sequence) stage.enabled = false;
         this.neighbours.destroy();
+        this.tick.destroy();
         super.destroy();
     }
 }

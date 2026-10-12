@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import * as A from '../dist/agents.js';
+import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 
 // Shared spatial code is internal, not a new package subpath.
 const bundle = await build({ entryPoints: [fileURLToPath(new URL('../src/extras/spatial/gridMath.ts', import.meta.url))],
@@ -15,6 +16,47 @@ const definition = (over = {}) => A.defineAgents({ capacity: 64, world: { min: [
     cellSize: 4, species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
     sensors: [A.Sensors.nearest({ k: 8 })], ...over });
 const gridFor = (def, rec) => G.buildPointGrid(def, rec.data, A.AGENT_FLOATS, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
+
+test('U23: one, two and three-pass radix kernels parse; stable block model equals CPU cells', () => {
+    for (const total of [255, 6400, 1048576]) {
+        const radix = A.gridRadixLayout(total), count = 777;
+        new WgslReflect(A.buildGridKeysWGSL(definition(), count, 16, 13, 1));
+        const keys = Array.from({ length: count }, (_, i) => i % 17 === 0 ? total : Math.floor(random() * total));
+        let entries = keys.map((key, index) => ({ key, index }));
+        for (let p = 0; p < radix.passes; p++) {
+            new WgslReflect(A.buildGridHistogramWGSL(count, radix.bits, p * radix.bits));
+            new WgslReflect(A.buildGridStableScatterWGSL(count, radix.bits, p * radix.bits));
+            const blocks = Math.ceil(count / 256), table = new Uint32Array(radix.buckets * blocks);
+            const digit = e => (e.key >>> (p * radix.bits)) & (radix.buckets - 1);
+            entries.forEach((e, i) => table[digit(e) * blocks + Math.floor(i / 256)]++);
+            const offsets = G.prefixOffsets(table), next = new Array(count);
+            entries.forEach((e, i) => {
+                let rank = 0;
+                for (let before = Math.floor(i / 256) * 256; before < i; before++) if (digit(entries[before]) === digit(e)) rank++;
+                next[offsets[digit(e) * blocks + Math.floor(i / 256)] + rank] = e;
+            });
+            entries = next;
+        }
+        assert.deepEqual(entries, keys.map((key, index) => ({ key, index })).sort((a, b) => a.key - b.key || a.index - b.index));
+    }
+});
+
+test('U23: crowded windows wrap, vary by tick and observer, while within-budget results do not', () => {
+    const def = definition({ maxScanPerCell: 2 }), rec = new A.AgentRecords(def);
+    for (let i = 0; i < 9; i++) rec.spawn(i, { position: [1, 0, 1], species: 0 });
+    const grid = gridFor(def, rec), seen = new Set();
+    for (let tick = 0; tick < 40; tick++) for (let i = 0; i < 9; i++) {
+        const start = A.gridWindow(i, tick) % 9, expected = [start, (start + 1) % 9].filter(j => j !== i).sort((a, b) => a - b);
+        const actual = [];
+        assert.equal(A.gridNearestNeighbours(def, rec, grid, i, 1, 4, 3, actual, tick), expected.length);
+        assert.deepEqual(actual, expected); seen.add(start);
+    }
+    assert.equal(seen.size, 9);
+    const whole = { ...def, maxScanPerCell: 9 }, a = [], b = [];
+    A.gridNearestNeighbours(whole, rec, grid, 0, 1, 4, 3, a, 0);
+    A.gridNearestNeighbours(whole, rec, grid, 0, 1, 4, 3, b, 39);
+    assert.deepEqual(a, b);
+});
 
 test('U2: 4096 positions, every grid line and closed/clamped boundary faces', () => {
     const def = definition();
@@ -82,7 +124,9 @@ test('U2/U3: crowded cells retain every index, count excess once, and bound the 
     const grid = gridFor(def, rec), out = [];
     assert.equal(grid.overflow, 4);
     assert.equal(grid.cellBodies.length, 6);
-    assert.equal(A.gridNearestNeighbours(def, rec, grid, 0, 1, 4, 3, out), 1);
-    assert.deepEqual(out, [1]);
+    const start = A.gridWindow(0, 0) % 6;
+    const expected = [start, (start + 1) % 6].filter(i => i !== 0).sort((a, b) => a - b);
+    assert.equal(A.gridNearestNeighbours(def, rec, grid, 0, 1, 4, 3, out), expected.length);
+    assert.deepEqual(out, expected);
     assert.throws(() => A.gridNearestNeighbours(def, rec, grid, 0, 1, 5, 3, []), /radius/);
 });

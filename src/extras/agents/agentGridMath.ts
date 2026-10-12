@@ -3,11 +3,12 @@ import { type PointGridMirror, pointCell } from '../spatial/gridMath';
 import { AGENT_FLOATS, AGENT_FLAGS_OFFSET, AGENT_FLAG_ALIVE, AGENT_SPECIES_OFFSET, MAX_NEAREST_K,
     type AgentDefinition } from './agentLayout';
 import { type RecordViews } from './agentMath';
+import { gridWindow } from './agentGridWindow';
 
 /** Exact below the scan budget; overflowing cells intentionally expose the GPU's bounded scan. */
 export function gridNearestNeighbours(
     def: AgentDefinition, rec: RecordViews, grid: PointGridMirror, i: number,
-    mask: number, radius: number, k: number, out: { [n: number]: number },
+    mask: number, radius: number, k: number, out: { [n: number]: number }, tick = 0,
 ): number {
     if (!(Number.isFinite(radius) && radius >= 0 && radius <= def.cellSize &&
         Number.isInteger(k) && k >= 1 && k <= MAX_NEAREST_K)) {
@@ -20,10 +21,10 @@ export function gridNearestNeighbours(
     let found = 0;
     for (let z = Math.max(0, cz - 1); z <= Math.min(cellsZ - 1, cz + 1); z++) {
         for (let x = Math.max(0, cx - 1); x <= Math.min(cellsX - 1, cx + 1); x++) {
-            const c = z * cellsX + x, start = grid.cellOffsets[c];
-            const end = start + Math.min(grid.cellCounts[c], def.maxScanPerCell);
-            for (let at = start; at < end; at++) {
-                const j = grid.cellBodies[at], b = j * AGENT_FLOATS;
+            const c = z * cellsX + x, count = grid.cellCounts[c];
+            const start = count > def.maxScanPerCell ? gridWindow(i, tick) % count : 0;
+            for (let s = 0; s < Math.min(count, def.maxScanPerCell); s++) {
+                const j = grid.cellBodies[grid.cellOffsets[c] + (start + s) % count], b = j * AGENT_FLOATS;
                 if (j === i || !(rec.u32[b + AGENT_FLAGS_OFFSET] & AGENT_FLAG_ALIVE) ||
                     !((mask >>> rec.u32[b + AGENT_SPECIES_OFFSET]) & 1)) continue;
                 const dx = rec.data[b] - rec.data[i * AGENT_FLOATS];

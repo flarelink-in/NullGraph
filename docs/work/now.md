@@ -17,16 +17,25 @@ log, not here.
     - crowded cells yield a window rotating per querying agent and tick;
     - the numbers come back to the user only if the sort adds more than about 10% to a step at
       4,096 or 65,536 agents, on any host.
-  - **Next: phase 5.5**, a spike on today's code, on three host/GPU pairs:
-    - A23's scenario with heavy overflow, counting the differing words;
-    - the baseline step time and grid share at 4,096 and 65,536 agents, with Herd & Wolves' setup.
-  - **Then:** 5.6 (build), 5.7 (cost after), 5.8 (docs, including today's custom-sensor limits and
-    the parent's claim).
+  - **5.5 measured** (the spike `test/spikes/grid-order/`, not committed):
+    - today's grid diverges on all three host/GPU pairs: about 16,300–19,300 of 65,536 record
+      words differ after 200 identical overflowing steps;
+    - the grid build is 0.3–3.4% of a step;
+    - under the 10% rule the sort may add at most about 51–89 µs at 4,096 agents (the tightest is
+      NVIDIA's 51 µs), and 1.4–12 ms at 65,536.
+   - **5.6 in progress (Cline, uncommitted):** stable radix scatter, window/tick bindings and CPU
+     mirror implemented. A1 is exact; A23 overflowing reruns pass. Agents GPU: 130/130 on
+     Node/AMD, Node/NVIDIA and Chrome/AMD, zero GPU errors. Headless checks extended with U23.
+   - **Next:** finish 5.6's atomic-scatter watched-failing mutation and review U23 coverage,
+     including several AgentGrid ticks and buffer-limit cleanup; then measure 5.7 in isolation.
+  - **Then:** 5.7 (cost after, with the same spike) and 5.8 (docs, including today's custom-sensor
+    limits and the parent's claim).
 - **Then: step 7, part 2:** record → train → export, per species.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed): Claude's work is all committed.
+- **null-graph** (`master`, not pushed): Claude's work is committed except phase 5.5: the spike
+  (`test/spikes/grid-order/`) and its results in the step 5 design and `docs/work`.
   - **Uncommitted, not Claude's:** camera input work (`src/extras/cameras/OrbitalEventProxy.ts`,
     `docs/api/cameras.md`, `test/cameras-input.test.mjs`, a `test:cameras` script in
     `package.json`). Leave it to its owner, and validate commits alone in a worktree. Do not add

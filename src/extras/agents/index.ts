@@ -2,6 +2,7 @@ export * from './agentLayout';
 export * from './agentRecords';
 export * from './agentMath';
 export * from './agentGridMath';
+export * from './agentGridWindow';
 export * from '../spatial/gridMath';
 export * from '../spatial/gridShaders';
 export * from './agentGridShaders';

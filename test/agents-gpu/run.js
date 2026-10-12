@@ -78,34 +78,37 @@ for (const layout of ['uniform', 'boundaries', 'ties', 'crowded']) {
     }
     const cpu = A.buildPointGrid(def, rec.data, A.AGENT_FLOATS, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
     const records = buffer(rec.data.length, rec.data), counts = buffer(def.grid.cellTotal);
-    const cursors = buffer(def.grid.cellTotal), bodies = buffer(def.capacity), overflow = buffer(1);
+    const bodies = buffer(def.capacity), overflow = buffer(1);
     const enc = device.createCommandEncoder();
     dispatch(enc, A.buildGridBinWGSL(def, def.capacity, 16, 13, 1, def.maxScanPerCell), [records, counts, overflow], Math.ceil(def.capacity / 64));
     const offsets = scan(enc, counts, def.grid.cellTotal);
-    dispatch(enc, A.buildGridScatterWGSL(def, def.capacity, 16, 13, 1), [records, offsets, cursors, bodies], Math.ceil(def.capacity / 64));
+    const radix = A.gridRadixLayout(def.grid.cellTotal), blocks = Math.ceil(def.capacity / A.GRID_SCAN_BLOCK);
+    const keys = [buffer(def.capacity), buffer(def.capacity)], values = [buffer(def.capacity), buffer(def.capacity)];
+    const table = buffer(radix.buckets * blocks);
+    dispatch(enc, A.buildGridKeysWGSL(def, def.capacity, 16, 13, 1), [records, keys[0], values[0]], Math.ceil(def.capacity / 64));
+    for (let p = 0; p < radix.passes; p++) {
+        const src = p % 2, dst = 1 - src;
+        dispatch(enc, A.buildGridHistogramWGSL(def.capacity, radix.bits, p * radix.bits), [keys[src], table], blocks);
+        const sortedOffsets = scan(enc, table, radix.buckets * blocks);
+        dispatch(enc, A.buildGridStableScatterWGSL(def.capacity, radix.bits, p * radix.bits),
+            [keys[src], values[src], sortedOffsets, keys[dst], p === radix.passes - 1 ? bodies : values[dst]], blocks);
+    }
     const queries = [1, 2, 3].map(mask => {
         const result = buffer(def.capacity * 8);
-        dispatch(enc, A.buildAgentGridQueryWGSL(def, mask, 4, 8), [records, counts, offsets, bodies, result], Math.ceil(def.capacity / 64));
+        dispatch(enc, A.buildAgentGridQueryWGSL(def, mask, 4, 8), [records, counts, offsets, bodies, result, buffer(1)], Math.ceil(def.capacity / 64));
         return { mask, result };
     });
     device.queue.submit([enc.finish()]);
     const gpuCounts = await read(counts, def.grid.cellTotal), gpuOffsets = await read(offsets, def.grid.cellTotal + 1);
     const gpuBodies = await read(bodies, def.capacity), gpuOverflow = (await read(overflow, 1))[0];
     check(`A1 ${layout}: counts, offsets and overflow`, equal(gpuCounts, cpu.cellCounts) && equal(gpuOffsets, cpu.cellOffsets) && gpuOverflow === cpu.overflow);
-    let membership = true;
-    for (let c = 0; c < def.grid.cellTotal; c++) {
-        const start = cpu.cellOffsets[c], end = cpu.cellOffsets[c + 1];
-        if (!equal(gpuBodies.slice(start, end).sort(), cpu.cellBodies.slice(start, end).sort())) membership = false;
-    }
-    check(`A1 ${layout}: cell membership sets, all live indices retained`, membership);
-    // Overflow is intentionally approximate; compare against the actual GPU scatter order.
-    const mirror = { cellCounts: gpuCounts, cellOffsets: gpuOffsets, cellBodies: gpuBodies, overflow: gpuOverflow };
+    check(`A1 ${layout}: exact cell/index order, all live indices retained`, equal(gpuBodies.slice(0, cpu.cellBodies.length), cpu.cellBodies));
     for (const { mask, result } of queries) {
         const actual = await read(result, def.capacity * 8);
         let matches = true;
         for (let i = 0; i < def.capacity; i++) {
             const expected = [];
-            const n = A.gridNearestNeighbours(def, rec, mirror, i, mask, 4, 8, expected);
+            const n = A.gridNearestNeighbours(def, rec, cpu, i, mask, 4, 8, expected, 0);
             for (let j = 0; j < 8; j++) if (actual[i * 8 + j] !== (j < n ? expected[j] : 0xffffffff)) matches = false;
         }
         check(`A1 ${layout}: bounded nearest, species mask ${mask}`, matches);
@@ -137,9 +140,10 @@ check('wrapper: two builds in one submission reset counts/overflow',
 const counts = await read(grid.cellCounts, 16), offsets = await read(grid.cellOffsets, 17), bodies = await read(grid.cellBodies, def.capacity);
 const actual = await read(grid.neighbours, def.capacity * 8);
 let matches = true;
+const wrapperCPU = A.buildPointGrid(def, rec.data, 16, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
 for (let i = 0; i < def.capacity; i++) {
     const expected = [];
-    const n = A.gridNearestNeighbours(def, rec, { cellCounts: counts, cellOffsets: offsets, cellBodies: bodies }, i, 1, 4, 8, expected);
+    const n = A.gridNearestNeighbours(def, rec, wrapperCPU, i, 1, 4, 8, expected, 1);
     for (let j = 0; j < 8; j++) if (actual[i * 8 + j] !== (j < n ? expected[j] : 0xffffffff)) matches = false;
 }
 check('wrapper: query buffer equals CPU bounded oracle for 10000 agents', matches);
@@ -542,6 +546,47 @@ for (let run = 0; run < 2; run++) {
     replay.destroy();
 }
 check('A7: two seeded 600-step runs produce byte-identical agent records', equal(...replayResults));
+
+// A23: unlike A7, every step deliberately exceeds the cell scan budget.
+const overflowDef = A.defineAgents({ capacity: 4096, world: { min: [-80, -80], max: [80, 80] },
+    cellSize: 8, maxScanPerCell: 8,
+    species: [{ name: 'prey', maxSpeed: 3.2, maxTurn: 4, accel: 6, senseRadius: 8, radius: 0.4 },
+        { name: 'wolf', maxSpeed: 4.2, maxTurn: 3, accel: 5, senseRadius: 8, radius: 0.6 }],
+    sensors: [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }),
+        A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 3 }), A.Sensors.bounds()] });
+const overflowStart = new A.AgentRecords(overflowDef);
+for (let i = 0; i < 4096; i++) overflowStart.spawn(i, {
+    position: [-12 + random() * 24, 0, -12 + random() * 24], species: i < 256 ? 1 : 0,
+    heading: random() * Math.PI * 2, speed: 1 });
+const overflowBrain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    let wall = -3.0 * obs(i, OBS_BOUNDS + BOUNDS_SIDE);
+    if (species == SPECIES_WOLF) {
+        setAct(i, ACT_TURN, clamp(sign(obs(i, OBS_PREY_0 + NEAR_SIDE)) + wall, -1.0, 1.0));
+        setAct(i, ACT_THROTTLE, 1.0);
+    } else {
+        let near = obs(i, OBS_WOLF_0 + NEAR_PRESENT);
+        setAct(i, ACT_TURN, clamp(-sign(obs(i, OBS_WOLF_0 + NEAR_SIDE)) * near + wall, -1.0, 1.0));
+        setAct(i, ACT_THROTTLE, 0.4 + 0.6 * near);
+    }
+    setReason(i, species + 1u);
+}`);
+const overflowRuns = [];
+for (let run = 0; run < 2; run++) {
+    const s = new A.AgentSystem(engine, overflowDef, { thinkEvery: 3 });
+    s.setBrain(overflowBrain);
+    s.records.data.set(overflowStart.data); s.records.markDirty(0, 4095);
+    for (let tick = 0; tick < 200; tick++) await s.step();
+    const state = await read(s.state, 4);
+    check(`A23 run ${run + 1}: 200 ticks with overflow every step`, state[0] === 200 && state[1] === 200 && state[2] > 0);
+    const result = {};
+    for (const [name, words] of [['buffer', 4096 * 16], ['obs', 4096 * overflowDef.obsDim], ['act', 8192], ['reason', 4096]]) {
+        result[name] = await read(s[name], words);
+    }
+    overflowRuns.push(result); s.destroy();
+}
+for (const name of ['buffer', 'obs', 'act', 'reason']) {
+    check(`A23: overflowing reruns are byte-identical (${name})`, equal(overflowRuns[0][name], overflowRuns[1][name]));
+}
 
 // Custom integration runs only after age/frozen checks, with the same bindings as steering.
 const customDef = A.defineAgents({ capacity: 3, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
