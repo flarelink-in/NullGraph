@@ -124,6 +124,22 @@ A Web Worker can fill the raw arrays directly; the exact byte layout is in the
 **The bounding sphere must enclose the mesh.** A too-small radius culls geometry that is actually
 visible — the most common source of "things pop out at the screen edge."
 
+### Rows written on the GPU
+
+When a compute stage writes the rows itself (an agent system, a particle simulation), there is no
+CPU array to adopt. Set the count instead:
+
+```ts
+vis.setInstanceCount(n);   // the culls dispatch over n rows; upload() now writes only cull params
+// Rows that never move can share the system: write them once, nothing overwrites them.
+device.queue.writeBuffer(vis.instanceBuffer, 0, props.data);
+```
+
+`vis.instanceSource` reads `'gpu'` after `setInstanceCount()` and `'cpu'` otherwise. A later
+`setInstances(data, count)` adopts an array again, and `upload()` resumes copying it every frame.
+Splice the stage that writes the rows **before** `vis.getComputeStages()`, so the culls read this
+frame's rows.
+
 ## 4. Register draw batches
 
 One per unique mesh (instance tier) or per material (meshlet tier).
@@ -298,6 +314,7 @@ return [
 | `mode: 'two-phase'` | throws (reserved for a later build) |
 | `maxInstances < 1` | throws |
 | `setInstances` count > `maxInstances` | throws |
+| `setInstanceCount` count > `maxInstances`, negative or not a whole number | throws |
 | instance-tier batch before `setGeometry(mega)` | throws |
 | meshlet tier without `setGeometry(mega, pack)` | throws |
 | meshlet tier without `maxMeshletsPerInstance` / `maxVisibleMeshletInstances` | throws |

@@ -14,7 +14,7 @@ file so the parent stays a plan.
 
 **Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
 and §7.3 record what it decided. ✅ Phases 3.1–3.5 are implemented, validated and committed
-(3.5 as `f5cfd46`, 2026-10-12). Step 4 is next, from phase 4.1.
+(3.5 as `f5cfd46`, 2026-10-12). ✅ Phase 4.1 is implemented, validated and committed; 4.2 is next.
 
 **Phase 3.5 results, 2026-10-11:** `debug-ui/agentDrawing.ts` implements the §8.4 draw with
 species RGB overrides, dead clipping and GPU-owned position/heading/radius. Two new headless
@@ -807,6 +807,7 @@ The parent's messages are reused verbatim where they exist, marked †.
 | Index out of range † | `AgentSystem: index <i> is outside capacity <n>.` (spawn, kill, inspect, setHighlight) |
 | After destroy † | `AgentSystem: used after destroy().` |
 | Visibility count | `VisibilitySystem: setInstanceCount received <n> instances, exceeding maxInstances <m>.` (the wording of `setInstances`, `VisibilitySystem.ts:189`) |
+| Visibility count not a count | `VisibilitySystem: setInstanceCount needs a whole number of instances ≥ 0; got <n>.` (added in phase 4.1: a NaN or fractional count would break the cull's dispatch size) |
 
 All of these are thrown at construction or at the call, never per frame (design-principles §2).
 The capacity's dispatch limit is already enforced by `PointGrid` (`PointGrid.ts:41-46`).
@@ -823,6 +824,8 @@ ship. The core bundle grows by **0 B**.
 ### 12.2 Visibility — required for step 4: `vis.setInstanceCount(n)` and `instanceSource`
 
 This is the parent's §12.2, unchanged: about +40–60 B min + gzip, with U18 watched failing first.
+**Measured in phase 4.1: +125 B** (13,059 → 13,184 B min + gzip for `visibility`), more than the
+estimate because of the second refusal message (§11).
 
 **Zero-change fallback:** keep a dummy CPU array, call `setInstances(dummy, n)`, and let the
 instance stage overwrite the uploaded garbage every frame. It works, at the cost of 1.92 MB of
@@ -859,6 +862,23 @@ need. Visibility grows by about 60 B, `debug-ui` by about 1 KB (`agentArrows`), 
 ---
 
 ## 13. Build order — phases
+
+### Phase 4.1 implementation result — 2026-10-12
+
+`VisibilitySystem.setInstanceCount(n)` sets the count the culls dispatch over and drops the adopted
+array, so `upload()` writes only cull parameters; `setInstances()` switches back. A read-only
+`instanceSource` reads `'gpu'` after `setInstanceCount()` and `'cpu'` otherwise (including before
+either call, so `toInstances()` will refuse a system nobody has handed to the GPU).
+- **U18** (`test/visibility-lifecycle.test.mjs`, mock device): `upload()` issues no instance write,
+  the cull params carry n and the dispatch is ⌈n / 64⌉, `setInstances` switches back, and a count
+  past `maxInstances`, negative, fractional or NaN is refused. Watched failing before the method
+  existed, and again against an injected bug that keeps the adopted array.
+- **V4** (`test/visibility-gpu`, real GPU): rows written straight into `vis.instanceBuffer` after
+  `setInstanceCount` survive two `upload()`s and are culled exactly (10 of 16 in view). With the same
+  injected bug the stale array comes back and 0 draw, so the check can fail. 6/6 on Node/Dawn
+  (NVIDIA Turing) and in Chrome (AMD GCN-5), zero WebGPU errors.
+- **Bundle:** `visibility` +125 B min + gzip (§12.2). Core and `agents.js` unchanged.
+- **Docs:** `api/visibility.md` ("Rows written on the GPU", errors) and the shader reference.
 
 ### Phase 3.4 implementation result — 2026-10-11
 
@@ -998,7 +1018,7 @@ Every phase ends the same way:
 | **3.3** ✅ | The act generator                                                                                                                                                                                                                                                                                                                                                                                       | U9 (act); A3, A14, A7                                                                                                                                                                                                           | —                                                                                                                                                       |
 | **3.4** ✅ | The think stage, `RuleBrain`, helpers, `thinkEvery`, app step stages                                                                                                                                                                                                                                                                                                                                    | U17; A15, A16, A18                                                                                                                                                                                                              | —                                                                                                                                                       |
 | **3.5** ✅ | `agentArrows()`; a live demo in the test-engine site (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`), route `/dashboard/agents/herd-wolves-gpu` under Agent Experiments, beside the CPU preview (`/dashboard/agents/herd-wolves-preview`): about 4,000 agents, the preview's brain ported to WGSL, catches and respawn as app stages, the grid overlay as a toggle                           | `npm run drive` exits 0 with zero WebGPU errors; screenshots reviewed                                                                                                                                                           | The herd running entirely on the GPU, drawn as arrows                                                                                                   |
-| **4.1**   | `vis.setInstanceCount` + `instanceSource`                                                                                                                                                                                                                                                                                                                                                               | U18, watched failing first                                                                                                                                                                                                      | —                                                                                                                                                       |
+| **4.1** ✅ | `vis.setInstanceCount` + `instanceSource`                                                                                                                                                                                                                                                                                                                                                               | U18, watched failing first; V4 (visibility GPU) on both hosts                                                                                                                                                                                                      | —                                                                                                                                                       |
 | **4.2**   | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal                                                                                                                                                                                                                                                                                                                    | U19; A17                                                                                                                                                                                                                        | Darts instead of arrows                                                                                                                                 |
 | **4.3**   | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
 | **4.4**   | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |

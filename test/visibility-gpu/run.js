@@ -7,6 +7,8 @@
 //       the mirror is pinned headless; this pins the kernel to the mirror
 //   V3  Hi-Z: geometry behind a wall is not drawn — and the inverted half, so the check can fail:
 //       frame 0 (no depth history) and a frame with the wall moved both draw everything
+//   V4  rows owned by the GPU: after setInstanceCount, upload() writes no rows, so rows written
+//       straight into vis.instanceBuffer are culled and drawn (agents design §9.1)
 //
 // Two hosts, one file (test/gpu/harness-env.mjs): `npm run test:gpu`, or
 // `npm run dev:serve` → http://localhost:3000/test/visibility-gpu/.
@@ -230,6 +232,49 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
         frame1 === FRONT, `frame1 spheres=${frame1} want=${FRONT} (hidden=${HIDDEN} must be culled)`);
     check('V3c: with the wall moved behind them, the same spheres are drawn again (the cull is the wall)',
         frame3 === HIDDEN + FRONT, `after moving the wall: spheres=${frame3} want=${HIDDEN + FRONT}`);
+
+    vis.destroy();
+    t.color.destroy(); t.depth.destroy();
+    engine.clearPasses();
+}
+
+// ---------------------------------------------------------------------------
+// V4 — rows owned by the GPU (setInstanceCount): upload() no longer overwrites them
+// ---------------------------------------------------------------------------
+{
+    const vis = new VisibilitySystem(engine, { maxInstances: 64 });
+    vis.setGeometry(mega);
+    const t = makeTargets('V4 scene');
+    const spheres = vis.createInstanceDrawBatch(t.pass, 'sphere', SPHERE);
+    const camera = new Camera(60, 1, 0.1, 200);
+    camera.updateView([0, 0, 12], [0, 0, 0]);
+    engine.updateCamera(camera);
+
+    const N = 16, IN_VIEW = 10;
+    const m = mat4.create();
+    // A CPU array whose rows are all behind the camera: if upload() still copied it, nothing would draw.
+    const stale = new InstanceBuffer(N);
+    for (let i = 0; i < N; i++) { mat4.fromTranslation(m, [i, 0, 40]); stale.write(i, m, LOCAL_BOUNDS[SPHERE], SPHERE); }
+    vis.setInstances(stale.data, N);
+    // The rows the "simulation" owns: IN_VIEW in front of the camera, the rest behind it.
+    const rows = new InstanceBuffer(N);
+    for (let i = 0; i < N; i++) {
+        mat4.fromTranslation(m, i < IN_VIEW ? [(i % 5) * 1.5 - 3, Math.floor(i / 5) * 1.5, 0] : [i, 0, 40]);
+        rows.write(i, m, LOCAL_BOUNDS[SPHERE], SPHERE);
+    }
+    vis.setInstanceCount(N);
+    device.queue.writeBuffer(vis.instanceBuffer, 0, rows.data);
+    const frame = async () => {
+        vis.upload();
+        engine.render([...vis.getComputeStages(), t.pass]);
+        return (await readArgs(spheres))[1];
+    };
+    const first = await frame();
+    const second = await frame();   // a second upload() must not bring the stale array back
+    await saveImage('visibility-v4-gpu-rows', await readColor(t.color), S, S);
+    check('V4: after setInstanceCount, rows written to vis.instanceBuffer survive upload() and are culled',
+        vis.instanceSource === 'gpu' && first === IN_VIEW && second === IN_VIEW,
+        `source=${vis.instanceSource}, spheres drawn ${first} then ${second}, want ${IN_VIEW}`);
 
     vis.destroy();
     t.color.destroy(); t.depth.destroy();

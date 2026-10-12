@@ -66,11 +66,13 @@ export class VisibilitySystem {
      * The instance records on the GPU (`INSTANCE_FLOATS` per instance, STORAGE). Public read-only
      * so other GPU consumers can read the same data with no copy — labels following instances
      * (`TextSystem` `follow: { buffer, strideFloats: 24, positionOffset: 12 }`), a simulation's
-     * compute stage. Written by `upload()`.
+     * compute stage. Written by `upload()` from the `setInstances()` array — or, after
+     * `setInstanceCount()`, only by the GPU and `queue.writeBuffer`.
      */
     public readonly instanceBuffer: GPUBuffer;
     private instanceStaging: Float32Array | null = null;
     private instanceCount: number = 0;
+    private gpuRows = false;
 
     // --- geometry (setGeometry) ---
     private mega: MegabufferBuilder | null = null;
@@ -190,6 +192,30 @@ export class VisibilitySystem {
         }
         this.instanceStaging = data;
         this.instanceCount = count;
+        this.gpuRows = false;
+    }
+
+    /**
+     * Rows written on the GPU — an agent system's instance stage, a simulation. Sets the count the
+     * culls dispatch over and drops any adopted array, so `upload()` writes only the cull params
+     * and never overwrites a row. Rows that share the system and never move are written once with
+     * `device.queue.writeBuffer(vis.instanceBuffer, …)`. `setInstances()` switches back.
+     */
+    public setInstanceCount(count: number): void {
+        if (!Number.isInteger(count) || count < 0) {
+            throw new Error(`VisibilitySystem: setInstanceCount needs a whole number of instances ≥ 0; got ${count}.`);
+        }
+        if (count > this.config.maxInstances) {
+            throw new Error(`VisibilitySystem: setInstanceCount received ${count} instances, exceeding maxInstances ${this.config.maxInstances}.`);
+        }
+        this.instanceStaging = null;
+        this.instanceCount = count;
+        this.gpuRows = true;
+    }
+
+    /** `'gpu'` after `setInstanceCount()`: nothing on the CPU writes the rows. `'cpu'` otherwise. */
+    public get instanceSource(): 'cpu' | 'gpu' {
+        return this.gpuRows ? 'gpu' : 'cpu';
     }
 
     /** Blast the instance array to VRAM and refresh every cull stage's params. Once per frame. */
