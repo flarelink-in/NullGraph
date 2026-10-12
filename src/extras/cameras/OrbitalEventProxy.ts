@@ -12,15 +12,16 @@ export class OrbitalEventProxy {
     private zoomSensitivity: number;
     private onInput: (type: 'ROTATE' | 'ZOOM', x: number, y: number) => void;
 
-    private isDragging: boolean = false;
-    private lastX: number = 0;
-    private lastY: number = 0;
+    private pointers = new Map<number, { x: number; y: number }>();
+    private touchAction: string;
 
     constructor(options: OrbitalProxyOptions) {
         this.canvas = options.canvas;
         this.sensitivity = options.sensitivity ?? 0.01;
         this.zoomSensitivity = options.zoomSensitivity ?? 0.05;
         this.onInput = options.onInput;
+        this.touchAction = this.canvas.style.touchAction;
+        this.canvas.style.touchAction = 'none';
 
         this.initEvents();
     }
@@ -29,30 +30,44 @@ export class OrbitalEventProxy {
         this.canvas.addEventListener('pointerdown', this.onPointerDown);
         window.addEventListener('pointermove', this.onPointerMove);
         window.addEventListener('pointerup', this.onPointerUp);
+        window.addEventListener('pointercancel', this.onPointerUp);
+        window.addEventListener('blur', this.onBlur);
         this.canvas.addEventListener('wheel', this.onWheel, { passive: true });
     }
 
     private onPointerDown = (e: PointerEvent) => {
-        this.isDragging = true;
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
+        this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     };
 
     private onPointerMove = (e: PointerEvent) => {
-        if (!this.isDragging) return;
+        const pointer = this.pointers.get(e.pointerId);
+        if (!pointer) return;
+        const previousDistance = this.pinchDistance();
+        const deltaX = e.clientX - pointer.x;
+        const deltaY = e.clientY - pointer.y;
+        pointer.x = e.clientX;
+        pointer.y = e.clientY;
 
-        const deltaX = e.clientX - this.lastX;
-        const deltaY = e.clientY - this.lastY;
-
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-
-        // Fire the abstract callback
-        this.onInput('ROTATE', deltaX * this.sensitivity, deltaY * this.sensitivity);
+        if (this.pointers.size === 1) {
+            this.onInput('ROTATE', deltaX * this.sensitivity, deltaY * this.sensitivity);
+        } else if (this.pointers.size === 2) {
+            // Spreading fingers reduces orbit distance; pinching increases it.
+            this.onInput('ZOOM', 0, (previousDistance - this.pinchDistance()) * this.zoomSensitivity);
+        }
     };
 
-    private onPointerUp = () => {
-        this.isDragging = false;
+    private pinchDistance() {
+        if (this.pointers.size !== 2) return 0;
+        const [a, b] = this.pointers.values();
+        return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    private onPointerUp = (e: PointerEvent) => {
+        this.pointers.delete(e.pointerId);
+    };
+
+    private onBlur = () => {
+        this.pointers.clear();
     };
 
     private onWheel = (e: WheelEvent) => {
@@ -63,6 +78,10 @@ export class OrbitalEventProxy {
         this.canvas.removeEventListener('pointerdown', this.onPointerDown);
         window.removeEventListener('pointermove', this.onPointerMove);
         window.removeEventListener('pointerup', this.onPointerUp);
+        window.removeEventListener('pointercancel', this.onPointerUp);
+        window.removeEventListener('blur', this.onBlur);
         this.canvas.removeEventListener('wheel', this.onWheel);
+        this.pointers.clear();
+        if (this.canvas.style.touchAction === 'none') this.canvas.style.touchAction = this.touchAction;
     }
 }
