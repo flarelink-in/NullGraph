@@ -15,7 +15,8 @@ file so the parent stays a plan.
 **Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
 and §7.3 record what it decided. ✅ Phases 3.1–3.5 are implemented, validated and committed
 (3.5 as `f5cfd46`, 2026-10-12). ✅ Phases 4.1 and 4.2 are implemented, validated and committed
-(2026-10-12). 4.3 (picking and labels on GPU agents) is next.
+(2026-10-12). ✅ Phase 4.3 is implemented, validated and committed, with its `Picker` fix
+(`9d9a37e`). 4.4 (`inspect`) is next.
 
 **Phase 3.5 results, 2026-10-11:** `debug-ui/agentDrawing.ts` implements the §8.4 draw with
 species RGB overrides, dead clipping and GPU-owned position/heading/radius. Two new headless
@@ -865,6 +866,37 @@ need. Visibility grows by about 60 B, `debug-ui` by about 1 KB (`agentArrows`), 
 
 ## 13. Build order — phases
 
+### Phase 4.3 implementation result — 2026-10-12
+
+No agents API was needed: §9.4 and §9.5 hold as designed. Labels follow `agents.buffer` (stride 16,
+offset 0); the app registers every species mesh and its hover and selected variants with
+`picker.addInstances`, and `hit.index − firstInstance` is the agent, because the visibility cull
+stamps each survivor's row and the instance stage wrote the rows. The phase's work is the proof and
+one fix:
+- **A11** (agents GPU, both hosts): a label on agent 1 follows it through 120 lockstep steps with
+  **zero** CPU writes to label or glyph data, and lands within 1 px of the agent's projected
+  position before and after (it moved 17 px).
+- **A10:** after the 120 moving steps, every isolated live agent (no other within 1.5 m, so the
+  0.5 m spheres cannot overlap; 10 of 32) is picked as itself with its mesh, and so is an agent
+  drawn with its selected variant.
+- **A12:** a killed agent is drawn one fewer (24 → 23) and a pick at its spot returns nothing.
+  **Watched failing:** with dead rows left at their last mesh, A12 reads 24 → 24 and picks the
+  dead agent (A17 fails too).
+- **Fixed in `Picker` (Cycle B code), found by the site demo:** the demo destroys and rebuilds its
+  picker while hover picks are queued, and `run()` never checked `destroyed`. A queued pick wrote
+  into released buffers and threw a misleading "source tag 1 is not registered". `run()` now
+  resolves `null` once destroyed, before rendering and after the readback. The headless check K5
+  fails without it. `picking` +19 B min + gzip.
+- **Totals:** 100/100 agents GPU checks and 8/8 picking GPU checks on Node/Dawn and in Chrome, zero
+  WebGPU errors; all headless suites green.
+- **Demo:** hover lights a dart white and a click selects it, gold and pulsing, with a label that
+  follows it. A second click releases it. Up to 65,536 agents, because every pickable variant adds a
+  draw batch and a pick batch, each with a visible list sized to all agents (about 1.2 KB per
+  agent); darts above that are not pickable. Driven interactively in Chrome with each
+  screenshot read before the next action: hover, select, mouse away (the selection stays), resume,
+  and two rebuilds fired mid-hover, with no errors. The camera does not follow a selection: that
+  needs a position read back, which is 4.4's `inspect`.
+
 ### Phase 4.2 implementation result — 2026-10-12
 
 `agents.toInstances(vis, { firstInstance })` adds the instance stage (`agentInstances.ts`): one
@@ -1066,7 +1098,7 @@ Every phase ends the same way:
 | **3.5** ✅ | `agentArrows()`; a live demo in the test-engine site (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`), route `/dashboard/agents/herd-wolves-gpu` under Agent Experiments, beside the CPU preview (`/dashboard/agents/herd-wolves-preview`): about 4,000 agents, the preview's brain ported to WGSL, catches and respawn as app stages, the grid overlay as a toggle                           | `npm run drive` exits 0 with zero WebGPU errors; screenshots reviewed                                                                                                                                                           | The herd running entirely on the GPU, drawn as arrows                                                                                                   |
 | **4.1** ✅ | `vis.setInstanceCount` + `instanceSource`                                                                                                                                                                                                                                                                                                                                                               | U18, watched failing first; V4 (visibility GPU) on both hosts                                                                                                                                                                                                      | —                                                                                                                                                       |
 | **4.2** ✅ | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal                                                                                                                                                                                                                                                                                                                    | U19; A17                                                                                                                                                                                                                        | Darts instead of arrows                                                                                                                                 |
-| **4.3**   | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
+| **4.3** ✅ | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
 | **4.4**   | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |
 | **4.5**   | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` started                                                                                                                                                                                                                                                                      | A20; `npm run drive` clean; numbers in the handoff                                                                                                                                                                              | The step-3 demo with the CPU nearly idle                                                                                                                |
 

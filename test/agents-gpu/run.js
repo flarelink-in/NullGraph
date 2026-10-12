@@ -4,6 +4,9 @@ import { NullGraph, Camera } from '../../dist/index.js';
 import { groundGrid, gridOccupancy, agentArrows } from '../../dist/debug-ui.js';
 import { VisibilitySystem } from '../../dist/visibility.js';
 import { MegabufferBuilder, Primitives, StandardLayout } from '../../dist/geometry.js';
+import { Picker } from '../../dist/picking.js';
+import { FontAtlas, TextSystem } from '../../dist/text.js';
+import { syntheticFont, SHAPES } from '../gpu/synthetic-font.mjs';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { check, fatal, finish, saveImage } = harnessEnv('__AGENTS_RESULTS__');
@@ -856,7 +859,146 @@ check(`A17: with no step this frame, the instance stage still applies a highligh
     same(unlit, expectedPerMesh({ selected: -1, hovered: -1 })) && unlit[MESH.PREY] + unlit[MESH.WOLF] === want[MESH.PREY] + want[MESH.WOLF] + 2);
 instSystem.destroy();                                     // dependents first: the stage binds vis.instanceBuffer
 vis.destroy();
+
+// A10–A12 (phase 4.3): picking and labels on GPU agents. The Picker culls the rows the instance
+// stage wrote, so hit.index − firstInstance is the agent; a label follows agents.buffer with no
+// CPU writes; a dead agent's row is HIDDEN_MESH, so it is neither drawn nor picked.
+{
+    const W = 128, H = 128, FIRST_ROW = 2, LABELLED = 1;
+    const pickDef = A.defineAgents({ capacity: 32, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+        species: instDef.species.map(s => ({ name: s.name, maxSpeed: s.maxSpeed, maxTurn: s.maxTurn, accel: s.accel,
+            senseRadius: s.senseRadius, radius: s.radius, mesh: s.mesh, hoverMesh: s.hoverMesh,
+            selectedMesh: s.selectedMesh, boundsRadius: s.boundsRadius })),
+        sensors: [A.Sensors.self()] });
+    const pvis = new VisibilitySystem(engine, { maxInstances: FIRST_ROW + pickDef.capacity });
+    pvis.setGeometry(mega);
+    pvis.setInstanceCount(FIRST_ROW + pickDef.capacity);
+    const staticRows = new Float32Array(FIRST_ROW * 24);
+    for (let r = 0; r < FIRST_ROW; r++) new Uint32Array(staticRows.buffer)[r * 24 + 20] = A.HIDDEN_MESH;
+    device.queue.writeBuffer(pvis.instanceBuffer, 0, staticRows);
+    const scene = engine.createPass({ name: 'GPU agent picking', isMainScreenPass: true });
+    const drawBatches = Object.entries(MESH).map(([name, mesh]) => [mesh, pvis.createInstanceDrawBatch(scene, name.toLowerCase(), mesh)]);
+    const picker = new Picker(engine, { maxRadius: 2 });
+    Object.entries(MESH).forEach(([name, mesh]) => picker.addInstances(pvis, name.toLowerCase(), mesh, { label: 'agent' }));
+    const sys = makeSystem(engine, pickDef);
+    for (let i = 0; i < pickDef.capacity; i++) {
+        sys.spawn(i, { position: [random() * 14 - 7, 0, random() * 14 - 7], species: i % 4 === 0 ? 'wolf' : 'prey',
+            heading: random() * 2 * Math.PI - Math.PI });
+    }
+    sys.toInstances(pvis, { firstInstance: FIRST_ROW });
+    const labelAtlas = FontAtlas.fromSDF(engine, syntheticFont());
+    const labels = new TextSystem(engine, labelAtlas, { maxLabels: 1, maxGlyphs: 2, depthTest: false,
+        follow: { buffer: sys.buffer, strideFloats: 16, positionOffset: 0 } });
+    const labelPass = engine.createPass({ name: 'GPU agent label', isMainScreenPass: true });
+    labels.createDrawBatch(labelPass);
+    labels.setLabel(0, { text: 'B', follow: LABELLED, sizePx: 24 });
+    camera.updateView([0, 18, 0], [0, 0, 0], [0, 0, -1]);
+    engine.updateCamera(camera);
+
+    const project = (p) => {   // the text shaders' anchor maths: clip → pixel-snapped screen position
+        const v = camera.viewProjectionMatrix;
+        const cx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12];
+        const cy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13];
+        const cw = v[3] * p[0] + v[7] * p[1] + v[11] * p[2] + v[15];
+        return [Math.floor((cx / cw * 0.5 + 0.5) * W + 0.5), Math.floor((-cy / cw * 0.5 + 0.5) * H + 0.5)];
+    };
+    const labelRect = (p) => {   // where 'B' (filled box [0, 0, 0.5, 0.5] em) lands at 24 px
+        const [ax, ay] = project(p), [l, b, r, t] = SHAPES.B.outer;
+        return { x0: ax + l * 24, x1: ax + r * 24, y0: ay - t * 24, y1: ay - b * 24 };
+    };
+    const brightBox = (img) => {
+        let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const o = (y * W + x) * 4;
+            if (img[o] > 128 && img[o + 1] > 128 && img[o + 2] > 128) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
+        }
+        return x1 < 0 ? null : { x0, y0, x1, y1 };
+    };
+    const near = (got, want) => got && ['x0', 'y0', 'x1', 'y1'].every(k => Math.abs(got[k] - want[k]) <= 1);
+    const records = async () => {
+        const u = await read(sys.buffer, pickDef.capacity * 16);
+        return { u, f: new Float32Array(u.buffer) };
+    };
+    const position = (r, i) => [r.f[i * 16], r.f[i * 16 + 1], r.f[i * 16 + 2]];
+    const drawScene = () => {   // a frame with no step: the instance stage still writes every row
+        sys.advance(0);
+        pvis.upload();
+        engine.render([...sys.getComputeStages(), ...pvis.getComputeStages(), scene]);
+    };
+    const drawLabel = async () => {
+        labels.upload();
+        engine.render([...labels.getComputeStages(), labelPass]);
+        return brightBox(await image());
+    };
+
+    sys.upload();
+    drawScene();
+    const startRecords = await records();
+    const box0 = await drawLabel(), want0 = labelRect(position(startRecords, LABELLED));
+    let labelWrites = 0;
+    const realWrite = device.queue.writeBuffer.bind(device.queue);
+    device.queue.writeBuffer = (target, ...rest) => {
+        if (target === labels.labelBuffer || target === labels.glyphBuffer) labelWrites++;
+        return realWrite(target, ...rest);
+    };
+    for (let k = 0; k < 120; k++) await sys.step();
+    const box1 = await drawLabel();
+    device.queue.writeBuffer = realWrite;
+    const moved = await records();
+    const want1 = labelRect(position(moved, LABELLED));
+    const shift = Math.hypot(want1.x0 - want0.x0, want1.y0 - want0.y0);
+    check(`A11: a label follows its agent through agents.buffer for 120 steps with zero CPU label writes ` +
+        `(moved ${shift.toFixed(0)} px; label/glyph writes ${labelWrites})`,
+        near(box0, want0) && near(box1, want1) && shift >= 6 && labelWrites === 0);
+
+    // A10: after 120 moving steps, every isolated live agent is picked as itself.
+    drawScene();
+    const live = [];
+    for (let i = 0; i < pickDef.capacity; i++) if (moved.u[i * 16 + 13] & 1) live.push(i);
+    const isolated = live.filter(i => {
+        const [x, , z] = position(moved, i), [px, py] = project(position(moved, i));
+        // 1.5 m apart: the 0.5 m spheres cannot overlap, so the pixel under an agent's centre is its own.
+        const alone = live.every(j => j === i || Math.hypot(position(moved, j)[0] - x, position(moved, j)[2] - z) >= 1.5);
+        return alone && px >= 3 && px < W - 3 && py >= 3 && py < H - 3;
+    }).slice(0, 10);
+    const meshOf = (i) => (moved.u[i * 16 + 12] === 1 ? MESH.WOLF : MESH.PREY);
+    let picked = 0, wrong = [];
+    for (const i of isolated) {
+        const [px, py] = project(position(moved, i));
+        const hit = await picker.pick(px, py, camera);
+        if (hit && hit.index - FIRST_ROW === i && hit.meshIndex === meshOf(i)) picked++;
+        else wrong.push(`${i}→${hit ? hit.index - FIRST_ROW : 'none'}`);
+    }
+    const chosen = isolated[0];
+    sys.setHighlight({ selected: chosen });
+    drawScene();
+    const selectedHit = await picker.pick(...project(position(moved, chosen)), camera);
+    check(`A10: after 120 moving steps, ${picked}/${isolated.length} isolated agents are picked as themselves ` +
+        `(hit.index − firstInstance), the selected variant too${wrong.length ? `; wrong: ${wrong.join(', ')}` : ''}`,
+        isolated.length >= 6 && picked === isolated.length &&
+        selectedHit?.index - FIRST_ROW === chosen && selectedHit?.meshIndex === MESH.SELECTED);
+
+    // A12: a killed agent is neither drawn nor picked.
+    sys.setHighlight({ selected: -1 });
+    const drawnOf = async (mesh) => (await readStorage(drawBatches.find(([m]) => m === mesh)[1].indirectBuffer, 5))[1];
+    drawScene();
+    const before = await drawnOf(meshOf(chosen));
+    sys.kill(chosen);
+    sys.upload();
+    drawScene();
+    const after = await drawnOf(meshOf(chosen));
+    const ghost = await picker.pick(...project(position(moved, chosen)), camera);
+    check(`A12: a dead agent draws nothing and is never picked (drawn ${before} → ${after}; pick at its spot: ${ghost ? ghost.index - FIRST_ROW : 'none'})`,
+        after === before - 1 && ghost === null);
+
+    picker.destroy();                                     // its pick batches live in pvis
+    labels.destroy();
+    labelAtlas.destroy();
+    sys.destroy();                                        // before pvis: the instance stage binds its rows
+    drawBatches.forEach(([, batch]) => pvis.removeDrawBatch(batch));
+    pvis.destroy();
+}
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All agent grid, sense, think, act, app-stage, arrow and instance GPU checks passed.');
+await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking and label GPU checks passed.');
 device.destroy();
 function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }
