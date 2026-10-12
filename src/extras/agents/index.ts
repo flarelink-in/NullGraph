@@ -16,3 +16,5 @@ export * from './agentThinkShaders';
 export * from './agentInstances';
 export * from './agentInspect';
 export * from './mlpMath';
+export * from './mlpShaders';
+export * from './MlpBrain';

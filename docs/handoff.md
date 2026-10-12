@@ -27,6 +27,34 @@ at 65,536; exact settings/throughput remain unverified. Historical 20K/≤2 ms a
 soak gates are not completion targets. Improve only if evidence justifies it; no change is a valid
 outcome. No core rewrite. Detailed experiments remain draft; no new measurements or implementation.
 
+**Step 6 design requested (2026-10-12):** [`agents-mlp-design.md`](./agents-mlp-design.md)
+defines MlpBrain/CPU forward, existing synchronous stage integration, owned weights, U10/A4,
+phases 6.0–6.3 and bundle accounting. Phases 6.0–6.1 are implemented; phases 6.2–6.3 remain outstanding. Rules and MLP both
+use sense → think → act; MLP changes only the policy calculation. Training/ONNX/ORT remain later
+steps. Resolve species-policy input semantics before cloning. Step 5 stays deferred, not complete.
+
+**Phase 6.0 (2026-10-12):** `src/extras/agents/mlpMath.ts` adds dense model validation,
+vec4-packed layout/weights and f32-aware CPU forward, exported through agents. Supplied output/scratch
+support allocation-free reuse; overlapping writable views are refused. No MlpBrain class/GPU kernel,
+core, demo, training or ONNX changes. Focused U10 tests were observed failing before implementation.
+Fresh C1 whole-entry baseline measured 15,495 B min+gzip; S3 model has 7,688 logical/7,952 packed
+parameter bytes. Phase 6.1 is next; step 6 and A4 are not complete. Existing uncommitted work preserved.
+Validation: library/TypeScript and IDE builds pass; agents regression run passed 24 plain checks
+and 41 node:test checks (including the initial six U10 cases); final focused U10 run passes 8/8
+after two extra reuse/shape tests. Core passes 17 checks; agent-kit passes 4/4; whitespace passes.
+Whole agents entry now measures 16,569 B min+gzip (+1,074 B over the fresh baseline), within the
+parent's +4,000 B combined C2 allowance, leaving 2,926 B for remaining neural/parser additions.
+No real-GPU tests were run in this CPU-only phase; no commits/pushes/publication.
+
+**Phase 6.1 (2026-10-12):** phase 6.0 committed as `e345921` before implementation, preserving
+earlier uncommitted work through selective staging. MlpBrain and generated WGSL now use one
+owned copied/packed weights buffer, same-shape single-upload updates and idempotent destroy.
+Optional Brain.assertDevice guards target-device/lifetime before AgentSystem registers stages.
+Focused tests pass 12/12; agents 24 plain + 47 node:test, core 17, agent-kit 4/4; library/IDE builds
+and whitespace pass. Existing Node/Dawn AMD GCN-5 GPU suite passes 106/106, zero errors;
+it does not yet exercise MlpBrain. A4 and Chrome MLP tests remain phase 6.2. Entry 17,283 B
+min+gzip (+1,788 versus fresh C1; combined allowance remaining 2,212 B). Phase 6.1 uncommitted.
+No pushes/publication, core/site changes, training or ONNX. Step 6 remains incomplete.
 
 **C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
@@ -1318,14 +1346,6 @@ No push/publication, no phase-3.5 implementation or new visual/drive review.
     temporary Vite at :8083. The user's :8081 server served the old build; see Gotchas.
   - **Not committed.** This waits for the user; the site stays uncommitted.
   - **Next:** 4.5.
-
-## C2 phase 6.0 ? 2026-10-12
-
-Dense model validation, vec4 packing and f32-aware CPU forward implemented in
-`src/extras/agents/mlpMath.ts`; focused U10 tests pass 8/8. Builds, agents/core and
-agent-kit regressions pass. No GPU kernel/class yet; phase 6.1 next. Whole entry
-16,569 B min+gzip versus fresh 15,495 B baseline (+1,074 B); combined C2 allowance
-remaining 2,926 B. Step 6 is not complete. See `agents-mlp-design.md`.
 - **2026-10-12 — Cline.** Completed phase 4.5 on the user's live :8081 server.
   - A20 teardown/rebuild validated: fresh Node/Dawn and Chrome each 106/106, zero GPU errors.
   - Fresh drive: 39 steps, 21 screenshots, zero errors, including same-worker teardown/re-entry.

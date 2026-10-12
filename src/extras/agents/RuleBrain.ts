@@ -3,6 +3,8 @@ export interface Brain {
     readonly wgsl?: string;
     readonly buffers?: readonly GPUBuffer[];
     readonly dims?: { obs: number; act: number };
+    /** Optional resource-owner check, performed before creating a consuming stage. */
+    assertDevice?(device: GPUDevice): void;
     bind?(io: { obs: GPUBuffer; act: GPUBuffer; capacity: number; obsDim: number; actDim: number }): void;
     run?(): Promise<void>;
     destroy(): void;

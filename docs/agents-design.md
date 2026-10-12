@@ -772,7 +772,13 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
 
 ### C2 — neural brains
 
-6. `MlpBrain` and its CPU forward pass — U10, A4.
+6. `MlpBrain` and its CPU forward pass — U10, A4. Draft focused design:
+   [`agents-mlp-design.md`](./agents-mlp-design.md), phases 6.0–6.3. Same sense → think → act
+   loop; neural inference replaces only think. No training, ONNX or async scheduling in this step.
+   Step 5 remains deferred, not complete; it does not block these correctness/integration checks.
+   Phase 6.0 implemented: model validation/layout/packing and CPU forward with U10 tests.
+   Phase 6.1 implemented: generated think WGSL, GPU-owned MlpBrain weights/updates and mock
+   integration/lifetime checks. Production MLP numerical A4 remains outstanding; step 6 is not complete.
 7. `tools/agents`: record → train → export — U11, U12.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`

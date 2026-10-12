@@ -161,6 +161,7 @@ export class AgentSystem {
     public setBrain(brain: Brain): void {
         this.assertAlive();
         if (brain.kind !== 'stage') throw new Error('AgentSystem: async brains are deferred to C2; use a stage brain.');
+        brain.assertDevice?.(this.engine.device);
         if (brain.dims) assertBrainDims(this.definition, brain.dims.obs, brain.dims.act);
         const code = buildAgentThinkWGSL(this.definition, brain.wgsl!, this.thinkEvery);
         const extra = brain.buffers ?? [];
