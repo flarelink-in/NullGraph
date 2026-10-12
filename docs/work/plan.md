@@ -47,7 +47,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 3 | C1 | `AgentSystem`: sense → think (rules) → act on the GPU, arrows demo | A whole population runs with no CPU per agent | ✅ phases 3.0–3.5 ([design](../agents-gpu-loop-design.md)) |
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
 | 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deferred** by the user (2026-10-12); the stress test covers it for now |
-| 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | **In progress**: 6.0 ✅ `e345921`, 6.1 ✅ `dbaf884`, 6.2 ✅ A4 on both hosts, 6.3 next |
+| 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
 | 7 | C2 | Record the rule brain → train a copy → export (`tools/agents`) | **First network that has actually learned Herd & Wolves** | Not started; needs the species decision (§5) |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
 | 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
@@ -77,8 +77,12 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 
 1. **Species input for step 7:** one network for prey and wolves (species as an input) or one
    network per species. Must be settled before recording training data.
-2. **Bundle allowance:** `agents.js` is 17,283 B min+gzip after 6.1, with 2,212 B left of C2's
+2. **Bundle allowance:** `agents.js` is 17,283 B min+gzip after step 6, with 2,212 B left of C2's
    +4,000 B allowance. Step 8's ONNX loader must fit, or the allowance changes.
+3. **Brain swap stall:** `setBrain` compiles a pipeline synchronously (about 1.1 s under
+   Node/Dawn on NVIDIA, 76 ms in Chrome on AMD). Before step 10's live Rules/Network switch:
+   accept the one-time hitch, or approve asynchronous stage creation (a core change).
+   **Deferred by the user to step 9 (2026-10-12).**
 
 ## 6. Constraints that hold for every step
 
@@ -92,3 +96,4 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - 2026-10-11: steps 3–4 design accepted; C1 bundle line raised to 16 KB.
 - 2026-10-12: step 5 rescoped from "20,000-agent demo, ≤ 2 ms" to a scaling study, then deferred;
   the user built a maximum-capacity stress test instead. Step 6 started.
+- 2026-10-12: step 6 completed. The brain-swap stall decision (§5 item 3) deferred to step 9.
