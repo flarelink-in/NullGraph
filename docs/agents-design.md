@@ -789,6 +789,12 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    three host/GPU pairs (0.83–0.88 ms per dispatch at 100,000 agents for 24→32→32→2), and
    +1,424 B for an app that adds `MlpBrain`. **Step 6 is complete.**
 7. `tools/agents`: record → train → export — U11, U12.
+   **Part 1, decided with the user 2026-10-12: per-species brains.** One network per species,
+   chosen inside one think stage, designed in
+   [`agents-species-brains-design.md`](./agents-species-brains-design.md), phases 7.1–7.5:
+   same-shape networks as weight-table rows of one `MlpBrain` first (U21, A21), then a composite
+   `SpeciesBrain` for mixing kinds (U22, A22). **Part 2:** record → train → export, with its own
+   design doc next, from phase 7.6.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
    over it — U13, A5, A6. ORT as an optional peer dependency.
