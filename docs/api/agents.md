@@ -1,7 +1,8 @@
-# GPU agents — C1 steps 3–4
+# GPU agents — rule brains and network brains
 
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
-entries. This guide covers the implemented rule-based GPU loop; learned brains, training,
+entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, and `MlpBrain` (C2 step
+6), which runs a small dense network you supply. Training, ONNX import, ONNX Runtime brains,
 camera eyes and a replay/rewind UI are not implemented by this API.
 
 ## Minimal rule simulation
@@ -121,6 +122,98 @@ For peer-dependent mechanics, separate detection and mutation dispatches: the He
 demo first reads peer positions and marks its own flags, then consumes them for respawn/rest.
 Do not write peer records concurrently and assume another invocation sees a consistent result.
 
+## Network brains: MlpBrain
+
+`new MlpBrain(engine, network)` runs a small dense network as the think stage. The loop, the
+cadence and the act stage are the same as with a rule brain; only the observation-to-action
+calculation changes. It runs the weights you give it and does not learn. The example below uses
+hand-set weights; a network trained to imitate the rules is a later step.
+
+```ts
+import type { NullGraph } from 'null-graph';
+import { AgentSystem, MlpBrain, defineAgents, mlpForward, Sensors, type MlpNetwork } from 'null-graph/agents';
+
+// Inputs in the definition's observation order: self.speed, self.energy, bounds.side,
+// bounds.forward. Outputs in its action order: turn, throttle. Hand-set, not trained.
+export const wallAvoider: MlpNetwork = [{
+    input: 4, output: 2, activation: 'tanh',
+    weights: new Float32Array([
+        0, 0, -3, 0,   // turn     = tanh(-3 · bounds.side): away from the nearest wall
+        0, 0, 0, -2,   // throttle = tanh(1 - 2 · bounds.forward): slower when it is ahead
+    ]),
+    biases: new Float32Array([0, 1]),
+}];
+
+// The CPU reference, for a wall to one side and none ahead: turn ≈ -0.905, throttle ≈ 0.762.
+export const sample = mlpForward(wallAvoider, new Float32Array([0, 1, 0.5, 0]));
+
+export function createWallAvoiders(engine: NullGraph) {
+    const definition = defineAgents({
+        capacity: 1024,
+        world: { min: [-40, -40], max: [40, 40] },
+        cellSize: 8,
+        species: [{ name: 'scout', maxSpeed: 3, maxTurn: 2, accel: 4,
+            senseRadius: 8, radius: 0.4 }],
+        sensors: [Sensors.self(), Sensors.bounds()],
+    });
+    const agents = new AgentSystem(engine, definition);
+    const brain = new MlpBrain(engine, wallAvoider);   // validates, copies and uploads once
+    agents.setBrain(brain);                            // compiles the think stage
+    for (let i = 0; i < definition.capacity; i++) {
+        agents.spawn(i, { species: 'scout', heading: i * 2.4,
+            position: [(i % 32) * 2.4 - 37, 0, Math.floor(i / 32) * 2.4 - 37] });
+    }
+    agents.upload();
+    return {
+        agents,
+        // Same shape, new numbers: one upload and no recompile; later steps use them.
+        setTurnGain(gain: number) {
+            brain.setWeights([{ ...wallAvoider[0],
+                weights: new Float32Array([0, 0, -gain, 0, 0, 0, 0, -2]) }]);
+        },
+        destroy() {
+            agents.destroy();   // first: its think stage binds the brain's weights
+            brain.destroy();
+        },
+    };
+}
+```
+
+Render it with the same frame function as the rule example: `advance`, `upload`, then
+`getComputeStages()` before the draws.
+
+- **The network:** 1–4 layers of `{ input, output, activation, weights, biases }`. Weights are
+  row-major `[output][input]`; activations are `'identity'`, `'relu'`, `'tanh'` or `'sigmoid'`;
+  every value must be finite. Input width ≤ 128, hidden ≤ 64, output ≤ 16. The first input must
+  equal `definition.obsDim` and the last output `definition.actDim`; `setBrain` refuses a mismatch.
+- **Order and meaning:** inputs follow `definition.obsNames`, outputs `definition.actNames`. No
+  normalization is added, and matching widths cannot check that a feature means what the network
+  expects.
+- **One network for every species:** identical observations give identical actions, whatever the
+  species. Policies that differ by species need a feature that tells them apart.
+- **Numerics:** tanh's input is clamped to ±15 (the FXC compiler behind Dawn's D3D12 backend
+  returns NaN beyond about 89);
+  sigmoid is evaluated stably; identity and relu outputs are not clipped. The act stage still
+  clamps steering and brakes on non-finite actions. `mlpForward(network, input, out?, scratch?)` is
+  the CPU reference, with the same definitions and f32 rounding, allocation-free when given its
+  output and scratch arrays. GPU results agree within `1e-5 + 1e-5·|cpu|`, not bit for bit.
+- **Updates:** `brain.setWeights(network)` needs the same shape and activations. It validates the
+  whole network, then uploads once into the same buffer: no new stage, no recompile, and work
+  submitted afterwards uses it. A different shape needs a new brain and `setBrain`.
+- **Swapping costs a compile:** `setBrain` builds a new think pipeline. For a 24→32→32→2 network
+  that took 76 ms in Chrome on an AMD iGPU and about 1.1 s under Node/Dawn on an NVIDIA GPU. Swap
+  brains at a moment that can absorb a hitch, not every frame.
+- **Reasons:** an `MlpBrain` writes reason 0. Inspection shows its observations and actions, not
+  a rationale.
+- **Ownership:** the caller owns the brain, and it belongs to its engine's device: `setBrain`
+  refuses a brain from another device or one already destroyed. Replace the brain or destroy the
+  system before `brain.destroy()`, because the think stage binds the weights. `destroy()` is
+  idempotent.
+- **Cost:** one think dispatch of a 24→32→32→2 network over 100,000 agents took 0.83–0.88 ms
+  (8–9 ns per agent) on the measured GPUs, and `thinkEvery: 3` cuts it to 43–57% of that
+  (`npm run spike:mlp-think`). `MlpBrain` adds 1.4 KB min+gzip to an app; rule-only imports
+  carry none of it.
+
 ## Instances, highlights, labels and picking
 
 Set up visibility geometry and species meshes first. Select GPU-owned rows using
@@ -170,16 +263,17 @@ Dispose those caller-owned resources separately once no dependent work can use t
 
 ## Current validation and limits
 
-Phase 4.4 is committed as `b29e940`; phase 4.5 integration/measurement is complete (2026-10-12).
-Headless tests cover layouts, CPU mirrors, generated WGSL, request queues and refusals. The
-agents GPU suite covers the production loop, instance output, picking, label following,
-inspection, allocation/upload budget and phase 4.5 teardown (A20) on both GPU hosts: currently
-106/106 checks on each, zero WebGPU errors. The fresh site drive completed 39 steps with zero
-recorded errors, including hover/selection/inspection, pause, rebuild and same-worker re-entry.
-The guide's TypeScript example is type-checked, bundled and its generated brain WGSL parsed by
-`test/agents-api-example.test.mjs`, included in `npm run test:agents`.
-Integrated-demo CPU frame work averaged 0.57 ms at 4,096 agents and 0.60 ms at 16,384 agents
-on this AMD GCN-5/Chrome host. These are means of the host's approximately 250 ms reporting
-windows, not GPU time or a portable performance guarantee; methodology is in the handoff.
-Performance is hardware/workload-dependent. Dense-flock query overflow and the 20,000-agent
-step-time target belong to the next performance phase; do not infer capacity from the API.
+Headless tests cover layouts, CPU mirrors, generated WGSL, the MLP's mathematics and validation,
+request queues and refusals. The agents GPU suite covers the production loop, instance output,
+picking, label following, inspection, the allocation/upload budget, teardown (A20) and
+`MlpBrain` on the production chain (A4): 120/120 checks on Node/Dawn and in Chrome, zero WebGPU
+errors. A4's networks, from one affine layer to the largest allowed shape, agree with
+`mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA
+GPU. Both TypeScript examples in this guide are type-checked and bundled, and their generated
+think WGSL parsed, by `test/agents-api-example.test.mjs` in `npm run test:agents`.
+
+Integrated-demo CPU frame work averaged 0.57 ms at 4,096 agents and 0.60 ms at 16,384 agents on
+an AMD GCN-5/Chrome host: means of the host's roughly 250 ms reporting windows, not GPU time or a
+portable guarantee. Performance depends on hardware and workload. Dense flocks can exceed the
+query's scan budget, and the scaling study (step 5) is deferred, so do not infer capacity from
+the API.

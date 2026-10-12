@@ -3,9 +3,9 @@
 **Parent:** [`agents-design.md`](./agents-design.md) §9.3 and §13, C2 step 6.
 **Builds on:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), the production brain
 seam and S3 measurements; [`api/agents.md`](./api/agents.md).
-**Status:** Phases 6.0–6.2 implemented and committed, 2026-10-12 (6.0 `e345921`, 6.1 `dbaf884`,
-6.2 in the commit after `97ca592`). A4 passes on Node/Dawn and Chrome. Phase 6.3 (guide example, size/timing report,
-closure) remains; step 6 is not complete.
+**Status:** ✅ **Step 6 complete, 2026-10-12.** Phases 6.0 `e345921`, 6.1 `dbaf884` and 6.2
+`b3424b1` are committed; 6.3 (guide example, cost and size report, closure) is implemented.
+A4 passes on Node/Dawn and Chrome; the cost script adds NVIDIA agreement.
 **Target:** `D:/orion-realms/null-graph/src/extras/agents/`, focused headless and real-GPU tests,
 and API documentation. Core unchanged. No new dependency.
 **Outcome:** run a supplied small dense network as the existing synchronous GPU think stage,
@@ -313,5 +313,97 @@ herd's neighbour lists depend on atomic scatter order, so its errors vary a litt
   reference + 47 node:test, core 17, agent-kit 4/4. Library build and whitespace pass. Tracked
   `dist/index.js` rebuilt byte-identical. Bundle unchanged at 17,283 B.
 
-Phase 6.3 is next: a small known-weight executable example in the API guide, inference cost and
-size reporting, and closure.
+### Phase 6.3 implementation — step 6 closed
+
+**API guide.** [`api/agents.md`](./api/agents.md) gains "Network brains: MlpBrain": a hand-set,
+known-weight 4→2 tanh network that turns away from walls and slows when one is ahead. It is
+presented as hand-set, not learned. It is followed by the contracts: shape and limits,
+observation/action order, one network for every species, numerics, updates, swap cost, reasons,
+ownership and cost. `test/agents-api-example.test.mjs` now validates **every** TypeScript block
+in the guide:
+- each is type-checked and bundled;
+- the network example's bundle is run, and its documented CPU outputs (turn ≈ −0.905, throttle ≈
+  0.762) and widths are checked;
+- each example's generated think WGSL is parsed.
+
+Watched failing: a flipped weight sign fails the number check, and `'softmax'` fails the type
+check.
+
+**Inference cost.** `npm run spike:mlp-think` (`test/spikes/mlp-think-cost/`, a measurement like
+S3, not a suite) dispatches the think shader `AgentSystem` generates, gate and accessors included,
+with S3's method: GPU timestamps, a 1 s warm-up, the lower of two medians of five. Before timing,
+every kernel is checked against the CPU on 20,000 agents.
+
+| µs per think dispatch | 1,000 | 20,000 | 100,000 | Pipeline compile | Max abs error |
+|---|---|---|---|---|---|
+| **NVIDIA Turing, Node/Dawn:** rule floor (2 reads, 2 writes) | 1.1 | 17.6 | 83.5 | 20 ms | 0 |
+| MLP 24→32→32→2 tanh | 37.3 | 179.7 | 884.7 | 1,082 ms | 3.8e-7 |
+| the same, `thinkEvery` 3 | 37.9 | 101.3 | 383.1 | 1,120 ms | 3.8e-7 |
+| MLP 128→64→64→64→16 | 253.2 | 1,933.3 | 9,060.4 | 1,013 ms | 2.4e-7 |
+| **AMD GCN-5, Node/Dawn:** rule floor | 1.3 | 133.2 | 655.4 | 12 ms | 0 |
+| MLP 24→32→32→2 tanh | 12.6 | 184.0 | 827.4 | 183 ms | 3.7e-7 |
+| the same, `thinkEvery` 3 | 12.6 | 111.8 | 470.7 | 176 ms | 3.0e-7 |
+| MLP 128→64→64→64→16 | 258.3 | 4,522.0 | 21,848.1 | 1,641 ms | 2.1e-7 |
+| **AMD GCN-5, Chrome:** rule floor | 1.9 | 132.3 | 627.6 | 17 ms | 0 |
+| MLP 24→32→32→2 tanh | 28.9 | 231.8 | 861.6 | 76 ms | 3.6e-7 |
+| the same, `thinkEvery` 3 | 31.1 | 147.3 | 489.5 | 80 ms | 3.3e-7 |
+| MLP 128→64→64→64→16 | 429.2 | 6,030.9 | 28,797.9 | 221 ms | 2.4e-7 |
+
+What the table says:
+- **The production stage costs what S3's bare kernel cost.** At 100,000 agents the 24→32→32→2
+  network takes 0.83–0.88 ms (8.3–8.8 ns per agent) on all three host/GPU pairs. S3 measured
+  909 µs on the NVIDIA GPU, so the wrapper's gate and record read add nothing measurable there.
+- **The AMD iGPU is bandwidth-bound.** Its stage floor alone, reading each 64-byte record and the
+  observation row, is 6.3–6.6 ns per agent, against 0.8 ns on the NVIDIA GPU. The network
+  therefore adds little on top of it on that machine.
+- **`thinkEvery` 3** costs 43% of every agent thinking on the NVIDIA GPU, 57% on the AMD iGPU:
+  the block stagger S3 predicted (32–42%), with the stage's fixed costs on top.
+- **The largest network costs about 10× the herd network,** in line with its arithmetic (~17,400
+  multiply-adds per agent against ~1,900).
+- **Compiling is the cost to plan around.** `setBrain` builds a pipeline. `BatchManager` creates
+  pipelines synchronously, so under Node/Dawn on the NVIDIA GPU the swap stalls the caller for
+  about 1.1 s; in Chrome the GPU waits on first use instead (76 ms here). Same-shape `setWeights`
+  never compiles.
+- **NVIDIA numerics.** Dawn gives the agents GPU suite the AMD iGPU, so A4 never ran on NVIDIA.
+  These checks did: the production MLP kernels agree with the CPU within 3.8e-7 there too, under
+  A4's tolerance.
+
+**Size** (`node test/spikes/mlp-think-cost/size.mjs`, phase 6.0's settings: esbuild browser ESM,
+minified, gzipSync defaults):
+
+| Import set | min | min+gzip |
+|---|---|---|
+| Whole `agents` entry | 54,171 B | 17,283 B |
+| Rule path: `AgentSystem`, `defineAgents`, `Sensors`, `Actions`, `RuleBrain` | 40,501 B | 12,369 B |
+| Rule path + `MlpBrain` | 44,999 B | 13,793 B |
+| … + `mlpForward` | 45,942 B | 14,123 B |
+
+- `MlpBrain` adds **1,424 B** to an app.
+- The rule path carries **none** of the MLP's code (no WGSL, labels or errors); the script fails
+  if it ever does.
+- The whole entry grew +1,788 B over the fresh C1 baseline (15,495 B), leaving **2,212 B** of C2's
+  +4,000 B allowance for step 8's `fromOnnx`.
+- `src/core` is unchanged since before step 6 (0 B).
+- Weights on the GPU: 24→32→32→2 is 7,688 B logical, 7,952 B packed; 128→64→64→64→16 is
+  70,464 B (no padding).
+
+**Regression at closure:**
+- Library build (`node build.js && tsc`).
+- Headless: agents 24 reference + 47 node:test (the API example included), core 17,
+  agent-kit 4/4.
+- Agents GPU suite 120/120 on Node/Dawn and in Chrome, zero WebGPU errors.
+- `git diff --check`.
+
+No library source changed in 6.3.
+
+**Step 6 is complete.** It has two kinds of evidence:
+- **Correctness:** A4 on the AMD iGPU through two compilers, and the cost script's agreement
+  checks on the NVIDIA GPU.
+- **Documentation:** the guide and its executable example.
+
+**Carried forward, not done:**
+- **Asynchronous pipeline creation for `setBrain`** (`createComputePipelineAsync`) would remove
+  the swap stall before step 10's live Rules/Network switch. It changes core's stage creation, so
+  it needs its own proposal.
+- **The species/policy encoding** must be settled before step 7 records teacher data (§5.1).
+- **Training, ONNX and ORT** stay steps 7–9.

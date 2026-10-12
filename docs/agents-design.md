@@ -781,7 +781,10 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    integration/lifetime checks.
    Phase 6.2 implemented: A4 passes on Node/Dawn and Chrome (120/120 agents GPU checks): five
    fixtures up to the maximum shape agree within 1e-5 + 1e-5·|cpu| (max abs 4.2e-7), plus extreme
-   inputs, gating, updates, replacement and lifecycle. Phase 6.3 remains; step 6 is not complete.
+   inputs, gating, updates, replacement and lifecycle.
+   ✅ Phase 6.3: an executable known-weight guide example, the production think stage's cost on
+   three host/GPU pairs (0.83–0.88 ms per dispatch at 100,000 agents for 24→32→32→2), and
+   +1,424 B for an app that adds `MlpBrain`. **Step 6 is complete.**
 7. `tools/agents`: record → train → export — U11, U12.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
