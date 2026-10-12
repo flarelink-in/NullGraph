@@ -15,7 +15,7 @@
 // `npm run dev:serve` → http://localhost:3000/test/core-gpu/. Both run headless (canvas null) —
 // a browser can render without a canvas too, and that is part of what C1 claims.
 
-import { NullGraph } from '../../dist/index.js';
+import { NullGraph, PROGRESSION_LIMITS } from '../../dist/index.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { log, check, fatal, finish } = harnessEnv('__CORE_GPU_RESULTS__');
@@ -318,6 +318,24 @@ function solidBatch(target, pass, rgba) {
         t.width === 48 && t.height === 32 && corner[1] === 255 && corner[0] === 0,
         `screen=${t.width}x${t.height} bottom-right=${corner}`);
     engine.clearPasses();
+}
+
+// ---------------------------------------------------------------------------
+// C7 — limits: a device NullGraph creates gets the adapter's PROGRESSION_LIMITS; with
+// autoNegotiate off it keeps WebGPU's defaults, the baseline every module must run on.
+// ---------------------------------------------------------------------------
+{
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    const raised = PROGRESSION_LIMITS.every(k => device.limits[k] === adapter.limits[k]);
+    const plain = new NullGraph();
+    const r = await plain.init(null, { width: 8, height: 8, autoNegotiate: false });
+    const baseline = r.success && plain.device.limits.maxStorageBuffersPerShaderStage === 8 &&
+        plain.device.limits.maxStorageBufferBindingSize === 134217728;
+    check('C7: a created device gets the adapter’s storage limits; autoNegotiate: false keeps the defaults',
+        raised && baseline,
+        PROGRESSION_LIMITS.map(k => `${k} ${device.limits[k]} (adapter ${adapter.limits[k]})`).join(', ') +
+        (r.success ? `; baseline ${plain.device.limits.maxStorageBuffersPerShaderStage} buffers` : `; ${r.error}`));
+    if (r.success) plain.device.destroy();
 }
 
 await finish('All core GPU tests passed.');

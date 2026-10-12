@@ -73,10 +73,11 @@ function mockDevice({ features = [], adapterInfo = { vendor: 'mock', subgroupMin
 }
 
 /** Install a navigator.gpu whose adapter hands out `device`, recording what was requested. */
-function installNavigatorGpu(device, adapterFeatures = []) {
+function installNavigatorGpu(device, adapterFeatures = [], adapterLimits = {}) {
     const calls = { requestAdapter: [], requestDevice: [] };
     const adapter = {
         features: new Set(adapterFeatures),
+        limits: adapterLimits,
         info: { vendor: 'mock-adapter' },
         requestDevice: async (d) => { calls.requestDevice.push(d); device.features = new Set(d?.requiredFeatures ?? []); return device; },
     };
@@ -188,6 +189,23 @@ await check('H5: the request path is unchanged — high-performance adapter, pro
     assert(req.includes('subgroups') && req.includes('shader-f16'), `progression features not requested: ${req}`);
     assert(!req.includes('texture-compression-bc'), 'a non-progression feature was requested without being desired');
     assert(ctx.ownsDevice === true, 'a requested device is reported as adopted');
+});
+
+await check('H8: autoNegotiate raises the curated limits to what the adapter supports, and only those', async () => {
+    // What a real adapter reports (Node/Dawn and Chrome, AMD GCN-5 and NVIDIA Turing): 16 storage
+    // buffers and ~2 GB bindings, where a device gets 8 and 128 MB unless it asks.
+    const adapterLimits = { maxStorageBuffersPerShaderStage: 16, maxStorageBufferBindingSize: 2147483644,
+        maxBufferSize: 2147483648, maxTextureDimension2D: 16384, minUniformBufferOffsetAlignment: 64 };
+    const calls = installNavigatorGpu(mockDevice().device, [], adapterLimits);
+    await new WebGPUContext().init(null, { width: 8, height: 8 });
+    const raised = calls.requestDevice[0]?.requiredLimits ?? {};
+    const sorted = o => JSON.stringify(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+    assert(sorted(raised) === sorted({ maxStorageBuffersPerShaderStage: 16, maxStorageBufferBindingSize: 2147483644,
+        maxBufferSize: 2147483648 }), `requiredLimits ${JSON.stringify(raised)}`);
+    const off = installNavigatorGpu(mockDevice().device, [], adapterLimits);
+    await new WebGPUContext().init(null, { width: 8, height: 8, autoNegotiate: false });
+    const none = off.requestDevice[0]?.requiredLimits ?? {};
+    assert(Object.keys(none).length === 0, `autoNegotiate: false still raised ${JSON.stringify(none)}`);
 });
 
 await check('H6: a canvas still presents — getCurrentTexture is used, and headless is false', async () => {

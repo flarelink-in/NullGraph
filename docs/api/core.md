@@ -90,6 +90,16 @@ every candidate is checked against the adapter's support list first, so it can o
 optional capability, never fail init. Set `autoNegotiate: false` to request only your explicit
 `desiredFeatures`.
 
+It also raises three **limits** to the adapter's own values (`PROGRESSION_LIMITS`):
+`maxStorageBuffersPerShaderStage`, `maxStorageBufferBindingSize` and `maxBufferSize`. Without
+that, a device gets WebGPU's defaults whatever the GPU offers: 8 storage buffers per stage and
+128 MB bindings, where current desktop GPUs report 16 and about 2 GB. The list is curated, not
+"every limit", because the spec warns that better limits can cost performance on some
+implementations. Read the result on `engine.device.limits`. Modules size against those limits and
+refuse above them with a named error, so code that needs more than the defaults fails loudly on a
+baseline device. `autoNegotiate: false` gives a device with the defaults, which is how to check
+that an app runs on the baseline. An adopted device keeps the limits its owner chose.
+
 The negotiated result is exposed as `engine.capabilities` — a structured, queryable snapshot the
 engine uses internally (e.g. the clustered `LightSystem` switches to a subgroup-accelerated binning
 kernel when `capabilities.subgroups` is set) and that you can read for your own code paths:

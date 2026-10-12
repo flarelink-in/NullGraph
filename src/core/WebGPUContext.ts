@@ -14,6 +14,23 @@ export const PROGRESSION_FEATURES: readonly GPUFeatureName[] = [
 ];
 
 /**
+ * The limits NullGraph raises to the adapter's own values when `autoNegotiate` is on. A device
+ * otherwise gets WebGPU's defaults whatever the GPU offers (8 storage buffers per stage and
+ * 128 MB bindings, where current desktop GPUs report 16 and ~2 GB). Curated rather than "every
+ * limit", as the spec advises, because better limits can cost performance on some
+ * implementations; each entry has a consumer:
+ * - `maxStorageBuffersPerShaderStage`: stage brains and app stages beyond the default's 3 spare
+ *   bindings (agents);
+ * - `maxStorageBufferBindingSize`, `maxBufferSize`: populations and instance rows past 128 MB.
+ * Modules size against `device.limits` and refuse above it, so the baseline keeps working.
+ */
+export const PROGRESSION_LIMITS: readonly (keyof GPUSupportedLimits)[] = [
+    'maxStorageBuffersPerShaderStage',
+    'maxStorageBufferBindingSize',
+    'maxBufferSize',
+];
+
+/**
  * Main-screen format when there is no canvas (`init(null, …)`). `rgba8unorm` because it is
  * core-renderable everywhere and its bytes are already in PNG order — `bgra8unorm`, the usual
  * canvas preference, would need a swizzle in every readback.
@@ -214,14 +231,21 @@ export class WebGPUContext {
             }
         }
 
+        // Limits are raised to what this adapter supports, so the request can never fail on them.
+        const requiredLimits: Record<string, number> = {};
         if (options.autoNegotiate ?? true) {
             for (const feature of PROGRESSION_FEATURES) {
                 if (adapter.features.has(feature)) requested.add(feature);
             }
+            for (const limit of PROGRESSION_LIMITS) {
+                const value = adapter.limits[limit];
+                if (typeof value === 'number') requiredLimits[limit] = value;
+            }
         }
 
         this.device = await adapter.requestDevice({
-            requiredFeatures: [...requested]
+            requiredFeatures: [...requested],
+            requiredLimits,
         });
         this.ownsDevice = true;
 

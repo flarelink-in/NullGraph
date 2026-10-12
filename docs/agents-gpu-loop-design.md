@@ -279,7 +279,9 @@ system's life (fact 8). Species parameters stay in a **uniform**, so an app can 
 
 ### 4.3 Bindings per stage — the storage budget
 
-Core WebGPU guarantees 8 storage buffers per stage, and NullGraph requests default limits.
+Core WebGPU guarantees 8 storage buffers per stage. Since 2026-10-12 NullGraph raises
+`maxStorageBuffersPerShaderStage` to the adapter's value when it creates the device (core's
+`PROGRESSION_LIMITS`): 16 on the measured AMD and NVIDIA GPUs. An adopted device keeps its own.
 
 | Stage | Group 0 storage | Uniforms | Storage used |
 |---|---|---|---|
@@ -288,11 +290,13 @@ Core WebGPU guarantees 8 storage buffers per stage, and NullGraph requests defau
 | sense | agents, neighbours, state (read); obs (rw) | species | 4 |
 | think | agents, obs, state (read); act, reason (rw) | species | 5, + the brain's group 1 (C2) |
 | act | act (read); agents (rw) | species | 2 |
-| app step stage | neighbours, obs, act, state (read); agents (rw) | species | 5, + the app's group 1 (≤ 3) |
+| app step stage | neighbours, obs, act, state (read); agents (rw) | species | 5, + the app's group 1 (≤ limit − 5) |
 | tick | overflow (read); state (rw) | — | 2 |
 | instances | agents (read); instance rows (rw) | species, highlight | 2 |
 
-The largest system-owned stage uses 5, which leaves 3 for an app stage's or a brain's own buffers.
+The largest system-owned stage uses 5, which leaves `maxStorageBuffersPerShaderStage − 5` for an
+app stage's or a brain's own buffers: 3 on a default device, 11 on one that negotiated 16. Until
+2026-10-12 the code also capped this at 3 whatever the device offered; that cap is gone.
 `addStepStage` checks against `device.limits.maxStorageBuffersPerShaderStage`. Compute stages do
 not spend the fragment budget (parent fact 19). `agentArrows()` binds `agents.buffer` in its own
 pipeline, as `gridOccupancy()` binds `cellCounts`.
@@ -589,7 +593,8 @@ fn step(i: u32, tick: u32) {
 ```
 
 Each app stage runs once per live agent per step, after act and before the tick. It gets the system's
-bindings (§4.3) and, through `buffers`, up to three of its own at group 1, such as a score counter
+bindings (§4.3) and, through `buffers`, up to `maxStorageBuffersPerShaderStage − 5` of its own at
+group 1 (3 on a default device), such as a score counter
 the app increments atomically.
 
 The generated helpers are:

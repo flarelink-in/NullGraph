@@ -207,6 +207,16 @@ test('U17: no brain, signatures, dimensions and binding budgets fail before regi
     s.destroy();
 });
 
+test('U17: the binding budget follows the device: a negotiated 16-buffer device leaves 11', () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, definition());
+    m.engine.device.limits.maxStorageBuffersPerShaderStage = 16;
+    const good = 'fn think(i: u32, species: u32, tick: u32) {}';
+    s.setBrain({ kind: 'stage', wgsl: good, buffers: [{}, {}, {}, {}] });
+    assert.throws(() => s.setBrain({ kind: 'stage', wgsl: good, buffers: Array.from({ length: 12 }, () => ({})) }),
+        /brain binds 12 buffers; 11 are left/);
+    s.destroy();
+});
+
 test('U9/U8: think/app modules parse, predicate shared, chains ordered, replacement disables old think', () => {
     const def = definition(), m = mock(), s = makeSystem(m.engine, def);
     const brain = new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {

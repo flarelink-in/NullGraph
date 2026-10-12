@@ -125,9 +125,10 @@ export interface EngineInitOptions {
     /** Adapter preference. Refused together with `device` — an adopted device has no adapter request. */
     powerPreference?: 'low-power' | 'high-performance';
     /**
-     * Opportunistically enable supported `PROGRESSION_FEATURES`. Default `true`. Refused together
-     * with `device`: features are fixed when a device is created, so an adopted device's are
-     * read from `device.features`, never negotiated.
+     * Opportunistically enable supported `PROGRESSION_FEATURES` and raise `PROGRESSION_LIMITS` to
+     * the adapter's values. Default `true`; `false` gives a device with WebGPU's default limits,
+     * the baseline every module must run on. Refused together with `device`: features and limits
+     * are fixed when a device is created, so an adopted device's are read, never negotiated.
      */
     autoNegotiate?: boolean;
     /** Render size in pixels. Defaults to the canvas size; required when `canvas` is `null`. */
