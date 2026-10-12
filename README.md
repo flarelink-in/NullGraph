@@ -103,7 +103,7 @@ parameterizations that must round-trip, a slice-accumulated volume whose segment
 CPU mirrors of GPU kernels that are pinned against invariants rather than against each other.
 
 Not yet on a GPU: probe leak bounds and local-reflection fidelity, atmosphere/aerial perspective, post effects, and the
-shadow atlas — see the [handoff](./docs/handoff.md) for what is next.
+shadow atlas — see [docs/work](./docs/work/README.md) for what is next.
 
 ### Not in the box (yet)
 
@@ -323,7 +323,8 @@ Real-time telemetry widgets and WebGPU timestamp-query GPU profiling.
 For comprehensive guides and API references, please check our documentation:
 
 ### Guides
-- [Handoff](./docs/handoff.md) — start here when picking up work: current status, decisions, how to run the GPU suites, what is next
+- [Working on NullGraph](./docs/work/README.md) — start here when picking up work: current position, the plan and its status, commands, gotchas
+- [Handoff](./docs/handoff.md) — the detailed record of results and decisions up to 2026-10-12
 - [Quick Start Guide](./docs/quick-start.md) — get a lit cube on screen
 - [Scene Composition](./docs/scene-composition.md) — how to assemble any scene, end to end
 - [Engine Roadmap](./docs/roadmap.md) — target architecture, release plan, and the WebGPU realities that shape both
