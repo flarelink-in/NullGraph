@@ -802,9 +802,10 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    **Part 1, decided with the user 2026-10-12: per-species brains.** One network per species,
    chosen inside one think stage, designed in
    [`agents-species-brains-design.md`](./agents-species-brains-design.md), phases 7.1–7.5:
-   same-shape networks as weight-table rows of one `MlpBrain` first (U21, A21), then a composite
-   `SpeciesBrain` for mixing kinds (U22, A22). **Part 2:** record → train → export, with its own
-   design doc next, from phase 7.6.
+   weight-table rows of one `MlpBrain` (U21, A21), then, after 7.2 measured per-lane routing at
+   up to 5.6× in Chrome, one think pass per brain gated to its species,
+   `setBrain(brain, { species })` (U22, A22). Rule: passes below 8 species, rows from 8.
+   **Part 2:** record → train → export, with its own design doc next, from phase 7.6.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
    over it — U13, A5, A6. ORT as an optional peer dependency.
