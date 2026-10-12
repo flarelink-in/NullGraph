@@ -379,6 +379,11 @@ export function packSpecies(def: AgentDefinition, out: Float32Array = new Float3
     return out;
 }
 
+/** The WGSL constant the think wrapper declares for a species index: `SPECIES_<NAME>`. */
+export function speciesConstantName(name: string): string {
+    return `SPECIES_${name.toUpperCase()}`;
+}
+
 /** Every named offset as WGSL `const` declarations, for rule brains and generated kernels. */
 export function constantsWGSL(def: AgentDefinition): string {
     return Object.entries(def.constants).map(([k, v]) => `const ${k} = ${v}u;`).join('\n') + '\n';

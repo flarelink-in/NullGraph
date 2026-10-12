@@ -219,3 +219,94 @@ test('MlpBrain: AgentSystem attachment, same-shape update, replacement and devic
     assert.throws(() => system.setBrain(brain), /destroy/);
     system.destroy(); wrong.destroy();
 });
+
+// U21 (phase 7.1, docs/agents-species-brains-design.md §5): one network per species, as rows of
+// one weight table, chosen by species name inside the same kernel.
+const twoSpecies = () => A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: [{ name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 },
+        { name: 'wolf', maxSpeed: 4, maxTurn: 3, accel: 5, senseRadius: 4, radius: 0.6 }],
+    sensors: [A.Sensors.self()] });
+const seq = (n, start) => Array.from({ length: n }, (_, k) => start + k);
+const preyNet = () => [layer(2, 3, 'tanh', seq(6, 1), seq(3, 10)), layer(3, 2, 'sigmoid', seq(6, 20), seq(2, 30))];
+const wolfNet = () => [layer(2, 3, 'tanh', seq(6, -6), seq(3, -10)), layer(3, 2, 'sigmoid', seq(6, -20), seq(2, -30))];
+// buildMlpThinkWGSL([layer(3, 5, 'tanh'), layer(5, 2, 'sigmoid')]) as phase 6 generated it.
+const GOLDEN = "@group(1) @binding(0) var<storage, read> mlpWeights: array<vec4<f32>>;\nfn think(i: u32, species: u32, tick: u32) {\n    var x0: array<vec4<f32>, 1>;\n    for (var k = 0u; k < 3u; k++) {\n        x0[k / 4u][k % 4u] = obs(i, k);\n    }\n    var x1: array<vec4<f32>, 2>;\n    for (var r = 0u; r < 5u; r++) {\n        var z = mlpWeights[8u + r / 4u][r % 4u];\n        for (var k = 0u; k < 1u; k++) {\n            z += dot(mlpWeights[0u + r * 1u + k], x0[k]);\n        }\n        z = tanh(clamp(z, -15.0, 15.0));\n        x1[r / 4u][r % 4u] = z;\n    }\n    var x2: array<vec4<f32>, 1>;\n    for (var r = 0u; r < 2u; r++) {\n        var z = mlpWeights[18u + r / 4u][r % 4u];\n        for (var k = 0u; k < 2u; k++) {\n            z += dot(mlpWeights[10u + r * 2u + k], x1[k]);\n        }\n        let e = exp(-abs(z));\n        z = select(e / (1.0 + e), 1.0 / (1.0 + e), z >= 0.0);\n        x2[r / 4u][r % 4u] = z;\n    }\n    for (var k = 0u; k < 2u; k++) {\n        setAct(i, k, x2[k / 4u][k % 4u]);\n    }\n    setReason(i, 0u);\n}";
+
+test('U21: a single-network brain keeps its phase-6 WGSL byte for byte', () => {
+    const net = [layer(3, 5, 'tanh'), layer(5, 2, 'sigmoid')];
+    assert.equal(A.buildMlpThinkWGSL(net), GOLDEN);
+    assert.equal(new A.MlpBrain(mock().engine, net).wgsl, GOLDEN);
+});
+
+test('U21: bySpecies packs one row per species, in the definition\'s order whatever the map\'s', () => {
+    const m = mock();
+    const brain = A.MlpBrain.bySpecies(m.engine, twoSpecies(), { wolf: wolfNet(), prey: preyNet() });
+    const F = A.mlpLayout(preyNet()).floats;
+    assert.equal(m.buffers.length, 1);
+    assert.equal(m.buffers[0].size, 2 * F * 4);
+    assert.equal(m.writes.length, 1);
+    assert.deepEqual(m.writes[0].data.subarray(0, F), A.packMlpWeights(preyNet()));
+    assert.deepEqual(m.writes[0].data.subarray(F), A.packMlpWeights(wolfNet()));
+    assert.deepEqual(brain.dims, { obs: 2, act: 2 });
+});
+
+test('U21: rows are chosen by species name, and the shader parses in the full wrapper', () => {
+    const definition = twoSpecies();
+    const brain = A.MlpBrain.bySpecies(mock().engine, definition, { prey: preyNet(), wolf: wolfNet() });
+    const quads = A.mlpLayout(preyNet()).floats / 4;
+    assert.match(brain.wgsl, /case SPECIES_PREY: \{ row = 0u; \}/);
+    assert.match(brain.wgsl, new RegExp(`case SPECIES_WOLF: \\{ row = ${quads}u; \\}`));
+    assert.ok(brain.wgsl.includes('mlpWeights[row + '), 'every weight index is offset by the row');
+    assert.ok(!/mlpWeights\[(?!row \+ )/.test(brain.wgsl), 'an index ignores the row');
+    const full = A.buildAgentThinkWGSL(definition, brain.wgsl, 3);
+    assert.equal(new WgslReflect(full).entry.compute[0].name, 'cs_main');
+});
+
+test('U21: setWeights for one species is one writeBuffer at its row; the shader is untouched', () => {
+    const m = mock();
+    const brain = A.MlpBrain.bySpecies(m.engine, twoSpecies(), { prey: preyNet(), wolf: wolfNet() });
+    const F = A.mlpLayout(preyNet()).floats, buffer = brain.buffers[0], wgsl = brain.wgsl;
+    const retrained = [layer(2, 3, 'tanh', seq(6, 50), seq(3, 60)), layer(3, 2, 'sigmoid', seq(6, 70), seq(2, 80))];
+    brain.setWeights(retrained, { species: 'wolf' });
+    assert.equal(m.writes.length, 2);
+    assert.equal(m.writes[1].buffer, buffer);
+    assert.equal(m.writes[1].offset, F * 4);
+    assert.deepEqual(m.writes[1].data, A.packMlpWeights(retrained));
+    brain.setWeights(retrained, { species: 'prey' });
+    assert.equal(m.writes[2].offset, 0);
+    assert.equal(brain.wgsl, wgsl);
+});
+
+test('U21: bySpecies and per-row setWeights refuse by name, before any upload', () => {
+    const m = mock(), definition = twoSpecies();
+    assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet() }),
+        /MlpBrain: no network for species "wolf"; give one per species\./);
+    assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: wolfNet(), bear: preyNet() }),
+        /MlpBrain: "bear" is not a declared species\./);
+    const wide = [layer(2, 4, 'tanh'), layer(4, 2, 'sigmoid')];
+    assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: wide }),
+        /MlpBrain: the network for "wolf" differs in shape from "prey" at layer 0; use SpeciesBrain for different shapes\./);
+    assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: [layer(2, 3, 'relu'), layer(3, 2, 'sigmoid')] }),
+        /differs in shape from "prey" at layer 0/);
+    assert.throws(() => A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: [layer(2, 3, 'tanh'), layer(3, 2, 'tanh')] }),
+        /differs in shape from "prey" at layer 1/);
+    assert.equal(m.buffers.length, 0);
+    const brain = A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: wolfNet() });
+    assert.throws(() => brain.setWeights(preyNet()),
+        /MlpBrain: this brain holds one network per species; call setWeights\(network, \{ species \}\)\./);
+    assert.throws(() => brain.setWeights(preyNet(), { species: 'bear' }), /MlpBrain: "bear" is not a declared species\./);
+    assert.throws(() => brain.setWeights(wide, { species: 'wolf' }), /same shape and activations/);
+    const single = new A.MlpBrain(m.engine, preyNet());
+    assert.throws(() => single.setWeights(preyNet(), { species: 'prey' }),
+        /MlpBrain: setWeights\(\{ species \}\) needs a brain from MlpBrain\.bySpecies\./);
+    assert.equal(m.writes.length, 2, 'only the two constructions uploaded');
+});
+
+test('U21: a per-species brain attaches like any brain, its table bound at group 1', () => {
+    const m = mock(), definition = twoSpecies(), system = new A.AgentSystem(m.engine, definition);
+    const brain = A.MlpBrain.bySpecies(m.engine, definition, { prey: preyNet(), wolf: wolfNet() });
+    system.setBrain(brain);
+    assert.equal(m.stages.at(-1).groups[1][0].resource.buffer, brain.buffers[0]);
+    system.destroy();
+    brain.destroy();
+});
