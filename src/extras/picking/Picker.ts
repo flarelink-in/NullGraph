@@ -240,6 +240,8 @@ export class Picker {
     // -----------------------------------------------------------------------------------------
 
     private async run(px: number, py: number, radius: number, width: number, height: number, cam: Float32Array): Promise<PickHit | null> {
+        // A pick queued before destroy() resolves null rather than touching released resources.
+        if (this.destroyed) return null;
         buildPickCamera(cam, px, py, this.maxRadius, width, height, this.cameraData);
         this.device.queue.writeBuffer(this.cameraBuffer, 0, this.cameraData);
 
@@ -277,7 +279,13 @@ export class Picker {
             [this.size, this.size],
         );
         this.device.queue.submit([enc.finish()]);
-        await this.staging.mapAsync(GPUMapMode.READ);
+        try {
+            await this.staging.mapAsync(GPUMapMode.READ);
+        } catch (error) {
+            if (this.destroyed) return null;   // destroy() released the staging buffer mid-pick
+            throw error;
+        }
+        if (this.destroyed) return null;
         const texels = new Uint32Array(this.staging.getMappedRange().slice(0));
         this.staging.unmap();
 

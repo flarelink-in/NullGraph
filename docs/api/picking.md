@@ -76,7 +76,9 @@ picker.addBatch(myBatch, {
   pose), text labels.
 - `engine.render()` with **no** sequence renders every pass the engine tracks, the pick pass
   included; its batches sit at zero instances between picks, so it costs a clear of a 9×9 target.
-- `picker.destroy()` unregisters every source from its VisibilitySystem.
+- `picker.destroy()` unregisters every source from its VisibilitySystem. Picks still queued when it runs
+  resolve `null`, and so does a pick whose readback was in flight; neither touches the released
+  resources.
 
 ## 5. Errors
 

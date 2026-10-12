@@ -270,6 +270,23 @@ await check('K4: concurrent picks are serialized and each resolves its own resul
     assert(a?.index === 0 && b === null && c?.index === 1, `results crossed: ${JSON.stringify([a?.index, b, c?.index])}`);
 });
 
+// Found by the GPU agents demo (phase 4.3): it destroys and rebuilds its picker while hover picks
+// are queued, and a run that started after destroy() wrote into the released buffers.
+await check('K5: picks still queued when destroy() runs resolve null and touch nothing released', async () => {
+    const { engine, vis, state } = await rig();
+    const picker = new P.Picker(engine, { maxRadius: 0 });
+    picker.addInstances(vis, 'cube', 0);
+    state.readback = texelGrid(0, [{ tx: 0, ty: 0, tag: 1, index: 1 }]).texels;
+    const renders = state.renders, writes = state.writes.length;
+    const queued = [picker.pick(1, 1, camera), picker.pick(2, 2, camera)];
+    picker.destroy();
+    const results = await Promise.all(queued);
+    assert(results.every(r => r === null), `queued picks resolved ${JSON.stringify(results.map(r => r?.index ?? r))} after destroy`);
+    assert(state.renders === renders, `${state.renders - renders} pick pass(es) rendered after destroy`);
+    const late = state.writes.slice(writes).filter(([b]) => b.destroyed);
+    assert(late.length === 0, `${late.length} write(s) into released buffers after destroy`);
+});
+
 await check('errors: every refusal names the offender and the way out', async () => {
     const { engine, vis } = await rig();
     const picker = new P.Picker(engine, { maxRadius: 2 });
