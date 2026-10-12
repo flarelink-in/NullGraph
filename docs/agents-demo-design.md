@@ -6,6 +6,9 @@
 **Direction agreed with the user:** 2026-10-12 — characterize scaling and limits, not chase a
 wishful population/timing target. Detailed experiment choices remain draft.
 **Status:** Design only; no new measurements or step-5 implementation claimed.
+**Sub-step, 2026-10-13:** the user resumed step 5 ahead of step 7, part 2, for deterministic
+neighbour lookups, designed in [`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md)
+(phases 5.5–5.8). The study below (phases 5.0–5.4) stays deferred.
 **Outcome:** explain how far the system scales, under which conditions, what limits it first,
 and which finer agent/renderer/engine improvements the evidence supports. No core rewrite planned.
 
@@ -163,7 +166,8 @@ hypothesis** and **untested proposal**.
 
 Only improve a narrow path when measurements justify useful benefit. Grid-ordered queries, fused
 scans, dispatch overhead, locality or visibility/overlay cost are possible investigations, not
-predetermined conclusions. Query gating is not automatically safe: app stages consume neighbours.
+predetermined conclusions. (Grid order was taken up on 2026-10-13 for determinism rather than
+speed: [`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md).) Query gating is not automatically safe: app stages consume neighbours.
 Validate identical workload/quality settings, multiple scales and both hosts where possible; report
 regressions and variation. Preserve APIs, budget and ownership. Engine-wide opportunities become
 separately scoped follow-ups. **No worthwhile optimization needed** is a valid result.
