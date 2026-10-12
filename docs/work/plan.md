@@ -47,7 +47,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 3 | C1 | `AgentSystem`: sense → think (rules) → act on the GPU, arrows demo | A whole population runs with no CPU per agent | ✅ phases 3.0–3.5 ([design](../agents-gpu-loop-design.md)) |
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
 | 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deferred** by the user (2026-10-12); the stress test covers it for now |
-| 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | **In progress**: 6.0 ✅ `e345921`, 6.1 ✅ `dbaf884`, 6.2 (A4 on both GPUs) next, then 6.3 |
+| 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | **In progress**: 6.0 ✅ `e345921`, 6.1 ✅ `dbaf884`, 6.2 ✅ A4 on both hosts, 6.3 next |
 | 7 | C2 | Record the rule brain → train a copy → export (`tools/agents`) | **First network that has actually learned Herd & Wolves** | Not started; needs the species decision (§5) |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
 | 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
