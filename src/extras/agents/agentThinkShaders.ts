@@ -33,6 +33,7 @@ ${speciesConstants(def)}
 @group(0) @binding(3) var<storage, read_write> act: array<f32>;
 @group(0) @binding(4) var<storage, read_write> reason: array<u32>;
 @group(0) @binding(5) var<uniform> species: array<Species, 16>;
+@group(0) @binding(6) var<uniform> brainSpecies: vec4<u32>;
 ${buildAgentThinkPredicateWGSL(thinkEvery)}
 ${AGENT_RANDOM_WGSL}
 fn obs(i: u32, k: u32) -> f32 { return observations[i * OBS_DIM + k]; }
@@ -44,6 +45,7 @@ ${wgsl}
     if (i >= ${def.capacity}u) { return; }
     let a = agents[i];
     if (!thinksNow(i, a)) { return; }
+    if ((brainSpecies.x & (1u << a.ids.x)) == 0u) { return; }
     _ = arrayLength(&observations);
     _ = arrayLength(&act);
     _ = arrayLength(&reason);

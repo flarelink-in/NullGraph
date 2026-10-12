@@ -37,6 +37,8 @@ test('U8: cached 0..3 chains repeat the same nodes, with no frame typed-array al
     assert.equal(chains[2].length, chains[1].length * 2);
     assert.equal(chains[3].length, chains[1].length * 3);
     chains[3].forEach((node, i) => assert.equal(node, chains[1][i % chains[1].length]));
+    // Setup wrote one thing: setBrain's 16-byte species mask (phase 7.3). Frames add only uploads.
+    assert.deepEqual(m.writes.map(([b]) => b.label), ['AgentSystem brain species']);
     const original = [globalThis.Float32Array, globalThis.Uint32Array];
     let allocations = 0;
     try {
@@ -46,7 +48,8 @@ test('U8: cached 0..3 chains repeat the same nodes, with no frame typed-array al
         for (let i = 0; i < 100; i++) { s.advance(s.definition.dt); assert.equal(s.getComputeStages(), chains[1]); s.upload(); }
         assert.equal(allocations, 0);
     } finally { [globalThis.Float32Array, globalThis.Uint32Array] = original; }
-    assert.equal(m.writes.length, 1);
+    assert.equal(m.writes.length, 2, 'a hundred frames wrote more than the first species upload');
+    assert.equal(m.writes[1][0], s.species);
     assert.ok(m.stages.every(stage => stage.preClearBuffers.length === 0));
     s.destroy();
 });
@@ -71,12 +74,13 @@ test('U16: query defaults match committed step-2 text byte for byte; slices pars
 
 test('uploads dirty records only; species tuning validates atomically and changes spawn defaults', () => {
     const m = mock(), def = definition(), s = makeSystem(m.engine, def);
-    s.upload(); assert.equal(m.writes[0][0], s.species);
-    s.upload(); assert.equal(m.writes.length, 1);
+    const setup = m.writes.length;            // setBrain's species mask (phase 7.3)
+    s.upload(); assert.equal(m.writes[setup][0], s.species);
+    s.upload(); assert.equal(m.writes.length, setup + 1);
     s.spawn(3, { position: [0, 0, 0], species: 'prey' });
     s.spawn(5, { position: [0, 0, 0], species: 'prey' });
     s.upload();
-    assert.deepEqual(m.writes[1].slice(1), [192, s.records.data.buffer, 192, 192]);
+    assert.deepEqual(m.writes[setup + 1].slice(1), [192, s.records.data.buffer, 192, 192]);
     assert.equal(s.records.dirtyFirst, -1);
     assert.throws(() => s.setSpecies('prey', { senseRadius: 5 }), /senses 5/);
     assert.equal(s.definition.species[0].senseRadius, 4);
@@ -250,11 +254,96 @@ test('U9/U8: think/app modules parse, predicate shared, chains ordered, replacem
     assert.equal(s.getComputeStages().length, one.length * 3);
     s.getComputeStages().forEach((stage, i) => assert.equal(stage, one[i % one.length]));
     const think = one.find(stage => stage.name === 'AgentSystem think');
-    assert.equal(think.groups[0].length, 6); assert.equal(think.groups[1][0].resource.buffer, extra);
+    assert.equal(think.groups[0].length, 7); assert.equal(think.groups[1][0].resource.buffer, extra);
     s.destroy(); assert.equal(destroyed, false);
     assert.ok(one.every(stage => !stage.enabled));
     assert.throws(() => s.setBrain(brain), /after destroy/);
     assert.throws(() => s.addStepStage({ name: 'late', wgsl: '' }), /after destroy/);
+});
+
+// U22 (phase 7.3, docs/agents-species-brains-design.md §6): one think pass per brain, gated to its
+// species by the stage's 16-byte mask uniform; moving species between attached brains rewrites masks
+// and builds nothing.
+const threeSpecies = () => definition({ species: ['prey', 'wolf', 'deer'].map(name =>
+    ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })) });
+const tagged = tag => new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) { setReason(i, ${tag}u); }`);
+const passesOf = s => { s.advance(s.definition.dt); return s.getComputeStages().filter(st => st.name === 'AgentSystem think'); };
+const maskOf = (m, stage) => m.writes.filter(([b]) => b === stage.groups[0][6].resource.buffer).at(-1)?.[2][0];
+
+test('U22: one pass per distinct brain, each gated to its species; sense → passes → act', () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies());
+    s.setBrain(tagged(1));
+    let passes = passesOf(s);
+    assert.equal(passes.length, 1);
+    assert.equal(maskOf(m, passes[0]), 0b111);
+    s.setBrain(tagged(2), { species: 'wolf' });
+    s.setBrain(tagged(3), { species: ['deer'] });
+    passes = passesOf(s);
+    assert.deepEqual(passes.map(p => maskOf(m, p)), [0b001, 0b010, 0b100]);
+    assert.ok(passes.every(p => p.groups[0].length === 7 && p.enabled));
+    const names = s.getComputeStages().map(st => st.name), first = names.indexOf('AgentSystem think');
+    assert.deepEqual(names.slice(first - 1, first + 4),
+        ['AgentSystem sense', 'AgentSystem think', 'AgentSystem think', 'AgentSystem think', 'AgentSystem act']);
+    s.destroy();
+    assert.ok(passes.every(p => !p.enabled));
+});
+
+test('U22: moving species to an attached brain builds nothing; a brain serving nobody leaves every chain', () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies());
+    const rules = tagged(1), wolfBrain = tagged(2);
+    s.setBrain(rules);
+    s.setBrain(wolfBrain, { species: 'wolf' });
+    const [rulesPass, wolfPass] = passesOf(s), built = m.stages.length;
+    s.setBrain(rules, { species: 'wolf' });
+    assert.equal(m.stages.length, built, 'moving species to an attached brain built a stage');
+    assert.equal(maskOf(m, rulesPass), 0b111);
+    assert.equal(wolfPass.enabled, false);
+    for (let n = 0; n <= s.definition.maxStepsPerFrame; n++) {
+        s.advance(n * s.definition.dt);
+        assert.ok(!s.getComputeStages().includes(wolfPass), `a chain of ${n} steps still runs the retired pass`);
+    }
+    s.setBrain(wolfBrain, { species: 'wolf' });
+    assert.equal(m.stages.length, built + 1);
+    assert.equal(m.stages.at(-1).shaderCode, wolfPass.shaderCode, 're-attaching changed the shader text (a pipeline-cache miss)');
+    assert.equal(maskOf(m, rulesPass), 0b101);
+    s.destroy();
+});
+
+test('U22: species are checked by name: unknown at setBrain, missing before the first step', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies());
+    const before = m.stages.length;
+    assert.throws(() => s.setBrain(tagged(1), { species: 'bear' }), /AgentSystem: "bear" is not a declared species\./);
+    assert.equal(m.stages.length, before, 'a refused setBrain built a stage');
+    s.setBrain(tagged(1), { species: ['prey', 'deer'] });
+    assert.throws(() => s.getComputeStages(),
+        /AgentSystem: no brain for species "wolf"; call setBrain\(brain, \{ species: 'wolf' \}\)\./);
+    await assert.rejects(s.step(), /no brain for species "wolf"/);
+    s.setBrain(tagged(2), { species: 'wolf' });
+    assert.doesNotThrow(() => s.getComputeStages());
+    s.destroy();
+});
+
+test('U22: an attached brain destroyed since is refused when re-assigned, and nothing changes', () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies());
+    const brain = { kind: 'stage', wgsl: 'fn think(i: u32, species: u32, tick: u32) {}', destroyed: false,
+        assertDevice() { if (this.destroyed) throw new Error('MlpBrain: cannot use after destroy().'); }, destroy() { this.destroyed = true; } };
+    s.setBrain(brain);
+    s.setBrain(tagged(2), { species: 'wolf' });
+    const [pass] = passesOf(s), writes = m.writes.length;
+    brain.destroy();
+    assert.throws(() => s.setBrain(brain, { species: 'wolf' }), /after destroy/);
+    assert.equal(m.writes.length, writes, 'a refused reassignment rewrote a mask');
+    assert.equal(maskOf(m, pass), 0b101);
+    s.destroy();
+});
+
+test('U22: the species gate is generated beside the cadence gate, and the wrapper parses', () => {
+    const def = threeSpecies(), code = A.buildAgentThinkWGSL(def, 'fn think(i: u32, species: u32, tick: u32) {}', 3);
+    assert.match(code, /@group\(0\) @binding\(6\) var<uniform> brainSpecies: vec4<u32>;/);
+    assert.match(code, /if \(!thinksNow\(i, a\)\) \{ return; \}\s*if \(\(brainSpecies\.x & \(1u << a\.ids\.x\)\) == 0u\) \{ return; \}/);
+    const reflect = new WgslReflect(code);
+    assert.equal(reflect.entry.compute[0].name, 'cs_main');
+    assert.ok(reflect.uniforms.some(u => u.name === 'brainSpecies' && u.group === 0 && u.binding === 6));
 });
 
 test('U17: case-folded species constants cannot collide', () => {
@@ -269,6 +358,8 @@ test('shape change bind failure disables new stage and preserves previous chain'
     m.engine.setComputePassBindGroup = () => { throw new Error('fixture binding failed'); };
     assert.throws(() => s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')), /binding failed/);
     assert.equal(m.stages.at(-1).enabled, false);
+    assert.equal(m.buffers.at(-1).label, 'AgentSystem brain species');
+    assert.equal(m.buffers.at(-1).destroyed, true, 'a failed setBrain kept its species mask');
     assert.equal(previous.enabled, true); assert.equal(s.getComputeStages(), chain);
     assert.throws(() => s.addStepStage({ name: 'retry', wgsl: 'fn step(i: u32, tick: u32) {}' }), /binding failed/);
     assert.equal(m.stages.at(-1).enabled, false);

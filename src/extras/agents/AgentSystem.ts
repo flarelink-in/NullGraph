@@ -55,7 +55,11 @@ export class AgentSystem {
     private readonly speciesData: Float32Array;
     private speciesDirty = true;
     private destroyed = false;
-    private thinkStage?: ComputeStageNode;
+    /** The brain serving each species, by species index (phase 7.3). */
+    private readonly brainOf: (Brain | undefined)[];
+    /** One think pass per attached brain, in attachment order, gated by its species-mask uniform. */
+    private readonly thinks = new Map<Brain, { stage: ComputeStageNode; mask: GPUBuffer; bits: number }>();
+    private everySpecies = false;
     private readonly appStages = new Map<string, ComputeStageNode>();
     private instanceStage?: ComputeStageNode;
     private highlightBuffer?: GPUBuffer;
@@ -74,6 +78,7 @@ export class AgentSystem {
         this.records = new AgentRecords(this.definition);
         this.clock = new FixedStep(def.dt, def.maxStepsPerFrame, def.maxFrameDelta);
         this.speciesData = packSpecies(this.definition);
+        this.brainOf = def.species.map(() => undefined);
         this.snapshotLayout = agentSnapshotLayout(this.definition);
         this.neighbourStride = def.sensors.reduce((n, s) => n + (s.kind === 'nearest' ? s.k : 0), 0);
         const senseCode = buildAgentSenseWGSL(def, this.thinkEvery);
@@ -123,6 +128,11 @@ export class AgentSystem {
         return buffer;
     }
 
+    private release(buffer: GPUBuffer): void {
+        this.owned.splice(this.owned.indexOf(buffer), 1);
+        buffer.destroy();
+    }
+
     private stage(name: string, shaderCode: string, buffers: GPUBuffer[], groups: number, extra: readonly GPUBuffer[] = []): ComputeStageNode {
         const stage = this.engine.createComputeStage({ name: `AgentSystem ${name}`, shaderCode, dispatchCount: [groups, 1, 1] });
         try {
@@ -140,7 +150,7 @@ export class AgentSystem {
     private rebuildChains(): void {
         const step = [...this.grid.getComputeStages(), ...this.stages.filter(s =>
             s.name.startsWith('AgentSystem query ') || s.name === 'AgentSystem sense'),
-            ...(this.thinkStage ? [this.thinkStage] : []),
+            ...[...this.thinks.values()].map(t => t.stage),
             this.stages.find(s => s.name === 'AgentSystem act')!, ...this.appStages.values(),
             this.stages.find(s => s.name === 'AgentSystem tick')!];
         this.chains.length = 0;
@@ -160,22 +170,58 @@ export class AgentSystem {
         if (buffers.length > left) throw new Error(`AgentSystem: ${name} binds ${buffers.length} buffers; ${left} are left after the system's 5.`);
     }
 
-    public setBrain(brain: Brain): void {
+    /**
+     * Phase 7.3 (agents-species-brains-design.md §6): `brain` thinks for the named species, or for
+     * every species. Each attached brain is one think pass, gated to its species by a 16-byte mask;
+     * moving species between attached brains rewrites masks and compiles nothing. A brain left
+     * serving no species leaves every chain, and may then be destroyed.
+     */
+    public setBrain(brain: Brain, options: { readonly species?: string | readonly string[] } = {}): void {
         this.assertAlive();
+        const def = this.definition, named = options.species ?? def.species.map(s => s.name);
+        const indices = (typeof named === 'string' ? [named] : named).map(name => {
+            const s = def.species.find(sp => sp.name === name);
+            if (!s) throw new Error(`AgentSystem: "${name}" is not a declared species.`);
+            return s.index;
+        });
+        if (this.thinks.has(brain)) brain.assertDevice?.(this.engine.device);
+        else this.attach(brain);
+        for (const s of indices) this.brainOf[s] = brain;
+        for (const [b, t] of this.thinks) {
+            let bits = 0;
+            this.brainOf.forEach((x, s) => { if (x === b) bits |= 1 << s; });
+            if (!bits) {
+                t.stage.enabled = false;
+                this.stages.splice(this.stages.indexOf(t.stage), 1);
+                this.release(t.mask);
+                this.thinks.delete(b);
+            } else if (bits !== t.bits) {
+                t.bits = bits;
+                this.engine.device.queue.writeBuffer(t.mask, 0, new Uint32Array([bits, 0, 0, 0]));
+            }
+        }
+        this.everySpecies = this.brainOf.every(Boolean);
+        this.rebuildChains();
+    }
+
+    /** Validates `brain` and builds its pass; nothing is assigned until this returns. */
+    private attach(brain: Brain): void {
         if (brain.kind !== 'stage') throw new Error('AgentSystem: async brains are deferred to C2; use a stage brain.');
         brain.assertDevice?.(this.engine.device);
         if (brain.dims) assertBrainDims(this.definition, brain.dims.obs, brain.dims.act);
         const code = buildAgentThinkWGSL(this.definition, brain.wgsl!, this.thinkEvery);
         const extra = brain.buffers ?? [];
         this.checkExtraBuffers('brain', extra);
-        const next = this.stage('think', code, [this.buffer, this.obs, this.state, this.act, this.reason, this.species],
-            Math.ceil(this.capacity / 64), extra);
-        if (this.thinkStage) {
-            this.thinkStage.enabled = false;
-            this.stages.splice(this.stages.indexOf(this.thinkStage), 1);
+        const mask = this.allocate('brain species', 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        let stage: ComputeStageNode;
+        try {
+            stage = this.stage('think', code,
+                [this.buffer, this.obs, this.state, this.act, this.reason, this.species, mask], Math.ceil(this.capacity / 64), extra);
+        } catch (error) {
+            this.release(mask);
+            throw error;
         }
-        this.thinkStage = next;
-        this.rebuildChains();
+        this.thinks.set(brain, { stage, mask, bits: 0 });
     }
 
     /** App stages must write only their own record, never fields peers read in the same dispatch. */
@@ -353,6 +399,8 @@ export class AgentSystem {
     }
 
     private assertBrain(): void {
-        if (!this.thinkStage) throw new Error('AgentSystem: no brain — call setBrain() before getComputeStages() or step().');
+        if (this.everySpecies) return;
+        const missing = this.definition.species.find(s => !this.brainOf[s.index])!;
+        throw new Error(`AgentSystem: no brain for species "${missing.name}"; call setBrain(brain, { species: '${missing.name}' }).`);
     }
 }
