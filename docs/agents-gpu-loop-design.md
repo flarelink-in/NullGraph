@@ -13,8 +13,8 @@ file so the parent stays a plan.
 - One debug draw in `null-graph/debug-ui`.
 
 **Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
-and §7.3 record what it decided. ✅ Phases 3.1–3.4 are implemented, validated and committed.
-Phase 3.5 is implemented and validated; its working-tree changes are not committed yet.
+and §7.3 record what it decided. ✅ Phases 3.1–3.5 are implemented, validated and committed
+(3.5 as `f5cfd46`, 2026-10-12). Step 4 is next, from phase 4.1.
 
 **Phase 3.5 results, 2026-10-11:** `debug-ui/agentDrawing.ts` implements the §8.4 draw with
 species RGB overrides, dead clipping and GPU-owned position/heading/radius. Two new headless
