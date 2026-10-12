@@ -6,37 +6,39 @@ log, not here.
 ## Position
 
 - **Cycle C, milestone C2.** Step 6 (`MlpBrain`) is complete and committed (6.0 `e345921`,
-  6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 `d8ad5b2`).
-- **Step 7, part 1: per-species brains, designed and approved**
+  6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 `d8ad5b2`). Core limit negotiation: `7f1acb0`. Per-species
+  design: `ed195b3`.
+- **Step 7, part 1: per-species brains**
   ([`../agents-species-brains-design.md`](../agents-species-brains-design.md)):
-  - same-shape networks as **weight-table rows** of one `MlpBrain` (`MlpBrain.bySpecies`, phases
-    7.1–7.2);
-  - then a composite `SpeciesBrain` to mix kinds (7.3–7.4);
-  - then the guide (7.5).
-
-  No fallback brain. **Next: phase 7.1.**
-- **Core limit negotiation landed (uncommitted):** `PROGRESSION_LIMITS` raises three storage limits
-  to the adapter's values on devices NullGraph creates. On both measured GPUs that is 16 buffers
-  and ~2 GB bindings. `AgentSystem`'s cap of 3 brain buffers is gone.
-- **Step 7, part 2** (record → train → export per species, the rest timer as an observation) gets
-  its own design after part 1, from phase 7.6.
+  - **7.1 is done but not committed:** `MlpBrain.bySpecies`, one row per species in one weight
+    table, chosen by species name; per-row `setWeights`; U21.
+  - **Next: 7.2:** rows on the GPU (A21, both hosts) plus the lockstep measurement.
+  - Then the composite `SpeciesBrain` (7.3–7.4) and the guide (7.5).
+- **Docs corrected:** same-device determinism holds only while no grid cell
+  overflows (measured: 19,990 of 64,000 words differed between identical runs at budget 64, none
+  without overflow). "Overflow is rare" is false for flocks. The MLP design gained its integration
+  facts, touchpoints and verbatim errors.
+- **For step 7, part 2's design:** record teacher data with overflow off, or pull step 5's
+  grid-ordered queries forward. That is the user's decision when part 2 is designed.
 - Step 5 is deferred, not done.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed): uncommitted. Changed: core (`WebGPUContext`, types), the
-  `AgentSystem` cap, and tests (H8, C7, a U17 case); the new design; doc updates (core API guide,
-  facts 16 and §12.3, the GPU-loop budget, pointers, `plan.md`). Green:
-  - every headless suite;
-  - every GPU suite on Node/Dawn (12) and Chrome (9), zero WebGPU errors.
+- **README refreshed:** feature/subpath table and API backlinks; internal phase
+  labels and unsupported absolute claims removed. Documentation-only; development position unchanged.
 
-  Core +89 B min+gzip.
-- **Bundle:** `agents.js` 17,279 B min+gzip; C2 may reach 21,495 B.
+- **null-graph** (`master`, not pushed): documentation committed separately; 7.1 code and tests
+  remain uncommitted.
+  Green:
+  - library build;
+  - headless agents 24 + 54, core, agent-kit 4/4;
+  - the agents GPU suite at 120/120 on Node/Dawn and Chrome.
+- **Bundle:** `agents.js` 17,827 B min+gzip (C2 ceiling 21,495 B, 3,668 B left); an app with
+  `MlpBrain` 14,314 B; a rule-only app 12,375 B, no MLP code.
 - **Test-engine site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): its
-  `node_modules/null-graph/dist` was refreshed with this build and driven at 4K and 64K agents
-  with no errors on a temporary Vite (:8083, stopped). Restart its dev server with
-  `npm run dev -- --force` to pick the build up ([`gotchas.md`](./gotchas.md)).
+  `node_modules/null-graph/dist` holds the limits build (`7f1acb0`), not 7.1. Restart its dev server
+  with `npm run dev -- --force` after any refresh ([`gotchas.md`](./gotchas.md)).
 
 ## Open questions for the user
 
-- None blocking. [`plan.md`](./plan.md) §5, item 3 (the brain-swap stall) is deferred to step 9.
+- None blocking 7.2. [`plan.md`](./plan.md) §5, item 3 (the brain-swap stall) is deferred to step 9.
