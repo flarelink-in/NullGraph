@@ -1263,3 +1263,11 @@ No push/publication, no phase-3.5 implementation or new visual/drive review.
     temporary Vite at :8083. The user's :8081 server served the old build; see Gotchas.
   - **Not committed.** This waits for the user; the site stays uncommitted.
   - **Next:** 4.5.
+
+## C2 phase 6.0 ? 2026-10-12
+
+Dense model validation, vec4 packing and f32-aware CPU forward implemented in
+`src/extras/agents/mlpMath.ts`; focused U10 tests pass 8/8. Builds, agents/core and
+agent-kit regressions pass. No GPU kernel/class yet; phase 6.1 next. Whole entry
+16,569 B min+gzip versus fresh 15,495 B baseline (+1,074 B); combined C2 allowance
+remaining 2,926 B. Step 6 is not complete. See `agents-mlp-design.md`.
