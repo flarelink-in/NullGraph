@@ -1525,6 +1525,141 @@ vis.destroy();
             `(${injected.own.bad} of ${injected.own.values} wolf outputs off their own network, ${injected.asPrey.bad} off prey's)`,
             injected.own.bad > 0 && injected.asPrey.bad === 0);
     }
+
+    // A22 (phase 7.4, docs/agents-species-brains-design.md §6, §10): one think pass per brain, each gated
+    // to its species by its own mask. Prey think with rules (constants, reason 7), wolves and deer with
+    // networks of two different shapes (reason 0): every live agent must match its own brain and no
+    // other, contiguous and interleaved. Moving wolves to the rules builds no stage, and the network
+    // left serving nobody may then be destroyed. With the gate replaced by a plain read of the mask,
+    // the last pass writes every species: watched failing.
+    {
+        const names = ['prey', 'wolf', 'deer'];
+        const def = A.defineAgents({ capacity: 300, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: names.map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
+            sensors: [probe(5)], actions: A.Actions.steering() });
+        const nets = { wolf: mlpNet([5, 7, 'tanh'], [7, 2, 'tanh']), deer: mlpNet([5, 9, 'relu'], [9, 6, 'tanh'], [6, 2, 'sigmoid']) };
+        const RULES = [0.25, -0.5];
+        const ruleWGSL = `fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, ${RULES[0]}); setAct(i, ACT_THROTTLE, ${RULES[1]}); setReason(i, 7u);
+}`;
+        const GATE = 'if ((brainSpecies.x & (1u << a.ids.x)) == 0u) { return; }';
+        const layouts = { contiguous: i => names[Math.floor(i / 100)], interleaved: i => names[i % 3] };
+        const thinkPasses = sys => { sys.advance(def.dt); return sys.getComputeStages().filter(s => s.name === 'AgentSystem think'); };
+        // Stages the engine builds while fn runs.
+        const countBuilt = fn => {
+            const own = Object.hasOwn(engine, 'createComputeStage'), original = engine.createComputeStage;
+            let n = 0;
+            engine.createComputeStage = function (...args) { n++; return original.apply(this, args); };
+            try { fn(); } finally { if (own) engine.createComputeStage = original; else delete engine.createComputeStage; }
+            return n;
+        };
+        // The production masks of the three passes, for the watched-failing dispatch.
+        const masks = [0b001, 0b010, 0b100].map(bits => {
+            const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+            allocated.push(b);
+            device.queue.writeBuffer(b, 0, new Uint32Array([bits, 0, 0, 0]));
+            return b;
+        });
+        const problems = [];
+        let worst = { maxAbs: 0, maxRel: 0 }, opened = null;
+        device.pushErrorScope('validation');
+        for (const [layout, speciesOf] of Object.entries(layouts)) {
+            const sys = new A.AgentSystem(engine, def), rules = new A.RuleBrain(ruleWGSL);
+            const wolfBrain = new A.MlpBrain(engine, nets.wolf), deerBrain = new A.MlpBrain(engine, nets.deer);
+            const attached = [countBuilt(() => sys.setBrain(rules)), countBuilt(() => sys.setBrain(wolfBrain, { species: 'wolf' })),
+                countBuilt(() => sys.setBrain(deerBrain, { species: ['deer'] }))];
+            if (attached.join() !== '1,1,1') problems.push(`${layout}: attaching three brains built ${attached.join('/')} stages`);
+            const live = populate(sys, def, undefined, i => ({ species: speciesOf(i) })), liveSet = new Set(live);
+            const dead = Array.from({ length: def.capacity }, (_, i) => i).filter(i => !liveSet.has(i));
+            const members = Object.fromEntries(names.map(name => [name, live.filter(i => speciesOf(i) === name)]));
+            device.queue.writeBuffer(sys.act, 0, new Float32Array(def.capacity * 2).fill(-7));
+            fillReason(sys.reason, def.capacity, 99);
+            // brainOf: each species' brain, 'rules' or its network. Rules give the constants exactly and
+            // reason 7; a network gives its own outputs within A4's tolerance, reason 0, and no other's.
+            const judge = async (brainOf, label) => {
+                const obs = await readF(sys.obs, def.capacity * 5), act = await readF(sys.act, def.capacity * 2);
+                const reason = await read(sys.reason, def.capacity);
+                const ruled = i => act[i * 2] === RULES[0] && act[i * 2 + 1] === RULES[1] && reason[i] === 7;
+                for (const name of names) {
+                    const own = brainOf[name], rows = members[name];
+                    if (own === 'rules') {
+                        if (!rows.every(ruled)) problems.push(`${layout} ${label}: ${name} off the rules`);
+                    } else {
+                        const r = agree(own, def, obs, act, rows);
+                        worst = { maxAbs: Math.max(worst.maxAbs, r.maxAbs), maxRel: Math.max(worst.maxRel, r.maxRel) };
+                        if (r.bad || rows.some(i => reason[i] !== 0)) problems.push(`${layout} ${label}: ${name} ${r.bad}/${r.values} off its network`);
+                        if (rows.some(ruled)) problems.push(`${layout} ${label}: ${name} passes as rules`);
+                    }
+                    for (const net of Object.values(nets).filter(n => n !== own)) {
+                        const cross = agree(net, def, obs, act, rows);
+                        if (cross.bad < 0.99 * cross.values) problems.push(`${layout} ${label}: ${name} passes as another network`);
+                    }
+                }
+                if (dead.some(i => reason[i] !== 99 || act[i * 2] !== -7 || act[i * 2 + 1] !== -7)) problems.push(`${layout} ${label}: dead rows written`);
+            };
+            await sys.step();
+            await sys.step();
+            const passes = thinkPasses(sys), [rulesPass, wolfPass, deerPass] = passes;
+            const order = sys.getComputeStages().map(s => s.name), at = order.indexOf('AgentSystem think');
+            if (passes.length !== 3 || !passes.every(p => p.enabled) || order.slice(at - 1, at + 4).join() !==
+                ['AgentSystem sense', 'AgentSystem think', 'AgentSystem think', 'AgentSystem think', 'AgentSystem act'].join()) {
+                problems.push(`${layout}: chain`);
+            }
+            await judge({ prey: 'rules', wolf: nets.wolf, deer: nets.deer }, 'three brains');
+            const brains = [rules, wolfBrain, deerBrain];
+            const codes = brains.map(brain => A.buildAgentThinkWGSL(sys.definition, brain.wgsl, sys.thinkEvery));
+            if (layout === 'interleaved' && codes.every(code => code.includes(GATE))) {
+                // Watched failing: the system's three passes, in its order, over its buffers and with its
+                // masks, but each gate replaced by a plain read of the mask (the binding stays in use).
+                const enc = device.createCommandEncoder();
+                brains.forEach((brain, k) => {
+                    const pipeline = device.createComputePipeline({ label: 'A22 ungated think', layout: 'auto',
+                        compute: { module: device.createShaderModule({ code: codes[k].replace(GATE, '_ = brainSpecies.x;') }), entryPoint: 'cs_main' } });
+                    const pass = enc.beginComputePass();
+                    pass.setPipeline(pipeline);
+                    pass.setBindGroup(0, device.createBindGroup({ layout: pipeline.getBindGroupLayout(0),
+                        entries: [sys.buffer, sys.obs, sys.state, sys.act, sys.reason, sys.species, masks[k]]
+                            .map((b, binding) => ({ binding, resource: { buffer: b } })) }));
+                    if (brain.buffers?.length) pass.setBindGroup(1, device.createBindGroup({ layout: pipeline.getBindGroupLayout(1),
+                        entries: brain.buffers.map((b, binding) => ({ binding, resource: { buffer: b } })) }));
+                    pass.dispatchWorkgroups(Math.ceil(def.capacity / 64));
+                    pass.end();
+                });
+                device.queue.submit([enc.finish()]);
+                const obs = await readF(sys.obs, def.capacity * 5), act = await readF(sys.act, def.capacity * 2);
+                opened = { asDeer: agree(nets.deer, def, obs, act, [...members.prey, ...members.wolf]),
+                    ownWolf: agree(nets.wolf, def, obs, act, members.wolf), prey: members.prey.length,
+                    preyRuled: members.prey.filter(i => act[i * 2] === RULES[0] && act[i * 2 + 1] === RULES[1]).length };
+            }
+            // Wolves back to the rules: the rules pass exists, so nothing is built and the wolf pass retires.
+            const moved = countBuilt(() => sys.setBrain(rules, { species: 'wolf' })), after = thinkPasses(sys);
+            if (moved !== 0 || after.length !== 2 || after[0] !== rulesPass || after[1] !== deerPass || wolfPass.enabled) {
+                problems.push(`${layout}: moving wolves to the rules built ${moved} stage(s) or kept the wolf pass`);
+            }
+            // The wolf network serves nobody: destroy it, then run every cached chain length and a step.
+            wolfBrain.destroy();
+            for (const frames of [1, 2, 3]) {
+                sys.advance(def.dt * frames);
+                const chain = sys.getComputeStages();
+                if (chain.includes(wolfPass) || chain.some(s => !s.enabled)) problems.push(`${layout}: a chain of ${frames} reaches the retired pass`);
+                engine.render(chain);
+            }
+            await sys.step();
+            await judge({ prey: 'rules', wolf: 'rules', deer: nets.deer }, 'wolves moved to the rules');
+            sys.destroy();
+            deerBrain.destroy();
+        }
+        const error = await device.popErrorScope();
+        check(`A22: prey on rules, wolves and deer on networks of two shapes: every live agent matches its own brain and no ` +
+            `other, contiguous and interleaved (${errors(worst)}); moving wolves to the rules builds no stage, and no chain ` +
+            `reaches the destroyed wolf network` + (problems.length ? `; ${problems.slice(0, 4).join('; ')}` : ''),
+            error === null && problems.length === 0);
+        check(`A22 watched failing: with each gate replaced by a plain read of its mask, the last pass (deer's network) ` +
+            `writes every species: ` + (opened ? `${opened.asDeer.values - opened.asDeer.bad} of ${opened.asDeer.values} prey ` +
+            `and wolf outputs are deer's, ${opened.ownWolf.bad} of ${opened.ownWolf.values} wolf outputs left their own ` +
+            `network, ${opened.preyRuled} of ${opened.prey} prey kept the rules` : 'the gate is missing from the think wrapper'),
+            opened !== null && opened.asDeer.bad === 0 && opened.ownWolf.bad > 0 && opened.preyRuled === 0);
+    }
 }
 
 allocated.splice(0).forEach(b => b.destroy());
