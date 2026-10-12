@@ -183,8 +183,8 @@ same outputs, even for different species. Thus one network cannot generally copy
 policies without a species feature, separate models/routing or another explicit encoding.
 For step 6 use controlled fixtures/single-policy examples. Before step-7 cloning, design and validate
 species encoding/routing and any needed rest/time state; do not promise teacher equivalence here.
-**Resolved 2026-10-12:** one network per species, as weight-table rows of one `MlpBrain` (or a
-composite brain when kinds mix)
+**Resolved 2026-10-12:** one network per species: one think pass per brain gated to its species,
+or weight-table rows of one `MlpBrain` from 8 species
 ([`agents-species-brains-design.md`](./agents-species-brains-design.md)); the rest timer becomes
 an observation in step 7, part 2.
 

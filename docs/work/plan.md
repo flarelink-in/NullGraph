@@ -48,7 +48,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
 | 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deferred** by the user (2026-10-12); the stress test covers it for now |
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
-| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then a composite). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅ (rows, headless), **7.2 next**. Part 2 not designed |
+| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), **7.3 next** (per-species passes). Part 2 not designed |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
 | 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
 | 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
@@ -79,7 +79,8 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
    routed inside one think stage that switches on species (strategy 1), with each species kept in
    a contiguous index range. Refined after a check against the library's principles: same-shape
    networks are **weight-table rows** of one `MlpBrain` (built first), and a composite
-   `SpeciesBrain` mixes kinds (second). No fallback brain. Designed in
+   `SpeciesBrain` mixes kinds (second). No fallback brain. **The single-stage routing and the
+   composite were withdrawn after 7.2's measurements; see item 4.** Designed in
    [`../agents-species-brains-design.md`](../agents-species-brains-design.md) (step 7, part 1).
 2. ~~**Bundle allowance**~~ **Decided 2026-10-12 (the user left the number to Claude):** C2's
    allowance rises from +4,000 B to **+6,000 B** over the 15,495 B C1 baseline, so the whole
@@ -89,6 +90,11 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
    Node/Dawn on NVIDIA, 76 ms in Chrome on AMD). Before step 10's live Rules/Network switch:
    accept the one-time hitch, or approve asynchronous stage creation (a core change).
    **Deferred by the user to step 9 (2026-10-12).**
+4. ~~**Per-species mechanism**~~ **Decided 2026-10-12: option B**, after 7.2 measured per-lane
+   routing in one stage at 4.6–5.6× a single network in Chrome: one think pass per brain, gated
+   to its species (`setBrain(brain, { species })`). Rows were kept by the user's rule after
+   measuring 8 and 16 species (rows win at 16 everywhere): **passes below 8 species, rows from 8.**
+   The composite brain is withdrawn. Design: [`../agents-species-brains-design.md`](../agents-species-brains-design.md) §5–§6.
 
 ## 6. Constraints that hold for every step
 
@@ -105,5 +111,7 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - 2026-10-12: step 6 completed. The brain-swap stall decision (§5 item 3) deferred to step 9.
 - 2026-10-12: per-species brains (option B, strategy 1) adopted ahead of step 7; C2 bundle
   allowance raised to +6,000 B.
+- 2026-10-12: per-species passes (option B) replace the single-stage strategy and the composite
+  after 7.2's measurements; rows kept for 8 or more species.
 - 2026-10-12: rows first, then the composite; no fallback. Core now negotiates three storage
   limits (`PROGRESSION_LIMITS`), approved by the user, outside any step.
