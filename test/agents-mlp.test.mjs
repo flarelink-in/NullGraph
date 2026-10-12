@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as A from '../dist/agents.js';
+import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
+
+globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
 
 const layer = (input, output, activation = 'identity', weights, biases) => ({ input, output, activation,
     weights: new Float32Array(weights ?? input * output), biases: new Float32Array(biases ?? output) });
@@ -116,4 +119,103 @@ test('U10: S3 shape logical count and packed buffer size are distinct', () => {
     assert.equal(packed.byteLength, 7952);
     assert.equal(A.mlpLayout(net).scratchWidth, 32);
     assert.deepEqual([...A.mlpForward(net, new Float32Array(24))], [0, 0]);
+});
+
+function mock() {
+    const buffers = [], writes = [], stages = [];
+    const engine = {
+        device: { limits: { maxStorageBufferBindingSize: 128 * 1024 * 1024, maxBufferSize: 256 * 1024 * 1024,
+            maxComputeWorkgroupsPerDimension: 65535, maxComputeInvocationsPerWorkgroup: 256,
+            maxComputeWorkgroupSizeX: 256, maxStorageBuffersPerShaderStage: 8 },
+        createBuffer(o) { const b = { ...o, destroys: 0, destroy() { this.destroys++; } }; buffers.push(b); return b; },
+        queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, data: new Float32Array(data) }); } } },
+        createComputeStage(o) { const s = { ...o, enabled: true, preClearBuffers: [] }; stages.push(s); return s; },
+        setComputePassBindGroup(s, entries, group) { (s.groups ??= [])[group] = entries; },
+    };
+    return { engine, buffers, writes, stages };
+}
+const def = () => A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: [{ name: 'unit', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+    sensors: [A.Sensors.self()] });
+
+test('U9/U10: full MLP shader parses for all activations, odd and maximum widths', () => {
+    for (const net of [
+        [layer(2, 2)],
+        [layer(2, 5, 'relu'), layer(5, 3, 'sigmoid'), layer(3, 2, 'tanh')],
+        [layer(128, 64, 'tanh'), layer(64, 64, 'relu'), layer(64, 64, 'sigmoid'), layer(64, 16)],
+    ]) {
+        const wgsl = A.buildMlpThinkWGSL(net);
+        const definition = A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: [{ name: 'unit', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+            sensors: [A.Sensors.custom({ name: 'features', width: net[0].input,
+                wgsl: `fn features(i: u32, a: Agent) -> array<f32, ${net[0].input}> { return array<f32, ${net[0].input}>(); }` })],
+            actions: A.Actions.custom({ name: 'controls', width: net.at(-1).output, wgsl: 'fn controls(i: u32) {}' }) });
+        const full = A.buildAgentThinkWGSL(definition, wgsl, 3);
+        const reflect = new WgslReflect(full);
+        assert.equal(reflect.entry.compute[0].name, 'cs_main');
+        assert.match(wgsl, /@group\(1\) @binding\(0\)/);
+        assert.match(wgsl, /setReason\(i, 0u\)/);
+        assert.ok(!wgsl.includes('workgroupBarrier') && !wgsl.includes('`'));
+        assert.match(wgsl, new RegExp(`k < ${net[0].input}u`));
+    }
+});
+
+test('MlpBrain: copied parameters, transactional updates and stable GPU buffer identity', () => {
+    const m = mock(), net = [layer(2, 2, 'tanh', [1, 2, 3, 4], [5, 6])];
+    const brain = new A.MlpBrain(m.engine, net);
+    assert.equal(brain.kind, 'stage');
+    assert.deepEqual(brain.dims, { obs: 2, act: 2 });
+    assert.equal(m.buffers.length, 1);
+    const buffer = brain.buffers[0], wgsl = brain.wgsl;
+    const original = m.writes[0].data.slice();
+    net[0].weights.fill(99);
+    assert.deepEqual(m.writes[0].data, original);
+    brain.setWeights([layer(2, 2, 'tanh', [4, 3, 2, 1], [0, 1])]);
+    assert.equal(brain.buffers[0], buffer);
+    assert.equal(brain.wgsl, wgsl);
+    assert.equal(m.writes.length, 2);
+    assert.deepEqual(m.writes[1].data, A.packMlpWeights([layer(2, 2, 'tanh', [4, 3, 2, 1], [0, 1])]));
+    for (const invalid of [[layer(2, 2, 'relu')], [layer(2, 1, 'tanh')], [layer(2, 2, 'tanh', [NaN, 0, 0, 0])]]) {
+        assert.throws(() => brain.setWeights(invalid), /MlpBrain:/);
+    }
+    assert.equal(m.writes.length, 2);
+    brain.destroy(); brain.destroy();
+    assert.equal(buffer.destroys, 1);
+    assert.throws(() => brain.setWeights(net), /destroy/);
+});
+
+test('MlpBrain: validation, buffer limits and upload failure clean up before attachment', () => {
+    const m = mock();
+    assert.throws(() => new A.MlpBrain(m.engine, []), /layers/);
+    assert.equal(m.buffers.length, 0);
+    m.engine.device.limits.maxBufferSize = 4;
+    assert.throws(() => new A.MlpBrain(m.engine, [layer(2, 2)]), /limit/);
+    assert.equal(m.buffers.length, 0);
+    m.engine.device.limits.maxBufferSize = 256 * 1024 * 1024;
+    m.engine.device.queue.writeBuffer = () => { throw new Error('upload failed'); };
+    assert.throws(() => new A.MlpBrain(m.engine, [layer(2, 2)]), /upload failed/);
+    assert.equal(m.buffers[0].destroys, 1);
+});
+
+test('MlpBrain: AgentSystem attachment, same-shape update, replacement and device/lifetime refusal', () => {
+    const m = mock(), system = new A.AgentSystem(m.engine, def(), { thinkEvery: 3 });
+    const brain = new A.MlpBrain(m.engine, [layer(2, 2)]);
+    system.setBrain(brain);
+    const stage = m.stages.at(-1);
+    assert.equal(stage.groups[1][0].resource.buffer, brain.buffers[0]);
+    system.advance(1 / 60);
+    const chain = system.getComputeStages();
+    brain.setWeights([layer(2, 2, 'identity', [1, 0, 0, 1])]);
+    assert.equal(system.getComputeStages(), chain);
+    assert.equal(m.stages.at(-1), stage);
+    const other = mock(), wrong = new A.MlpBrain(other.engine, [layer(2, 2)]);
+    const count = m.stages.length;
+    assert.throws(() => system.setBrain(wrong), /device/);
+    assert.equal(m.stages.length, count);
+    assert.equal(stage.enabled, true);
+    system.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}'));
+    assert.equal(stage.enabled, false);
+    brain.destroy();
+    assert.throws(() => system.setBrain(brain), /destroy/);
+    system.destroy(); wrong.destroy();
 });

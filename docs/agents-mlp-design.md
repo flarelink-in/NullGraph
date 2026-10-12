@@ -3,8 +3,8 @@
 **Parent:** [`agents-design.md`](./agents-design.md) §9.3 and §13, C2 step 6.
 **Builds on:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), the production brain
 seam and S3 measurements; [`api/agents.md`](./api/agents.md).
-**Status:** Phase 6.0 implemented, 2026-10-12. Remaining GPU/API phases are draft;
-no MlpBrain class or new GPU results claimed.
+**Status:** Phases 6.0–6.1 implemented, 2026-10-12. Phase 6.2 GPU numerical/integration
+acceptance and phase 6.3 closure remain outstanding; no A4 results claimed.
 **Target:** `D:/orion-realms/null-graph/src/extras/agents/`, focused headless and real-GPU tests,
 and API documentation. Core unchanged. No new dependency.
 **Outcome:** run a supplied small dense network as the existing synchronous GPU think stage,
@@ -223,3 +223,31 @@ U10 tests were observed failing before implementation. Phase 6.1 is next; A4 is 
 Final phase-6.0 entry size: **16,569 B min+gzip**, +1,074 B over that baseline. Remaining combined
 C2 allowance: 2,926 B. Focused U10 tests pass 8/8; builds and existing agents/core/agent-kit checks
 pass. GPU numerical/integration checks remain outstanding, not inferred from CPU test success.
+
+### Phase 6.1 implementation
+
+Phase 6.0 committed as `e345921`. `MlpBrain.ts` implements the constructor, same-shape
+`setWeights(network)` and idempotent destroy; `mlpShaders.ts` generates the think contribution.
+One copied/packed GPU storage buffer is uploaded at construction and once per explicit update.
+The class retains copied shape metadata, not caller arrays or a redundant CPU model copy.
+Malformed models, device limits and incompatible updates are refused; initial upload failure
+destroys its newly allocated buffer. Caller-side parameter mutations do not affect uploaded data.
+GPU padding/intermediates are zero-initialized; observations/actions touch only logical widths.
+All activations, odd shapes and the maximum shape parse in the full production think wrapper.
+
+`Brain.assertDevice?` is the narrow optional resource-owner seam: AgentSystem calls it before
+constructing a stage. MlpBrain rejects another device and attachment/update after destruction;
+RuleBrain remains unchanged. Caller must still detach or destroy consumers before brain.destroy.
+Evaluated rows receive reason 0, not a claimed explanation; shared cadence gating stays in the
+production wrapper. Same-shape updates do not rebuild stages or cached chains.
+
+Tests: four added phase-6.1 cases were observed failing before implementation; focused suite
+12/12 passes, full agents run passes 24 plain + 47 node:test checks, core 17 and agent-kit 4/4.
+Library/TypeScript and IDE builds pass. Existing Node/Dawn GPU regression suite passes 106/106,
+zero WebGPU errors, AMD GCN-5 D3D12 driver 31.0.12002.1002. That suite does not yet run MlpBrain;
+A4 production numerical/update/gating checks and Chrome MLP execution remain phase 6.2.
+
+Whole-entry size is 17,283 B min+gzip (+1,788 B versus fresh C1; 2,212 B combined allowance left).
+Representative tree-shaken exports of AgentSystem/defineAgents/Sensors/Actions plus RuleBrain
+measure 12,369 B, versus 13,761 B with MlpBrain. These are named-export bundles, not frame-path
+size claims. No core changes, new dependencies, training, ONNX, site changes or publication.
