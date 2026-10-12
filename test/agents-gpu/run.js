@@ -1455,6 +1455,73 @@ vis.destroy();
             `another device are refused (${refused}/3) and the system keeps its brain; a rebuilt system matches (${errors(r)})`,
             error === null && rebuilt.error === null && refused === 3 && r.bad === 0 && still.bad === 0);
     }
+
+    // A21 (phase 7.2, docs/agents-species-brains-design.md §5, §10): one network per species as rows of
+    // one weight table. Every live agent's actions must equal ITS species' network on its GPU
+    // observations and fail every other species' network, on contiguous and interleaved layouts. A
+    // one-species setWeights rewrites exactly that row; forcing every row to 0 is watched failing.
+    {
+        const names = ['prey', 'wolf', 'deer'];
+        const def = A.defineAgents({ capacity: 300, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: names.map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
+            sensors: [probe(5)], actions: A.Actions.custom({ name: 'hold', width: 3, wgsl: 'fn hold(i: u32) {}' }) });
+        const shape = [[5, 7, 'tanh'], [7, 3, 'sigmoid']];
+        const nets = Object.fromEntries(names.map(name => [name, mlpNet(...shape)]));
+        const F = A.mlpLayout(nets.prey).floats;
+        const words = net => new Uint32Array(A.packMlpWeights(net).buffer);
+        const layouts = { contiguous: i => names[Math.floor(i / 100)], interleaved: i => names[i % 3] };
+        const problems = [];
+        let worst = { maxAbs: 0, maxRel: 0 }, injected = null;
+        device.pushErrorScope('validation');
+        for (const [layout, speciesOf] of Object.entries(layouts)) {
+            const sys = new A.AgentSystem(engine, def), brain = A.MlpBrain.bySpecies(engine, def, nets);
+            sys.setBrain(brain);
+            const live = populate(sys, def, undefined, i => ({ species: speciesOf(i) }));
+            const members = Object.fromEntries(names.map(name => [name, live.filter(i => speciesOf(i) === name)]));
+            const judge = async (current, label) => {
+                const obs = await readF(sys.obs, def.capacity * 5), act = await readF(sys.act, def.capacity * 3);
+                const reason = await read(sys.reason, def.capacity);
+                for (const name of names) {
+                    const own = agree(current[name], def, obs, act, members[name]);
+                    worst = { maxAbs: Math.max(worst.maxAbs, own.maxAbs), maxRel: Math.max(worst.maxRel, own.maxRel) };
+                    if (own.bad) problems.push(`${layout} ${label}: ${name} ${own.bad}/${own.values} off its network`);
+                    for (const other of names.filter(n => n !== name)) {
+                        const cross = agree(current[other], def, obs, act, members[name]);
+                        if (cross.bad < 0.99 * cross.values) problems.push(`${layout} ${label}: ${name} passes as ${other}`);
+                    }
+                    if (members[name].some(i => reason[i] !== 0)) problems.push(`${layout} ${label}: ${name} reason`);
+                }
+            };
+            await sys.step();
+            await sys.step();
+            await judge(nets, 'rows');
+            const wolf2 = mlpNet(...shape);
+            brain.setWeights(wolf2, { species: 'wolf' });
+            await sys.step();
+            await judge({ ...nets, wolf: wolf2 }, 'after setWeights(wolf)');
+            const table = await readStorage(brain.buffers[0], 3 * F);
+            const expected = [words(nets.prey), words(wolf2), words(nets.deer)];
+            if (!expected.every((w, r) => equal(table.subarray(r * F, (r + 1) * F), w))) problems.push(`${layout}: table rows`);
+            if (layout === 'interleaved') {
+                // Watched failing: every species reads row 0, prey's network.
+                const flat = brain.wgsl.replace(/row = \d+u;/g, 'row = 0u;');
+                if (flat === brain.wgsl) throw new Error('A21 row injection did not change the shader');
+                sys.setBrain({ kind: 'stage', dims: brain.dims, buffers: brain.buffers, wgsl: flat, destroy() {} });
+                await sys.step();
+                const obs = await readF(sys.obs, def.capacity * 5), act = await readF(sys.act, def.capacity * 3);
+                injected = { own: agree(wolf2, def, obs, act, members.wolf), asPrey: agree(nets.prey, def, obs, act, members.wolf) };
+            }
+            sys.destroy();
+            brain.destroy();
+        }
+        const error = await device.popErrorScope();
+        check(`A21: each of 3 species matches its own row of one weight table and fails the other two, contiguous and ` +
+            `interleaved (${errors(worst)}); setWeights({ species: 'wolf' }) rewrites only that row` +
+            (problems.length ? `; ${problems.slice(0, 4).join('; ')}` : ''), error === null && problems.length === 0);
+        check(`A21 watched failing: with every row forced to 0, wolves read prey's network ` +
+            `(${injected.own.bad} of ${injected.own.values} wolf outputs off their own network, ${injected.asPrey.bad} off prey's)`,
+            injected.own.bad > 0 && injected.asPrey.bad === 0);
+    }
 }
 
 allocated.splice(0).forEach(b => b.destroy());
