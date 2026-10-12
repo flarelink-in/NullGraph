@@ -15,8 +15,9 @@ file so the parent stays a plan.
 **Status:** ✅ **designed and accepted (2026-10-11)**. ✅ Phase 3.0 (spike S3) is measured: §7.1
 and §7.3 record what it decided. ✅ Phases 3.1–3.5 are implemented, validated and committed
 (3.5 as `f5cfd46`, 2026-10-12). ✅ Phases 4.1 and 4.2 are implemented, validated and committed
-(2026-10-12). ✅ Phase 4.3 is implemented, validated and committed, with its `Picker` fix
-(`9d9a37e`). 4.4 (`inspect`) is next.
+(2026-10-12). ✅ Phase 4.3 is implemented, validated and committed (`a6bf1f0`), with its `Picker`
+fix (`9d9a37e`). ✅ Phase 4.4 (`inspect`) is implemented and validated (2026-10-12), not yet
+committed. 4.5 is next.
 
 **Phase 3.5 results, 2026-10-11:** `debug-ui/agentDrawing.ts` implements the §8.4 draw with
 species RGB overrides, dead clipping and GPU-owned position/heading/radius. Two new headless
@@ -701,16 +702,20 @@ The app registers each species mesh and its hover and selected variants with
 
 ### 9.6 Inspector
 
-`agents.inspect(i): Promise<AgentSnapshot>` works like this:
+`agents.inspect(i): Promise<AgentSnapshot | null>` works like this:
 1. One encoder copies the record, the obs row, the act row, the reason word, the K neighbour
-   indices and `AgentState` into one 204-byte `MAP_READ` staging buffer (§4.1).
+   indices and `AgentState` into one `MAP_READ` staging buffer: 204 bytes for Herd & Wolves (§4.1).
+   `agentSnapshotLayout(def)` gives each part's offset for any definition. The buffer is allocated
+   on the first request and reused.
 2. It maps the buffer.
-3. It decodes into the snapshot:
+3. It decodes into the snapshot (`decodeAgentSnapshot`, pure, so U20 needs no device):
 
 ```ts
 interface AgentSnapshot {
     index: number; alive: boolean; frozen: boolean; species: string;
-    position: [number, number, number]; heading: number; speed: number; energy: number; age: number;
+    position: [number, number, number]; heading: number; speed: number; radius: number;
+    energy: number; age: number; speedScale: number;
+    user0: number; user1: number; genome: number; flags: number;   // the record's app words
     obs: { name: string; value: number }[];      // def.obsNames
     act: { name: string; value: number }[];      // def.actNames
     reason: number;
@@ -722,6 +727,13 @@ interface AgentSnapshot {
 Requests are queued one at a time, as `Picker` does, and stay off the frame path. This is the "click
 a unit, see its brain" view: what the agent senses, what it chose, why, and whether the grid hid
 anyone from it.
+
+**As built in phase 4.4,** two changes from the first draft:
+- **It resolves `null`** when the system is destroyed while a request is queued or in flight,
+  as `Picker.run()` does since `9d9a37e`. An index outside capacity, and any call after
+  `destroy()`, still throw.
+- **The snapshot carries the whole record.** The copy moves all 64 bytes anyway, and the app
+  words are where an app keeps per-agent state: the demo shows a wolf's rest timer from `user0`.
 
 ### 9.7 The CPU's per-frame budget
 
@@ -862,9 +874,61 @@ path's cost after tree-shaking is reported beside it, because part of today's 8.
 that apps tree-shake away (`senseAll`, `nearestNeighbours`, `buildPointGrid`) and that the C2 tools
 need. Visibility grows by about 60 B, `debug-ui` by about 1 KB (`agentArrows`), core by 0 B.
 
+**Measured after phase 4.4, with steps 3–4 complete:** `agents.js` is **15,473 B** min + gzip,
+about 2.5 KB over the estimate. The frame path (`AgentSystem`, `defineAgents`, `Sensors`,
+`Actions`, `RuleBrain`) is **12,330 B**. Read as 16,000 B, the line leaves **527 B**, or 911 B if
+it means 16 KiB. Step 5 should measure before it adds code to `agents.js`. Visibility grew
++125 B (phase 4.1).
+
 ---
 
 ## 13. Build order — phases
+
+### Phase 4.4 implementation result — 2026-10-12
+
+`AgentSystem.inspect(i)` and `agentInspect.ts` (`AgentSnapshot`, `agentSnapshotLayout`,
+`decodeAgentSnapshot`) are exported from `null-graph/agents`. There are two changes from §9.6's first
+draft, both now written into §9.6: the promise resolves `null` after `destroy()`, and the snapshot
+carries the whole record. One request makes one submission of up to six copies into a staging
+buffer, allocated once and reused. Herd & Wolves' layout matches §4.1's 204 bytes: record 0, obs 64,
+act 160, reason 168, neighbours 172, counters 188.
+- **U20 and the queue** (`test/agents-inspect.test.mjs`, 5 tests): the layout, the decoder, one
+  submission copying only agent i's rows, serial requests and the refusals. The mock device holds
+  real bytes and performs the copies, so a wrong offset reads the wrong row. **Watched failing:**
+  with the obs copy offset by one float, the copy test reads 501 for 500.
+- **A19** (agents GPU, both hosts): over 60 frames of `advance`, `upload`, a hover change and
+  `getComputeStages`, the agent system constructs **0** typed arrays and makes **1** `writeBuffer`
+  call per frame (the highlight's), against a limit of 2. §9.7 holds as measured.
+- **Inspect on the device:** five snapshots, one of them a dead agent, equal every field read
+  directly from the buffers. Each agent writes its own actions and reason, so a snapshot of the
+  wrong row cannot pass. A call after `destroy()` is refused.
+- **Totals:** 58 headless agent checks; 103/103 agents GPU checks on Node/Dawn and in Chrome, zero
+  WebGPU errors.
+- **Bundle:** `agents.js` 14,607 → **15,473 B** min + gzip (+866); frame path 11,493 → **12,330 B**
+  (+837). That is 527 B under the 16 KB line read as 16,000 B (§12.5).
+- **Demo:** a selected agent gets an inspector label beside it, refreshed every 150 ms through
+  `inspect`. It shows:
+  - the brain's reason, speed and age, plus a wolf's rest timer from `user0`;
+  - the nearest wolf (name, distance, side and forward);
+  - the prey it sees, and the nearest;
+  - the wall;
+  - the chosen turn and throttle;
+  - the grid's skipped steps.
+
+  The camera follows the selection (a toggle, on by default). The label also says when a selected
+  prey was caught and respawned (its age drops), though no drive has exercised that yet. Driven in
+  Chrome, with each screenshot read before the next action. Selecting Wolf 155 while paused showed
+  "chasing", 4.2 m/s, age 6.0 s, Wolf 27 at 5.1 m, 3 of 3 prey and "grid skipped nothing in 357
+  steps", matching the HUD's step. On resume the camera followed it. A few seconds later it read
+  "resting · 0.0 m/s · resting 4.0 s" after a catch. Clicking it again released it. 30 steps,
+  zero errors.
+- **Found by the demo:**
+  - The label font lacked `…` and `−`, which rendered as `?`, in the HUD too. They are now in the
+    demo's atlas.
+  - Dense flocks overflow the default 64-entry scan budget more and more as the run goes on. At
+    4,096 agents, the share of steps that skipped entries rose from 7% at step 506 to 85% by step
+    3,426. The inspector shows it per agent. Step 5 picks the 20,000-agent demo's cell size and
+    budget against this.
 
 ### Phase 4.3 implementation result — 2026-10-12
 
@@ -1099,7 +1163,7 @@ Every phase ends the same way:
 | **4.1** ✅ | `vis.setInstanceCount` + `instanceSource`                                                                                                                                                                                                                                                                                                                                                               | U18, watched failing first; V4 (visibility GPU) on both hosts                                                                                                                                                                                                      | —                                                                                                                                                       |
 | **4.2** ✅ | The instance stage, the `Highlight` uniform, `setHighlight`, the zero-bounds refusal                                                                                                                                                                                                                                                                                                                    | U19; A17                                                                                                                                                                                                                        | Darts instead of arrows                                                                                                                                 |
 | **4.3** ✅ | Picking and labels on GPU agents                                                                                                                                                                                                                                                                                                                                                                        | A10, A11, A12                                                                                                                                                                                                                   | Hover, click, wolf names                                                                                                                                |
-| **4.4**   | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |
+| **4.4** ✅ | `inspect(i)` and the site inspector panel                                                                                                                                                                                                                                                                                                                                                               | U20; A19                                                                                                                                                                                                                        | "See its brain" from GPU values, with overflow shown                                                                                                    |
 | **4.5**   | The site route switched to instances, picking, labels and the inspector; CPU per-frame time measured; `docs/api/agents.md` started                                                                                                                                                                                                                                                                      | A20; `npm run drive` clean; numbers in the handoff                                                                                                                                                                              | The step-3 demo with the CPU nearly idle                                                                                                                |
 
 Step 5 follows in the parent plan: the 20,000-agent Herd & Wolves demo, with A9's step time

@@ -96,7 +96,7 @@
     "test:shadows": "node test/shadows-csm.test.mjs",
     "test:picking": "node test/picking.test.mjs",
     "test:text": "node test/text.test.mjs",
-    "test:agents": "node test/agents.test.mjs && node --test test/agents-grid.test.mjs test/agents-system.test.mjs test/agents-arrows.test.mjs test/agents-instances.test.mjs",
+    "test:agents": "node test/agents.test.mjs && node --test test/agents-grid.test.mjs test/agents-system.test.mjs test/agents-arrows.test.mjs test/agents-instances.test.mjs test/agents-inspect.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",
     "test:tod": "node test/environment-timeofday.test.mjs",
     "test:night": "node test/environment-night.test.mjs",

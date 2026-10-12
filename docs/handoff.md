@@ -18,7 +18,7 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — step 3 committed; step 4 phases 4.1–4.3 committed (2026-10-12)
+### Cycle C — step 3 committed; step 4 phases 4.1–4.3 committed, 4.4 built (2026-10-12)
 
 **C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
@@ -27,8 +27,38 @@ outstanding. The live chain is **grid → queries → sense → think → act �
 once per frame **instances** when `toInstances` is on. A brain is required. **Phase 3.5** is the
 arrow debug draw plus the GPU Herd & Wolves route in the test-engine site. **Phases 4.1 and 4.2 are
 committed**: 4.1 as `04a991b`, 4.2 as `aa6f4ac`. **Phase 4.3 is committed** as its `Picker` fix
-(`9d9a37e`) plus the commit that carries this record (record below). 4.4 (`inspect`) is next.
-Nothing is pushed or published.
+(`9d9a37e`) and its tests and docs (`a6bf1f0`). **Phase 4.4** (`inspect`) is built and validated
+but not committed (record below). 4.5 is next. Nothing is pushed or published.
+
+**Step 4, phase 4.4 (2026-10-12, Claude Opus 5.5).** Details are in the design doc's §13 results
+note; §9.6 now describes what was built.
+- **Library:** `agents.inspect(i): Promise<AgentSnapshot | null>`, plus `agentSnapshotLayout` and
+  `decodeAgentSnapshot` in `agentInspect.ts`. One submission of up to six copies into a staging
+  buffer (204 B for Herd & Wolves), allocated once. Requests run one at a time.
+  - It resolves `null` after `destroy()`, as `Picker` does.
+  - The snapshot carries the whole record, app words included. Both are changes from the §9.6
+    draft.
+- **Tests:**
+  - `test/agents-inspect.test.mjs` covers U20 plus the queue and refusals, and joins
+    `npm run test:agents`. It was watched failing with the obs copy offset by one float.
+  - On the GPU, **A19**: 0 typed arrays and 1 `writeBuffer` per frame.
+  - The inspect check: five snapshots, a dead one included, equal direct buffer reads.
+  - **Totals:** 58 headless agent checks; 103/103 agents GPU checks on both hosts.
+- **Bundle:** `agents.js` **15,473 B**, frame path **12,330 B**: only **527 B** under the 16 KB
+  line (read as 16,000 B).
+- **Site:** the selected agent's label becomes a live inspector, refreshed every 150 ms. It shows
+  the reason, speed and age, the nearest wolf, the prey it sees, the wall, turn and throttle, and
+  the grid's skipped steps.
+  - The camera follows the selection; a toggle turns it off.
+  - The font gained `…` and `−`, which had rendered as `?`.
+  - Driven interactively with each screenshot read: select, resume (it followed a wolf from
+    chasing to resting after a catch), release. 30 steps, zero errors.
+- **Found:**
+  - The user's :8081 dev server still served the 4.3 build (`inspect is not a function`); see
+    Gotchas. The check ran on a temporary Vite at :8083, which is stopped. **The user needs
+    `npm run dev -- --force` to see 4.4.**
+  - Dense flocks overflow the 64-entry scan budget more and more as the run goes on: 7% of
+    steps by step 506, 85% by step 3,426. That is input for step 5.
 
 **Step 4, phase 4.3 (2026-10-12, Claude Opus 5.5).** No agents API was needed: labels follow
 `agents.buffer` and `hit.index − firstInstance` is the agent, as §9.4–9.5 designed.
@@ -618,7 +648,9 @@ Site changes. The site's git tracks almost nothing, so this list is the record:
 To refresh the site after null-graph changes, run `npm run yalc:push` here, then `npm run dev`
 there (port 8081). `yalc:push` pushes to **three** local consumers (this site,
 `D:\NULLGRAPH-STARTER\…v6.1.0`, `D:\orion-realms\orion-engine-test`) and leaves a **production**
-`dist/` in this repo. Run `npm run build:lib` before committing.
+`dist/` in this repo. Run `npm run build:lib` before committing. If the site's dev server was
+already running, restart it with `npm run dev -- --force`; a plain reload keeps the old build
+(see Gotchas).
 
 ---
 
@@ -905,11 +937,14 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
       §13, and accepted. ~~Step 3 (phases 3.0–3.5)~~ is done and committed (3.5 as `f5cfd46`).
-      Step 4: ~~4.1~~ (`04a991b`), ~~4.2~~ (`aa6f4ac`) and ~~4.3~~ (`9d9a37e` + its tests) committed.
-      **Next: 4.4**, `inspect(i)` and the site inspector panel (U20, A19), then 4.5 (the
-      site route, `docs/api/agents.md`).
-      Then step 5 with A9, which should take up grid-ordered neighbour queries (the stress-test
-      finding in the 3.5 sanity-check record above).
+      Step 4: ~~4.1~~ (`04a991b`), ~~4.2~~ (`aa6f4ac`) and ~~4.3~~ (`9d9a37e`, `a6bf1f0`) are
+      committed. ~~4.4~~ (`inspect`, U20, A19, the site inspector) is built and validated but not
+      committed. **Next: 4.5**: the site route finalized, the CPU's per-frame time measured, and
+      `docs/api/agents.md` started (A20).
+      Then step 5 with A9. It should take up grid-ordered neighbour queries (the stress-test
+      finding in the 3.5 sanity-check record above), and choose the cell size and scan budget
+      against the flock overflow that 4.4's inspector shows. Only **527 B** remain under
+      `agents.js`'s 16 KB line, so measure before adding code.
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -980,6 +1015,12 @@ tiled cameras (both server/native RL), ray-sense evolution sims like The Bibites
 ## Gotchas — for whoever picks this up
 
 - **Build before testing.** All suites import `dist/`; a stale `dist/` tests old code.
+- **The test-engine site's dev server keeps the null-graph build it started with.** The site
+  excludes `null-graph` from pre-bundling, so Vite serves it straight from `node_modules`. It does
+  not watch `node_modules`, so it keeps the old module in memory. It also stamps the URL
+  `?v=<hash>`, which the browser caches as immutable. After refreshing the site's
+  `node_modules/null-graph/dist`, restart with `npm run dev -- --force` (a new hash), then reload.
+  Symptom: a new method "is not a function" (phase 4.4's `inspect`).
 - **`InstanceBuffer.write` bounds are local** (the cull applies the model matrix) — `[0,0,0,r]` for a
   mesh centred on its origin.
 - **`preClearBuffers` splits the compute pass** — `RenderPipeline` ends the pass before the clear.
@@ -1213,3 +1254,12 @@ No push/publication, no phase-3.5 implementation or new visual/drive review.
   - **Committed at the user's request** as two commits: the `Picker` fix (`9d9a37e`), then the
     4.3 tests and docs with this record. The site stays uncommitted.
   - **Next:** 4.4.
+- **2026-10-12 — Claude (Opus 5.5).** At the user's request: committed 4.3 (`9d9a37e`,
+  `a6bf1f0`), then built phase 4.4 (record above). The session was interrupted once and resumed.
+  - **Library:** `inspect(i)`, with U20 and the queue tests headless (the copy test watched
+    failing), and A19 and the inspect check on both GPU hosts. The bundle is now 527 B under the
+    line.
+  - **Site:** the inspector label and camera follow, driven interactively with no errors on a
+    temporary Vite at :8083. The user's :8081 server served the old build; see Gotchas.
+  - **Not committed.** This waits for the user; the site stays uncommitted.
+  - **Next:** 4.5.

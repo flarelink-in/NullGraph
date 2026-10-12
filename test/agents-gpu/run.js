@@ -991,6 +991,28 @@ vis.destroy();
     check(`A12: a dead agent draws nothing and is never picked (drawn ${before} → ${after}; pick at its spot: ${ghost ? ghost.index - FIRST_ROW : 'none'})`,
         after === before - 1 && ghost === null);
 
+    // A19 (phase 4.4): the CPU frame path — advance, upload, a highlight change, getComputeStages —
+    // constructs no typed arrays and makes at most two writeBuffer calls (here: the highlight's).
+    const typed = [Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Uint8Array];
+    let constructed = 0, maxWrites = 0, minWrites = Infinity;
+    const realWrite19 = device.queue.writeBuffer.bind(device.queue);
+    for (let frame = 0; frame < 60; frame++) {
+        let frameWrites = 0;
+        device.queue.writeBuffer = (...args) => { frameWrites++; return realWrite19(...args); };
+        typed.forEach(T => { globalThis[T.name] = new Proxy(T, { construct(t, a) { constructed++; return Reflect.construct(t, a); } }); });
+        sys.advance(pickDef.dt);
+        sys.upload();
+        sys.setHighlight({ hovered: isolated[1 + (frame % 2)] });
+        const chain = sys.getComputeStages();
+        typed.forEach(T => { globalThis[T.name] = T; });
+        device.queue.writeBuffer = realWrite19;
+        maxWrites = Math.max(maxWrites, frameWrites);
+        minWrites = Math.min(minWrites, frameWrites);
+        engine.render([...chain, ...pvis.getComputeStages(), scene]);   // outside the measured window
+    }
+    check(`A19: per frame the agent system constructs ${constructed} typed arrays and makes ${minWrites}–${maxWrites} ` +
+        'writeBuffer call(s) (limit 2; one is the highlight change)', constructed === 0 && maxWrites <= 2 && minWrites === 1);
+
     picker.destroy();                                     // its pick batches live in pvis
     labels.destroy();
     labelAtlas.destroy();
@@ -998,7 +1020,66 @@ vis.destroy();
     drawBatches.forEach(([, batch]) => pvis.removeDrawBatch(batch));
     pvis.destroy();
 }
+// Phase 4.4: inspect(i) copies agent i's record, obs and act rows, reason, neighbour slots and the
+// counters in one submission. Every field must equal the same buffers read directly.
+{
+    const inspDef = A.defineAgents({ capacity: 64, world: { min: [-8, -8], max: [8, 8] }, cellSize: 8, maxScanPerCell: 64,
+        species: [
+            { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 8, radius: 0.4 },
+            { name: 'wolf', maxSpeed: 4, maxTurn: 3, accel: 5, senseRadius: 8, radius: 0.6 },
+        ],
+        sensors: [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }),
+            A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 3 }), A.Sensors.bounds()] });
+    const insp = new A.AgentSystem(engine, inspDef);
+    // Every agent gets its own actions and reason, so a snapshot of the wrong row cannot pass.
+    insp.setBrain(new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, f32(i % 9u) * 0.1 - 0.4);
+    setAct(i, ACT_THROTTLE, f32(i % 5u) * 0.2 - 0.4);
+    setReason(i, 100u + i);
+}`));
+    for (let i = 0; i < inspDef.capacity; i++) {
+        insp.spawn(i, { position: [random() * 14 - 7, 0, random() * 14 - 7], species: i % 4 === 0 ? 'wolf' : 'prey',
+            heading: random() * 2 * Math.PI - Math.PI, speed: random() * 2 });
+    }
+    insp.kill(9);
+    for (let k = 0; k < 40; k++) await insp.step();
+    const agents = [3, 9, 17, 40, 63];
+    const snaps = [];
+    for (const i of agents) snaps.push(await insp.inspect(i));
+    const K = 4, rec = await read(insp.buffer, inspDef.capacity * 16), recF = new Float32Array(rec.buffer);
+    const obs = new Float32Array((await read(insp.obs, inspDef.capacity * inspDef.obsDim)).buffer);
+    const act = new Float32Array((await read(insp.act, inspDef.capacity * inspDef.actDim)).buffer);
+    const reason = await read(insp.reason, inspDef.capacity), neighbours = await read(insp.neighbours, inspDef.capacity * K);
+    const counters = await read(insp.state, 4);
+    const problems = [];
+    snaps.forEach((s, n) => {
+        const i = agents[n], b = i * 16;
+        const expect = {
+            index: i, alive: (rec[b + 13] & 1) !== 0, species: inspDef.species[rec[b + 12]].name, flags: rec[b + 13],
+            position: [recF[b], recF[b + 1], recF[b + 2]], radius: recF[b + 3], heading: recF[b + 7], energy: recF[b + 8],
+            age: recF[b + 9], speedScale: recF[b + 10], user0: recF[b + 11],
+            speed: Math.hypot(recF[b + 4], recF[b + 5], recF[b + 6]),
+            obs: Array.from(obs.subarray(i * inspDef.obsDim, (i + 1) * inspDef.obsDim)),
+            act: Array.from(act.subarray(i * 2, i * 2 + 2)), reason: reason[i],
+            neighbours: [Array.from(neighbours.subarray(i * K, i * K + 1)), Array.from(neighbours.subarray(i * K + 1, i * K + 4))]
+                .map(slots => slots.filter(j => j !== 0xFFFFFFFF)),
+            tick: counters[0], overflowSteps: counters[1], overflowTotal: counters[2],
+        };
+        const got = { ...s, obs: s.obs.map(o => o.value), act: s.act.map(o => o.value), neighbours: s.neighbours.map(x => x.indices) };
+        for (const key of Object.keys(expect)) {
+            if (JSON.stringify(got[key]) !== JSON.stringify(expect[key])) problems.push(`agent ${i} ${key}`);
+        }
+    });
+    const live = snaps.filter(s => s.alive);
+    check(`inspect (4.4): ${snaps.length} snapshots equal the buffers read directly — record, obs, act, reason, ` +
+        `neighbours, counters${problems.length ? `; differs: ${problems.slice(0, 6).join(', ')}` : ''}`,
+        problems.length === 0 && live.length === 4 && !snaps[1].alive && live.every(s => s.reason === 100 + s.index) &&
+        live.some(s => s.neighbours.some(x => x.indices.length > 0)) && snaps[0].tick === 40);
+    insp.destroy();
+    check('inspect (4.4): a request after destroy() is refused', (() => { try { insp.inspect(0); return false; } catch { return true; } })());
+}
+
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking and label GPU checks passed.');
+await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking, label and inspect GPU checks passed.');
 device.destroy();
 function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }
