@@ -10,16 +10,16 @@ log, not here.
   ([`../agents-species-brains-design.md`](../agents-species-brains-design.md)):
   - **Committed:**
     - 7.1 rows, `1dc7e74`;
-    - 7.2 (A21 and costs), `94069ea`;
+    - 7.2, `94069ea`;
     - the option-B design, `30336d1`;
-    - 7.3 per-species passes, `681ccf4`: `setBrain(brain, { species })`, one think pass per brain,
-      each gated by its own 16-byte species mask (design §4).
-  - **Now: phase 7.4**, A22 on both hosts:
-    - prey on rules, wolves and deer on networks;
-    - reassignment builds no new stage;
-    - watched failing without the gate.
-  - **Then 7.5:**
-    - the guide's per-species section, with the rule: passes below 8 species, rows from 8;
+    - 7.3 per-species passes, `681ccf4`;
+    - 7.4: A22 `f19dbea` and the `bySpecies` message fix `3c3ad76`. A22 is green on three
+      host/GPU pairs.
+  - **Decided:** `bySpecies` keeps one network per declared species ([`plan.md`](./plan.md) §5,
+    item 5).
+  - **Now: phase 7.5:**
+    - the guide's per-species section, with an executable example and the rule: passes below 8
+      species, rows from 8;
     - refresh the guide's "a brain is required" and "swapping costs a compile" lines;
     - closure.
 - **For step 7, part 2's design:** record teacher data with overflow off, or pull step 5's
@@ -34,14 +34,13 @@ log, not here.
     `package.json`). Leave it to its owner, and validate commits alone in a worktree.
 - **Green:**
   - headless: agents (reference + 59), core, agent-kit 4/4;
-  - the agents GPU suite: 122/122 on Node/Dawn and in Chrome;
-  - `spike:mlp-think`: 30/30 on Node, 15/15 in Chrome.
-- **Bundle:** `agents.js` 18,174 B min+gzip (C2 ceiling 21,495 B).
+  - the agents GPU suite: 124/124 on Node/Dawn with the AMD iGPU and with the NVIDIA GPU, and in
+    Chrome.
+- **Bundle:** `agents.js` 18,178 B min+gzip (C2 ceiling 21,495 B).
 - **Test-engine site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): its
   `node_modules/null-graph/dist` holds the limits build (`7f1acb0`). Restart its dev server with
   `npm run dev -- --force` after any refresh ([`gotchas.md`](./gotchas.md)).
 
 ## Open questions for the user
 
-- [`plan.md`](./plan.md) §5, item 3 (the brain-swap stall) is deferred to step 9. Per-species passes
-  shrink it: moving species to a brain that already has a pass compiles nothing.
+- [`plan.md`](./plan.md) §5, item 3 (the brain-swap stall) is deferred to step 9.

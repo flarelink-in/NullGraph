@@ -16,7 +16,8 @@ per-lane routing at 4.6–5.6× a single network in Chrome; see "Phase 7.2 resul
 `MlpBrain` and its measurements ([`agents-mlp-design.md`](./agents-mlp-design.md), A4, phase 6.3).
 **Status:** ✅ 7.1 committed (`1dc7e74`); ✅ 7.2 committed (`94069ea`; option B docs `30336d1`);
 ✅ 7.3 committed (`681ccf4`), with one change from the reviewed §4: a species mask per pass instead
-of a slot table (see "Phase 7.3 implementation" below). Next: 7.4 (A22).
+of a slot table (see "Phase 7.3 implementation" below). ✅ 7.4 committed (`3c3ad76`, `f19dbea`):
+A22 green on three host/GPU pairs (see "Phase 7.4 results"). Next: 7.5.
 **Target:** `src/extras/agents/` (`AgentSystem.setBrain(brain, { species })`, a per-stage species
 gate in the think wrapper), headless and GPU tests, the API guide. Core unchanged.
 
@@ -198,15 +199,16 @@ after 7.3.
 
 The existing bind-failure test also asserts that a failed attach destroys its mask.
 
-**GPU (A22, agents suite, Node/Dawn and Chrome):**
-- prey on a `RuleBrain` (exact constants, reason 7), wolves on an `MlpBrain` (A4's tolerance,
-  reason 0), deer on a second network: every agent matches its own brain, contiguous and
-  interleaved;
-- moving wolves back to the rule brain changes the next step's wolf actions to the constants with
-  no new stage;
+**GPU (A22, agents suite; as built in 7.4, on Node/Dawn with both GPUs and in Chrome):**
+- prey on a `RuleBrain` (exact constants, reason 7), wolves and deer on two `MlpBrain`s of
+  different shapes (A4's tolerance, reason 0): every live agent matches its own brain and no
+  other, contiguous and interleaved; dead rows untouched;
+- attaching each brain builds one stage; moving wolves back to the rule brain builds none, retires
+  the wolf pass, and the next step's wolf actions are the constants;
+- the retired wolf network is then destroyed, and no cached chain reaches its pass;
 - zero validation errors.
-- **Watched failing:** with the species gate removed, every pass writes every agent, and the
-  species no longer match their brains.
+- **Watched failing**, in the suite: the same three passes with each gate replaced by a plain read
+  of its mask, so the last pass (deer's network) writes every species.
 
 ## 11. Errors (verbatim)
 
@@ -214,7 +216,12 @@ The existing bind-failure test also asserts that a failed attach destroys its ma
 |---|---|
 | `setBrain(…, { species })` | `AgentSystem: "<name>" is not a declared species.` |
 | `getComputeStages`, `step` | `AgentSystem: no brain for species "<name>"; call setBrain(brain, { species: '<name>' }).` |
-| `MlpBrain.bySpecies`, `setWeights` | as listed in 7.1 (unchanged) |
+| `MlpBrain.bySpecies` | `MlpBrain: no network for species "<name>"; give one per species.` |
+| `MlpBrain.bySpecies` | `MlpBrain: "<name>" is not a declared species.` |
+| `MlpBrain.bySpecies` | `MlpBrain: the network for "<name>" differs in shape from "<first>" at layer <k>; give it its own brain: setBrain(brain, { species: '<name>' }).` (corrected in 7.4) |
+| `setWeights` | `MlpBrain: this brain holds one network per species; call setWeights(network, { species }).` |
+| `setWeights` | `MlpBrain: setWeights({ species }) needs a brain from MlpBrain.bySpecies.` |
+| `setWeights(…, { species })` | `MlpBrain: "<name>" is not a declared species.` |
 
 `AgentSystem`'s existing errors stay: dims, the group-1 budget, a destroyed or foreign brain.
 
@@ -235,7 +242,7 @@ The existing bind-failure test also asserts that a failed attach destroys its ma
 | **7.1** ✅ | Rows: `MlpBrain.bySpecies`, per-row `setWeights`; U21 | Committed `1dc7e74` |
 | **7.2** ✅ | Rows on the GPU (A21); the cost of rows, switches and per-species passes at 2, 8 and 16 species | Both hosts green; numbers below |
 | **7.3** ✅ | Per-species passes: `setBrain(brain, { species })`, a species mask per pass and the gate; U22; a size line | Committed `681ccf4`: headless and both GPU hosts green, U22 watched failing, +366 B; results below |
-| **7.4** | A22 on both hosts | Both hosts green, watched failing |
+| **7.4** ✅ | A22 on both hosts | Committed `3c3ad76`, `f19dbea`: green on Node/Dawn (AMD and NVIDIA) and in Chrome (AMD), watched failing; results below |
 | **7.5** | The guide's per-species section (the passes-or-rows rule) with an executable example; closure | Example test green; `docs/work` updated |
 
 Step 7, part 2 (record → train → export per species, the rest timer as an observation) follows
@@ -248,6 +255,16 @@ with its own design doc, from phase 7.6.
 - **A fallback brain:** decided against; an `others:` option can be added later without breaking
   anything.
 - **Asynchronous stage creation:** step 9.
+- **A rows brain for only some species.** `MlpBrain.bySpecies` keeps one network per declared
+  species, even when the rows brain serves only some of them; the others need a padding row of the
+  same shape. Decided by the user, 2026-10-13 ([`work/plan.md`](./work/plan.md) §5, item 5), because:
+  - relaxing it later breaks nothing (it only removes a refusal);
+  - Phase 2 rethinks rows anyway;
+  - nothing planned needs it.
+
+  If it is relaxed, the brain must declare the species it has rows for, so that `setBrain` can
+  refuse the rest by name. Otherwise a species assigned to it by mistake would silently read
+  another species' row.
 
 ### Phase 7.1 implementation — 2026-10-12
 
@@ -431,3 +448,57 @@ These match 7.2's within run-to-run noise. The rule stands: passes below 8 speci
 | Whole entry | 17,827 B | 18,174 B | +347 B |
 
 The whole entry is 3,321 B within C2's 21,495 B allowance.
+
+### Phase 7.4 results — 2026-10-13
+
+**A22** (`test/agents-gpu/run.js`, after A21; 300 agents of three species, a hashed 5-wide probe
+sensor, steering actions):
+- **Brains:**
+  - prey on a `RuleBrain` (0.25, −0.5, reason 7);
+  - wolves on a 5→7→2 tanh network;
+  - deer on a 5→9→6→2 relu/tanh/sigmoid network.
+
+  Two network shapes thus run side by side, with no shared layout.
+- **Correctness:** every live agent matches its own brain and fails the others, with max abs error
+  1.79e-7 against A4's tolerance. Dead rows keep their sentinels. Both the contiguous and the
+  interleaved layout pass.
+- **Reassignment:** attaching each brain builds exactly one stage. Moving wolves to the rules
+  builds none: the wolf pass is disabled and leaves every chain. On the next step, wolves give the
+  constants with reason 7.
+- **Destroying a retired brain:** with the wolf network destroyed, the system keeps running. Chains
+  of 1–3 steps and one more step run with zero validation errors.
+
+**Host/GPU pairs:** 124/124 with zero WebGPU errors on all three:
+- Node/Dawn on the AMD iGPU;
+- Node/Dawn on the NVIDIA GPU, via `NG_DAWN_FLAGS=adapter=NVIDIA`;
+- Chrome on the AMD iGPU.
+
+The suite takes the default adapter, which on this machine is the AMD iGPU in both hosts
+([`work/gotchas.md`](./work/gotchas.md)).
+
+**Watched failing, two ways:**
+- **In the suite, on every run:** the system's three passes are dispatched over its buffers and
+  with its masks, but with each gate replaced by a plain read of its mask. The last pass, deer's
+  network, then writes every species:
+  - 384 of 384 prey and wolf outputs are deer's;
+  - all 192 wolf outputs leave their own network;
+  - none of the 96 prey keeps the rules.
+- **In the source:** with the production gate replaced the same way, exactly the two A22 checks
+  failed (122/124, zero WebGPU errors), and U22's gate-text test failed headless. The file was
+  restored byte for byte.
+
+**Fixed:** `MlpBrain.bySpecies`'s shape error still said "use SpeciesBrain for different shapes",
+but that class was withdrawn with option B. It now says
+`give it its own brain: setBrain(brain, { species: '<name>' })`. U21 was watched failing on the
+old text first. Size: +4 B (whole entry 18,178 B; the rule path is unchanged at 12,741 B).
+
+**Found, and decided by the user to keep:**
+- `MlpBrain.bySpecies` still needs a network for every declared species, as in 7.1.
+- Under option B a rows brain may serve only some species, as in §6's
+  `setBrain(herdRows, { species: [...] })`, yet it must carry rows for the others as well.
+- The user kept this on 2026-10-13. The reasons and the condition for relaxing it are under
+  "Deferred" above.
+
+**Regression:**
+- headless: agents (the reference test plus 59 node:test), core, and agent-kit 4/4;
+- library build with `tsc`.

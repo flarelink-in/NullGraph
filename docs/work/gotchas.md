@@ -27,3 +27,8 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
 - **Chrome reports uncaptured WebGPU errors outside the console API** — that is why harnesses watch
   their own devices instead of the runner scraping the console.
 - **Directional light `direction` is the direction of travel**; the shader lights along `-dir`.
+- **"Both hosts" may be one GPU.** The GPU suites take the default adapter. On this machine that is
+  the AMD iGPU in Node/Dawn and in Chrome (Chrome ignores `powerPreference` on Windows). To run Node
+  on the NVIDIA GPU, pass a substring of its name:
+  `NG_DAWN_FLAGS=adapter=NVIDIA npm run test:gpu -- --only agents`. The run prints the device it
+  used (`[…] on nvidia turing …`). The spikes enumerate both adapters themselves.
