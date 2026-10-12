@@ -809,7 +809,7 @@ The parent's messages are reused verbatim where they exist, marked †.
 
 | Condition | Message |
 |---|---|
-| No brain | `AgentSystem: no brain — call setBrain() before getComputeStages() or step().` |
+| No brain | `AgentSystem: no brain — call setBrain() before getComputeStages() or step().` Replaced in C2 phase 7.3 by the per-species message ([`agents-species-brains-design.md`](./agents-species-brains-design.md) §11). |
 | Brain dimensions † | `AgentSystem: the brain maps <bo>→<ba>; the layout is <o>→<a>.` |
 | Rule brain signature | `RuleBrain: the WGSL must define fn think(i: u32, species: u32, tick: u32).` |
 | Custom sensor signature | `AgentSystem: custom sensor "<name>" must define fn <name>(i: u32, a: Agent) -> array<f32, <w>>.` |
