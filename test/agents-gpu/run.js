@@ -1013,12 +1013,40 @@ vis.destroy();
     check(`A19: per frame the agent system constructs ${constructed} typed arrays and makes ${minWrites}–${maxWrites} ` +
         'writeBuffer call(s) (limit 2; one is the highlight change)', constructed === 0 && maxWrites <= 2 && minWrites === 1);
 
+    // A20 (phase 4.5): remove dependents before their buffers, then replace the frame sequence.
+    // Keep the old nodes to verify destroy disables them, but never render released draw batches.
+    const retiredStages = [...sys.getComputeStages()];
+    device.pushErrorScope('validation');
     picker.destroy();                                     // its pick batches live in pvis
     labels.destroy();
     labelAtlas.destroy();
     sys.destroy();                                        // before pvis: the instance stage binds its rows
     drawBatches.forEach(([, batch]) => pvis.removeDrawBatch(batch));
     pvis.destroy();
+    for (let frame = 0; frame < 12; frame++) engine.render([scene, labelPass]);
+    await device.queue.onSubmittedWorkDone();
+    const teardownError = await device.popErrorScope();
+    check('A20: destroy disables every retired agent stage, including grid and instances',
+        retiredStages.length > 0 && retiredStages.every(stage => stage.enabled === false));
+    check(`A20: dependents-first teardown and replacement sequence render 12 later frames without validation errors` +
+        (teardownError ? `: ${teardownError.message}` : ''), teardownError === null);
+
+    // Rebuild on the same engine: teardown must not destroy the caller's device or render pass.
+    const replacement = makeSystem(engine, pickDef);
+    replacement.spawn(0, { position: [0, 0, 0], species: 'prey' });
+    replacement.upload();
+    const replacementDraw = agentArrows(engine, scene, replacement);
+    device.pushErrorScope('validation');
+    for (let frame = 0; frame < 3; frame++) {
+        replacement.advance(pickDef.dt);
+        engine.render([...replacement.getComputeStages(), scene]);
+    }
+    const replacementSnapshot = await replacement.inspect(0);
+    const rebuildError = await device.popErrorScope();
+    check('A20: the same engine renders a rebuilt system and inspection observes its three ticks',
+        rebuildError === null && replacementSnapshot?.alive && replacementSnapshot.tick === 3);
+    replacementDraw.destroy();
+    replacement.destroy();
 }
 // Phase 4.4: inspect(i) copies agent i's record, obs and act rows, reason, neighbour slots and the
 // counters in one submission. Every field must equal the same buffers read directly.

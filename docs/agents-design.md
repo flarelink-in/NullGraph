@@ -583,7 +583,7 @@ are what make the later rows research rather than animation.
 | A6 | Across 300 interactive frames with ORT, **zero** `mapAsync` outside the inspector (instrumented) |
 | A7 | Two lockstep runs of 600 steps from one seed produce byte-identical agent buffers (same device) |
 | A8 | Cloning quality: held-out action MAE ≤ 0.05, and prey survival after 30 s within 10% of the teacher |
-| A9 | A full 20,000-agent step (grid + sense + network + act + instances) is measured on both GPUs; gate ≤ 2 ms on NVIDIA |
+| A9 | Step 5 characterizes full rule-step scaling, density/query quality and proven bottlenecks on available GPU targets; report conditional limits, not a population/timing pass target. Original 20K / ≤2 ms NVIDIA goal is historical (scope amended 2026-10-12); network measurements follow in C2 |
 | A10 | Picking an agent after 120 moving steps returns its agent index |
 | A11 | A label tracks its agent for 120 steps with zero CPU writes to label data |
 | A12 | Dead agents draw nothing and are never picked |
@@ -760,8 +760,13 @@ on NVIDIA. What the spike found:
    it refines this plan: the think stage is built by the system, `think` gains `species` and
    `tick`, a GPU tick stage, staggered `thinkEvery`, and queries at `cellSize`. All of it was
    accepted on 2026-10-11 (decision 7).
-5. **Site demo "Herd & Wolves":** 20,000 agents, rule brains, names, picking, an inspector panel;
-   A9 measured. Docs: `api/agents.md`, a README row, an agent-kit starter scene.
+5. **Scaling limits and proven bottlenecks** (scope amended with the user, 2026-10-12): reproduce
+   the user-reported good frame rates at 65,536, measure population/density/cadence/render scaling,
+   simulation throughput and query quality, then prioritize evidence-backed finer improvements.
+   No fixed count/timing pass target or core rewrite; no optimization is a valid outcome.
+   [`agents-demo-design.md`](./agents-demo-design.md) defines the investigation. Detailed experiment
+   choices remain draft; no new measurements are claimed. The original 20K/A9 target is historical.
+   API guide complete; remaining README/starter/showcase packaging is separate product follow-up.
 
 C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
 
