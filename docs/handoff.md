@@ -18,7 +18,7 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — step 3 committed; step 4 phases 4.1–4.2 committed (2026-10-12)
+### Cycle C — step 3 committed; step 4 phases 4.1–4.3 committed (2026-10-12)
 
 **C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
@@ -26,8 +26,24 @@ phases 3.1–3.5 are complete and committed (3.5 as `f5cfd46`, 2026-10-12); phas
 outstanding. The live chain is **grid → queries → sense → think → act → app stages → tick**, then
 once per frame **instances** when `toInstances` is on. A brain is required. **Phase 3.5** is the
 arrow debug draw plus the GPU Herd & Wolves route in the test-engine site. **Phases 4.1 and 4.2 are
-committed**: 4.1 as `04a991b`, 4.2 in the commit that carries this record (record below). 4.3
-(picking and labels on GPU agents) is next. Nothing is pushed or published.
+committed**: 4.1 as `04a991b`, 4.2 as `aa6f4ac`. **Phase 4.3 is committed** as its `Picker` fix
+(`9d9a37e`) plus the commit that carries this record (record below). 4.4 (`inspect`) is next.
+Nothing is pushed or published.
+
+**Step 4, phase 4.3 (2026-10-12, Claude Opus 5.5).** No agents API was needed: labels follow
+`agents.buffer` and `hit.index − firstInstance` is the agent, as §9.4–9.5 designed.
+- **Tests:** three new checks in the agents GPU suite (100/100 on both hosts):
+  - **A11:** a label follows its agent for 120 steps with zero CPU label writes.
+  - **A10:** every isolated agent is picked as itself after 120 moving steps, the selected variant too.
+  - **A12:** a dead agent is neither drawn nor picked. It was watched failing against stale dead rows.
+- **Library fix in `Picker`:** a pick queued when `destroy()` ran wrote into released buffers and
+  threw a misleading tag error. `run()` now resolves `null`. K5 (headless) was watched failing;
+  `api/picking.md` notes it; +19 B. The site demo triggers it by rebuilding while hovering.
+- **Site:** hover lights a dart white; a click selects it (gold, pulsing, a following label) and a
+  second click releases it. This works up to 64K agents, because every pickable variant keeps a
+  visible list per batch, about 1.2 KB per agent. Driven interactively with each screenshot read,
+  including two rebuilds mid-hover, with no errors. The `dist/` copy in the site was refreshed.
+  The camera does not follow a selection yet; that needs 4.4's position readback.
 
 **Step 4, phases 4.1–4.2 (2026-10-12, Claude Opus 5.5).** Details and evidence are in the design
 doc's §13 results notes.
@@ -889,8 +905,9 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
       §13, and accepted. ~~Step 3 (phases 3.0–3.5)~~ is done and committed (3.5 as `f5cfd46`).
-      Step 4: ~~4.1~~ (`04a991b`) and ~~4.2~~ committed. **Next: 4.3**, picking and labels on
-      GPU agents (A10–A12), then 4.4 (`inspect`) and 4.5 (the site route, `docs/api/agents.md`).
+      Step 4: ~~4.1~~ (`04a991b`), ~~4.2~~ (`aa6f4ac`) and ~~4.3~~ (`9d9a37e` + its tests) committed.
+      **Next: 4.4**, `inspect(i)` and the site inspector panel (U20, A19), then 4.5 (the
+      site route, `docs/api/agents.md`).
       Then step 5 with A9, which should take up grid-ordered neighbour queries (the stress-test
       finding in the 3.5 sanity-check record above).
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
@@ -1187,3 +1204,12 @@ No push/publication, no phase-3.5 implementation or new visual/drive review.
     temporary worktree: headless suites and the visibility GPU suite), then 4.2 with this record.
     The site stays uncommitted.
   - **Next:** 4.3.
+- **2026-10-12 — Claude (Opus 5.5).** At the user's request: committed 4.1 (`04a991b`; first
+  validated alone in a temporary worktree, with the design doc split to 4.1's parts) and 4.2
+  (`aa6f4ac`), then built phase 4.3.
+  - **Tests:** A10–A12 on both GPU hosts; A12 watched failing.
+  - **Fix:** the `Picker` destroy race, with K5 watched failing.
+  - **Site:** hover and click on darts, driven interactively with no errors.
+  - **Committed at the user's request** as two commits: the `Picker` fix (`9d9a37e`), then the
+    4.3 tests and docs with this record. The site stays uncommitted.
+  - **Next:** 4.4.
