@@ -84,6 +84,7 @@
     "dev:serve": "node dev-server.js",
     "dev:serve:nosab": "node dev-server.js --no-sab",
     "test:core": "node test/core-compute.test.mjs && node test/core-headless.test.mjs",
+    "test:cameras": "node --test test/cameras-input.test.mjs",
     "test:gpu": "node test/gpu/run-gpu-tests.mjs",
     "test:gpu:browser": "node test/gpu/browser-run.mjs",
     "drive": "node test/gpu/drive-page.mjs",

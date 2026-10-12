@@ -51,7 +51,13 @@ const orbit = new OrbitalCameraState({
 
 ## `OrbitalEventProxy`
 
-Attaches pointer and wheel listeners to a canvas and forwards abstract input deltas.
+Attaches pointer and wheel listeners to a canvas and forwards abstract input deltas. A mouse drag
+or one-finger drag rotates; two fingers zoom (spread to move closer, pinch to move farther away).
+Wheel and pinch distance deltas use `zoomSensitivity`. Three or more active pointers pause input
+until only one or two remain. Cancellation and window focus loss clear the corresponding gesture.
+
+The proxy sets the canvas's inline `touch-action` to `none` to prevent browser scrolling/zooming
+from taking over a camera gesture. `destroy()` restores its previous value if it is still `none`.
 
 ```ts
 const proxy = new OrbitalEventProxy({
