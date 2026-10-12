@@ -2,6 +2,8 @@
 import * as A from '../../dist/agents.js';
 import { NullGraph, Camera } from '../../dist/index.js';
 import { groundGrid, gridOccupancy, agentArrows } from '../../dist/debug-ui.js';
+import { VisibilitySystem } from '../../dist/visibility.js';
+import { MegabufferBuilder, Primitives, StandardLayout } from '../../dist/geometry.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { check, fatal, finish, saveImage } = harnessEnv('__AGENTS_RESULTS__');
@@ -757,7 +759,104 @@ check('arrows: GPU-only position/heading changes alter pixels without staging up
 arrows.destroy(); arrows.destroy();
 check('arrows: destroying draw preserves caller-owned records', (await read(arrowSystem.buffer, 4))[0] === new Uint32Array(new Float32Array([-1]).buffer)[0]);
 arrowSystem.destroy();
+
+// A17 (phase 4.2): the instance stage. Rows the GPU writes into vis.instanceBuffer equal U19's CPU
+// twin applied to the read-back records; rows it must not touch keep a sentinel; the visibility cull
+// then draws exactly the live agents, each with its mesh or highlight variant.
+async function readStorage(src, words) {   // vis.instanceBuffer and indirect args have no COPY_SRC
+    const dst = buffer(words), enc = device.createCommandEncoder();
+    dispatch(enc, `@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${words}u) { dst[id.x] = src[id.x]; }
+}`, [src, dst], Math.ceil(words / 64));
+    device.queue.submit([enc.finish()]);
+    return read(dst, words);
+}
+const MESH = { PREY: 0, HOVER: 1, SELECTED: 2, WOLF: 3 };
+const instDef = A.defineAgents({ capacity: 2000, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: [
+        { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4,
+            mesh: MESH.PREY, hoverMesh: MESH.HOVER, selectedMesh: MESH.SELECTED, boundsRadius: 0.5 },
+        { name: 'wolf', maxSpeed: 4, maxTurn: 3, accel: 5, senseRadius: 4, radius: 0.6,
+            mesh: MESH.WOLF, hoverMesh: MESH.HOVER, selectedMesh: MESH.SELECTED, boundsRadius: 0.5 },
+    ],
+    sensors: [A.Sensors.self()] });
+const FIRST = 3, ROWS = FIRST + instDef.capacity, HIGHLIGHT = { selected: 5, hovered: 9 };
+const mega = new MegabufferBuilder(StandardLayout.strideFloats);
+for (const name of ['prey', 'hover', 'selected', 'wolf']) {
+    const g = Primitives.createSphere(StandardLayout, 0.5, 8, 6);
+    mega.addMesh(name, g.vertices, g.indices);
+}
+const vis = new VisibilitySystem(engine, { maxInstances: ROWS + 5 });
+vis.setGeometry(mega);
+vis.setInstanceCount(ROWS);
+const sentinel = new Float32Array(ROWS * 24).fill(7);   // rows the GPU must leave alone keep this
+device.queue.writeBuffer(vis.instanceBuffer, 0, sentinel);
+const instSystem = makeSystem(engine, instDef);
+for (let i = 0; i < instDef.capacity; i++) {
+    instSystem.spawn(i, { position: [random() * 15 - 7.5, random(), random() * 15 - 7.5],
+        species: i % 3 === 0 ? 'wolf' : 'prey', heading: random() * 2 * Math.PI - Math.PI, speed: random() * 2 });
+}
+for (let i = 0; i < instDef.capacity; i += 7) instSystem.kill(i);
+instSystem.toInstances(vis, { firstInstance: FIRST });
+instSystem.setHighlight(HIGHLIGHT);
+await instSystem.step();                                  // one step, then the instance stage
+const after = await read(instSystem.buffer, instDef.capacity * 16);
+const rowsGpu = await readStorage(vis.instanceBuffer, ROWS * 24);
+const twin = new Float32Array(sentinel), twinU32 = new Uint32Array(twin.buffer);
+const recAfter = { data: new Float32Array(after.buffer), u32: after };
+for (let i = 0; i < instDef.capacity; i++) A.writeAgentInstanceRow(instDef, recAfter, i, HIGHLIGHT, twin, FIRST + i, twinU32);
+// sin/cos: WGSL promises 2^-11 absolute on [-π, π]; the twin's f64 value is rounded to f32 once.
+const rotationBound = 2 ** -11 + 2 ** -24;
+const rowsF32 = new Float32Array(rowsGpu.buffer);
+let rotationMax = 0, exactMismatch = 0, rotationOut = 0;
+for (let w = 0; w < ROWS * 24; w++) {
+    const row = Math.floor(w / 24), k = w % 24, agent = row - FIRST;
+    const live = agent >= 0 && (after[agent * 16 + 13] & 1) !== 0;
+    if (live && (k === 0 || k === 2 || k === 8 || k === 10)) {
+        const e = Math.abs(rowsF32[w] - twin[w]);
+        rotationMax = Math.max(rotationMax, e);
+        if (!(e <= rotationBound)) rotationOut++;
+    } else if (rowsGpu[w] !== twinU32[w]) exactMismatch++;
+}
+check(`A17: ${instDef.capacity} GPU instance rows equal the CPU twin (rotation within 2^-11, max ${rotationMax.toExponential(2)}; ` +
+    'translation, bounds, mesh/highlight, LOD and untouched rows bit-exact)', rotationOut === 0 && exactMismatch === 0);
+const pass = engine.createPass({ name: 'GPU agent instances', isMainScreenPass: true });
+const batches = Object.entries(MESH).map(([name, mesh]) => [mesh, vis.createInstanceDrawBatch(pass, name.toLowerCase(), mesh)]);
+camera.updateView([0, 18, 0], [0, 0, 0], [0, 0, -1]);
+engine.updateCamera(camera);
+vis.upload();
+engine.render([...vis.getComputeStages(), pass]);
+await saveImage('agents-instances', await image(), 128, 128);
+async function drawnPerMesh() {
+    const drawn = {};
+    for (const [mesh, batch] of batches) drawn[mesh] = (await readStorage(batch.indirectBuffer, 5))[1];
+    return drawn;
+}
+function expectedPerMesh(highlight) {
+    const want = { [MESH.PREY]: 0, [MESH.HOVER]: 0, [MESH.SELECTED]: 0, [MESH.WOLF]: 0 };
+    for (let i = 0; i < instDef.capacity; i++) {
+        if ((after[i * 16 + 13] & 1) === 0) continue;
+        if (i === highlight.selected) want[MESH.SELECTED]++;
+        else if (i === highlight.hovered) want[MESH.HOVER]++;
+        else want[after[i * 16 + 12] === 1 ? MESH.WOLF : MESH.PREY]++;
+    }
+    return want;
+}
+const same = (a, b) => Object.keys(b).every(m => a[m] === b[m]);
+const drawn = await drawnPerMesh(), want = expectedPerMesh(HIGHLIGHT);
+check(`A17: the visibility cull draws exactly the live agents through GPU rows (drawn ${JSON.stringify(drawn)})`,
+    same(drawn, want) && want[MESH.SELECTED] === 1 && want[MESH.HOVER] === 1 && want[MESH.PREY] > 0 && want[MESH.WOLF] > 0);
+instSystem.setHighlight({ selected: -1, hovered: -1 });
+instSystem.advance(0);
+engine.render([...instSystem.getComputeStages(), ...vis.getComputeStages(), pass]);   // no step: highlight only
+const unlit = await drawnPerMesh();
+check(`A17: with no step this frame, the instance stage still applies a highlight change (drawn ${JSON.stringify(unlit)})`,
+    same(unlit, expectedPerMesh({ selected: -1, hovered: -1 })) && unlit[MESH.PREY] + unlit[MESH.WOLF] === want[MESH.PREY] + want[MESH.WOLF] + 2);
+instSystem.destroy();                                     // dependents first: the stage binds vis.instanceBuffer
+vis.destroy();
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All agent grid, sense, think, act, app-stage and arrow GPU checks passed.');
+await finish('All agent grid, sense, think, act, app-stage, arrow and instance GPU checks passed.');
 device.destroy();
 function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }

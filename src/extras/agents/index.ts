@@ -13,3 +13,4 @@ export * from './agentSenseShaders';
 export * from './agentActShaders';
 export * from './RuleBrain';
 export * from './agentThinkShaders';
+export * from './agentInstances';
