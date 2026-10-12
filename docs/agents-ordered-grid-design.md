@@ -17,8 +17,9 @@ teacher data is reproducible even when crowded cells overflow the scan budget.
 4. **Custom sensors reading the neighbour lists:** contract (a), later, when a demo needs it; not in
    step 5. Phase 5.8 documents today's limits and fixes the parent's claim (§8).
 
-**Status:** ✅ design decided 2026-10-13 (`b7050b7`); ✅ 5.5 measured 2026-10-13 (uncommitted;
-"Phase 5.5 results" below). Next: 5.6.
+**Status:** ✅ design decided 2026-10-13 (`b7050b7`); ✅ 5.5 measurements and initial 5.6
+implementation committed (`e4eaad2`); ✅ 5.6 correctness verified 2026-10-13 (results below).
+Next: 5.7, performance and bundle acceptance; no performance acceptance is claimed yet.
 
 **Target:**
 - `src/extras/spatial/`: the grid's scatter and the CPU mirror;
@@ -317,3 +318,31 @@ reason depends only on the species.
 - **The first run was discarded.** Without wall avoidance, prey piled into the corners, and a
   warm-up that ran steps for a fixed time left each host in a different state. The spike now warms
   up on the grid build alone, which moves nobody.
+
+## Phase 5.6 results — 2026-10-13: correctness
+
+- Stable LSD radix sorting is the sole production scatter path. Digit width minimizes passes
+  (up to 10 bits), then table size; dead entries sort behind the live cells.
+- Queries read a deterministic PCG window from agent index and GPU tick. `AgentGrid` increments
+  its own counter after querying; `AgentSystem` binds its existing state word.
+- A1 compares ordered live entries and bounded queries directly with the CPU grid. The production
+  wrapper also matches the CPU window at ticks 1–5, including two builds in one submission.
+- A23 uses 4,096 agents in a crowded 24 m square within the 160 m world, budget 8, 200 steps,
+  and the Herd & Wolves sensors/rule. Every step overflows; both production runs have identical
+  records, observations, actions and reasons. This is a deliberately crowded correctness fixture,
+  not a replacement for phase 5.7's unchanged measurement spike.
+- **GPU:** 137/137 checks, zero GPU errors, on Node/Dawn AMD, Node/Dawn NVIDIA and Chrome AMD.
+- **Mutation watch:** a test-only stage overwrites the sorted grid with the old atomic-slot
+  scatter before querying. Two mutated runs diverge on all three hosts:
+
+  | Host | Record / observation / action words differing |
+  |---|---|
+  | Node/Dawn AMD | 20,372 / 72,137 / 4,270 |
+  | Node/Dawn NVIDIA | 20,374 / 72,895 / 3,817 |
+  | Chrome AMD | 20,349 / 72,347 / 4,162 |
+
+- U23 covers generated kernels and a stable block model for 1/2/3 passes, random/crowded/tie
+  scenes against `buildPointGrid`, wrapped windows, unchanged within-budget queries, stage/counter
+  layout, named radix limit refusals, and allocation/binding failure cleanup. Caller records survive.
+- **Next:** 5.7 measures the unchanged spike in isolation and checks bundle size. The 10% rule
+  still applies before guide closure or teacher-data work.

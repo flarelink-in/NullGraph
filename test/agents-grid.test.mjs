@@ -18,10 +18,16 @@ const definition = (over = {}) => A.defineAgents({ capacity: 64, world: { min: [
 const gridFor = (def, rec) => G.buildPointGrid(def, rec.data, A.AGENT_FLOATS, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
 
 test('U23: one, two and three-pass radix kernels parse; stable block model equals CPU cells', () => {
-    for (const total of [255, 6400, 1048576]) {
+    for (const total of [255, 6400, 1048576]) for (const scene of ['random', 'crowded', 'ties']) {
         const radix = A.gridRadixLayout(total), count = 777;
-        new WgslReflect(A.buildGridKeysWGSL(definition(), count, 16, 13, 1));
-        const keys = Array.from({ length: count }, (_, i) => i % 17 === 0 ? total : Math.floor(random() * total));
+        const layout = { world: { minX: 0, minZ: 0 }, cellSize: 1,
+            grid: { cellsX: total, cellsZ: 1, cellTotal: total } };
+        new WgslReflect(A.buildGridKeysWGSL(layout, count, 16, 13, 1));
+        const keys = Array.from({ length: count }, (_, i) => i % 17 === 0 ? total :
+            scene === 'crowded' ? 0 : scene === 'ties' ? i % 4 : Math.floor(random() * total));
+        const positions = new Float32Array(count * 3);
+        keys.forEach((key, i) => { positions[i * 3] = key + 0.25; positions[i * 3 + 2] = 0.25; });
+        const mirror = G.buildPointGrid(layout, positions, 3, count, i => keys[i] !== total, 2);
         let entries = keys.map((key, index) => ({ key, index }));
         for (let p = 0; p < radix.passes; p++) {
             new WgslReflect(A.buildGridHistogramWGSL(count, radix.bits, p * radix.bits));
@@ -38,6 +44,7 @@ test('U23: one, two and three-pass radix kernels parse; stable block model equal
             entries = next;
         }
         assert.deepEqual(entries, keys.map((key, index) => ({ key, index })).sort((a, b) => a.key - b.key || a.index - b.index));
+        assert.deepEqual(entries.filter(e => e.key !== total).map(e => e.index), [...mirror.cellBodies]);
     }
 });
 

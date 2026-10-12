@@ -128,6 +128,30 @@ test('lockstep uploads/submits/awaits without changing selected frame chain; tea
     await assert.rejects(s.step(), /used after destroy/);
 });
 
+test('U23: grid constructor failures release owned resources without destroying records', () => {
+    for (const label of ['PointGrid radix keys 1', 'AgentGrid tick']) {
+        const m = mock(), records = m.engine.device.createBuffer({ size: 8192, usage: GPUBufferUsage.STORAGE });
+        const create = m.engine.device.createBuffer;
+        m.engine.device.createBuffer = o => { if (o.label === label) throw new Error('injected allocation'); return create(o); };
+        assert.throws(() => new A.AgentGrid(m.engine, records, definition()), /injected allocation/);
+        assert.ok(!records.destroyed);
+        assert.ok(m.buffers.filter(b => b !== records).every(b => b.destroyed));
+        assert.ok(m.stages.every(s => !s.enabled));
+    }
+    for (const name of ['PointGrid stable scatter', 'AgentGrid nearest', 'AgentGrid tick']) {
+        const m = mock(), records = m.engine.device.createBuffer({ size: 8192, usage: GPUBufferUsage.STORAGE });
+        const bind = m.engine.setComputePassBindGroup;
+        m.engine.setComputePassBindGroup = (stage, ...args) => {
+            if (stage.name === name) throw new Error('injected binding');
+            bind(stage, ...args);
+        };
+        assert.throws(() => new A.AgentGrid(m.engine, records, definition()), /injected binding/);
+        assert.ok(!records.destroyed);
+        assert.ok(m.buffers.filter(b => b !== records).every(b => b.destroyed));
+        assert.ok(m.stages.every(s => !s.enabled));
+    }
+});
+
 test('validation happens before buffer allocation; no-nearest layouts have a valid dummy buffer', () => {
     for (const thinkEvery of [0, -1, 1.5, NaN, Infinity]) {
         const m = mock(); assert.throws(() => makeSystem(m.engine, definition(), { thinkEvery }), /positive integer/);
