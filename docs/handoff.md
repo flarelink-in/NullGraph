@@ -18,24 +18,122 @@ test-engine site (*Axion Engine Loop → Picking & Labels*, see "Demo" below). *
 | Real GPU — Node + Dawn (NVIDIA) | `npm run test:gpu` | **8 suites: 64 checks + 1 render smoke, 0 WebGPU errors** |
 | Real GPU — headless Chrome (AMD iGPU) | `npm run test:gpu:browser` | **8 suites, 65 checks, 0 WebGPU errors** |
 
-### Cycle C — in progress: C1 steps 1–2 done (2026-10-11)
+### Cycle C — step 3 (phases 3.0–3.5) committed; step 4 started (2026-10-12)
 
-**C1 steps 3–4 are designed; phases 3.1–3.4 are implemented:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
+**C1 steps 3–4 are designed; step 3 is done:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md),
 kept separate from the parent plan. **Current state overrides the historical phase notes below:**
-phases 3.1?3.4 are complete and checkpointed; phase 3.3 is not outstanding. The live chain is
-**grid ? queries ? sense ? think ? act ? app stages ? tick**. A brain is required.
-No phase-3.5 arrow renderer, Herd & Wolves route, new screenshots or interactive drive review
-has been started. Next is phase 3.5, followed by step 4's renderer/inspector integration.
+phases 3.1–3.5 are complete and committed (3.5 as `f5cfd46`, 2026-10-12); phase 3.3 is not
+outstanding. The live chain is **grid → queries → sense → think → act → app stages → tick**. A
+brain is required. **Phase 3.5** is the arrow debug draw plus the GPU Herd & Wolves route in the
+test-engine site. Step 4 (instances, highlight, picking, labels, inspector) is next, from phase 4.1.
+Nothing is pushed or published.
+
+**Phase 3.5 results (2026-10-11):** `debug-ui` exports `agentArrows(engine, pass, agents, { colors? })`.
+One procedural triangle per agent reads GPU position/heading/radius/species/alive directly;
+teardown is idempotent and does not destroy the agent records. Added two headless tests and four
+GPU render checks (species colors, dead clipping, GPU-only transforms and caller ownership).
+The test-engine route `/dashboard/agents/herd-wolves-gpu` runs 3,840 prey and 256 wolves through
+the production loop, the CPU preview's rule policy translated to WGSL, separate catches/respawn
+dispatches and five-second wolf rests. Controls: speed/pause, flocking, fleeing, grid occupancy;
+camera orbit/zoom. No visibility integration, picking or inspector readback was added.
+
+**Validated:** library/TypeScript build; 45 headless agent checks; 17 core checks; **94/94 GPU
+checks on Node/Dawn and Chrome, zero WebGPU errors** (AMD GCN-5). Chrome retry used `--port 9441`
+after an earlier runner stalled on the default debugging port. Interactive `npm run drive`
+exited **0**, with no recorded errors; overview, occupancy, zoom, rule toggles and pause/resume
+screenshots were reviewed. Paused screenshots retain identical agent positions. Fixed the initial
+six-byte index upload to an eight-byte, four-byte-aligned upload after real-device validation.
+Site `tsc --noEmit` passes; targeted lint for all new demo files passes. Existing unrelated site
+lint warnings remain. Final IDE build retry timed out; the earlier IDE build and final CLI build
+passed. Full agents entry remains **13,428 B** min+gzip, frame subset **10,593 B**; standalone
+tree-shaken arrow draw adds **1,332 B** through debug-ui, not agents.js.
+
+Validation artifacts: `D:/orion-realms/null-graph-phase35-validation` (logs and drive screenshots).
+Demo source lives in `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`; that repository had
+substantial pre-existing dirty/untracked work. Only targeted demo integration was edited; local
+package dist copies were refreshed directly for testing, with no yalc push or publication.
+**Next:** review/checkpoint phase 3.5, then step 4. Demo-policy CPU/GPU numerical equivalence was
+not separately measured; the library RuleBrain/cadence/app tests remain covered by A15/A16/A18.
+
+**Phase 3.5 sanity check and demo improvements (2026-10-12, Claude Opus 5.5).** Re-ran on the
+uncommitted 3.5 tree, with the dev `dist/` rebuilt: 45 headless agent and 17 core checks, and **94/94 agents
+GPU checks on Node/Dawn and in Chrome, zero WebGPU errors**. The site's `node_modules/null-graph/dist`
+matches the build byte for byte. Nothing in null-graph was changed. Demo findings, each fixed in the
+site:
+- **The occupancy toggle drew a near-black floor.** `gridOccupancy` shades by count ÷ scan budget,
+  and the demo's 4,096 budget left a typical 10-agent cell at 0.2%. The budget is now a control
+  (32 / 64 / 256 / 4,096, default 64, the library's), so blue cells and red over-budget cells show.
+- **No labels, no Docs entry, no restart.** All three were missing.
+- **The brain hard-coded the prey's max speed (3.2)** in the alignment rule. It now reads
+  `species[SPECIES_PREY].maxSpeed`, so `setSpecies` tuning stays exact.
+
+The improved demo (`HerdWolvesGPU/{index,brain,flashes,probe,screenText,options}.ts`, controls,
+`HerdWolvesGPUDocumentation.ts`, `docsMap`, `HerdGPUState` and store defaults):
+- **Labels:** wolf names follow `agents.buffer` through `TextSystem.follow` (§9.4's API, the first 256
+  wolves, shown within 70 m). A stats overlay is a second `TextSystem` with an identity camera,
+  pinned to the top-left: counts, catches per minute, step, × real time, the field and grid,
+  overflow, GPU ms per step and ns per agent, a four-group split (grid / neighbours / sense + think /
+  act + rules) and buffer MB. Amber catch flashes are a batch that reads a 1,024-entry catch ring the
+  respawn stage writes. It is aged against `agents.state.tick` and samples one flash per N catches
+  above 4K. The only readback is the overlay's 32 bytes plus timestamps, mapped asynchronously.
+- **Controls:**
+  - pause and restart;
+  - speed;
+  - a stress test of 4K–1M agents (the field grows with the count, density constant, one agent in
+    16 a wolf);
+  - think every 1/2/3/6 steps and the scan budget;
+  - live rules: flock and flee, wolf and prey top speed through `setSpecies`, wolf rest seconds;
+  - show toggles: overlay, names, flashes, occupancy.
+- **Docs tab:** eight sections with code: what runs, the brain, the two-stage catch, labels without
+  readback, what to watch in the stress test, reading the timings, honest scope.
+
+**Finding: the neighbour queries dominate and scale badly.** Measured in Chrome on the AMD GCN-5
+iGPU at constant density:
+
+| Agents | GPU ms per step | ns per agent | of which neighbours |
+|---:|---:|---:|---:|
+| 4,096 | 2.5 | ~610 | 1.85 ms |
+| 16,384 | 5.8 | ~350 | 4.5 ms |
+| 65,536 | 74 | ~1,130 | 67.5 ms |
+| 262,144 | 453 | ~1,730 | 426 ms |
+
+The queries are 75–94% of a step. Cost per agent drops while the GPU fills, then roughly
+triples once the 64-byte records outgrow the cache (16K = 1 MB, 64K = 4 MB). Likely cause: each
+query invocation is an agent index, and indices are random in space. A wave's 64 lanes therefore
+walk 64 unrelated 3 × 3 neighbourhoods, with uncoalesced loads and divergent trip counts. **First
+build, before the guard below: 1M agents lost the device (`DXGI_ERROR_DEVICE_HUNG`)**, from three
+steps of more than 1 s each in one submission. Proposed fix, to design before code: run the queries (and sense) in
+grid order, with invocation `t` taking `cellBodies[t]`, or periodically sort the records by cell.
+Either keeps results identical except for dead agents' rows. This belongs with step 5 / A9.
+
+**The stress test cannot take the GPU down now.** A size larger than any measured one is predicted
+as ns-per-agent × N × (N ÷ M)^0.25, from the largest measured size M; the exponent fits 4K → 64K.
+It is refused above 600 ms per step with an on-screen reason. Below that it builds; 256K was
+predicted at 432 ms and measured at 453. Steps per frame drop to one when a step costs more than
+40 ms. A size measured above 1 s falls back to the last safe size. An out-of-memory or validation
+error during a build (error scopes) falls back to the last size that ran. On this iGPU, 1M is
+refused (~2.1–2.8 s predicted).
+
+**Verified:** site `tsc --noEmit` exit 0; ESLint 0 errors and Prettier clean on every touched file.
+Four `npm run drive` runs against the live :8081 server ended clean (22, 38 and 6 steps), after the
+first exposed the 1M hang. They covered every size, the refusal, pause, restart, cadence, budget, the speed slider, names, the overlay
+toggle and the Docs tab, and every screenshot was reviewed. **Notes, not fixed:**
+- `agentArrows` sizes its unused instance buffer to `capacity` (16 MB at 1M); `maxInstances: 1`
+  would do, as in `gridDrawing`.
+- `NullGraph.createComputeStage` keeps every stage in a private, write-only list, so each rebuild
+  retains its pipelines.
+- The site checker's one error is pre-existing: an unused `isSmallScreen` in `TouchControls.tsx`.
+- The first seconds after a build show a burst of catches (wolves and prey start mixed).
 
 Sequential history was reconstructed from the combined local implementation without rewriting
 existing commits; each checkpoint was rebuilt and revalidated before committing:
 
 | Phase | Commit | Headless agents | GPU checks on each host |
 |---|---|---:|---:|
-| 3.1 ? system skeleton and tick | `203c829` | 34 | 51/51 |
-| 3.2 ? sensing and newborn/block cadence | `32afb2a` | 36 | 63/63 |
-| 3.3 ? act and bounded steering | `f5ca5a4` | 38 | 72/72 |
-| 3.4 ? RuleBrain and app stages | `a610cad` | 43 | 90/90 |
+| 3.1 — system skeleton and tick | `203c829` | 34 | 51/51 |
+| 3.2 — sensing and newborn/block cadence | `32afb2a` | 36 | 63/63 |
+| 3.3 — act and bounded steering | `f5ca5a4` | 38 | 72/72 |
+| 3.4 — RuleBrain and app stages | `a610cad` | 43 | 90/90 |
 
 All checkpoint GPU runs used Node/Dawn and Chrome on AMD GCN-5, with **zero WebGPU errors**.
 Phase 3.1's reconstructed suite includes the later-added obs-buffer A13 comparison (51 rather
@@ -124,7 +222,7 @@ a full shader validator; device validation remains required.
 Min+gzip: full entry **13,428 B**, system/declarations/RuleBrain **10,593 B**, below 16 KB.
 No commit/publication/frontend/core changes or new screenshot/drive review; earlier local work preserved.
 **Next: phase 3.5**, agent arrows, Herd & Wolves GPU preview route and interactive drive validation.
-Implementation commits are local, not pushed; phase 3.5 has not started.
+Implementation commits are local, not pushed; phase 3.5's current results are recorded above.
 
 It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn with arrows) and
 4.1 → 4.5. §1.5 lists where it refines `agents-design.md`.
@@ -134,7 +232,7 @@ It is built in phases 3.0 (spike S3) → 3.5 (a GPU Herd & Wolves route drawn wi
 - the C1 bundle line raised to 16 KB;
 - the arrow preview phase kept;
 - live demos in the test-engine site; phase 3.5's demo will be `/dashboard/agents/herd-wolves-gpu`,
-  beside the CPU preview. It is not built yet.
+  beside the CPU preview. It is now built and validated (phase 3.5 results above).
 
 **Phase 3.0, spike S3, is measured.** It is `test/spikes/s3-think-kernel/`, run with `npm run spike:s3`
 and through `npm run drive` in Chrome; the numbers are in `agents-design.md` §13, C0. Every variant
@@ -760,8 +858,9 @@ proof that the tested build was stale. Option 1 remains the current choice; Opti
        spikes S1, S2, S4 and S5 run before C2's ORT step.
    4. C1 steps 3–5, then C2. Labels and picking from Cycle B are the "click a unit, see its brain"
       half. Steps 3–4 are phased in [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md)
-      §13, and accepted. Phases 3.0 (S3) and 3.1 (the GPU system skeleton) are done.
-      Phase 3.2 sensing is also done. **Next: phase 3.3**, the act generator, A3/A14/A7.
+      §13, and accepted. ~~Step 3 (phases 3.0–3.5)~~ is done and committed (3.5 as `f5cfd46`).
+      **Next: step 4, phases 4.1 → 4.5.** Then step 5 with A9, which should take up grid-ordered
+      neighbour queries (the stress-test finding in the 3.5 sanity-check record above).
 5. Verify (then fix) the `uvMinA` suspect with an atlas light-view occlusion GPU test.
 6. CI: a pinned environment (Linux + lavapipe, as vgpu does) if golden images are ever wanted.
 
@@ -1032,3 +1131,17 @@ checks per host, zero WebGPU errors. Original complete source/tests were preserv
 and compared against the restored final contents (only newline normalization). No implementation
 was lost; tracked generated core bundles had no content changes after rebuilding.
 No push/publication, no phase-3.5 implementation or new visual/drive review.
+
+- **2026-10-12 — Claude (Opus 5.5).** Sanity-checked phase 3.5 and improved the GPU Herd & Wolves
+  demo at the user's request (record under Cycle C, "Phase 3.5 sanity check and demo improvements").
+  - **Library:** re-verified only: 45 + 17 headless checks, 94/94 GPU on both hosts, and a byte-identical site
+    copy. No null-graph source changed.
+  - **Site:** labels (wolf names following `agents.buffer`, a screen-pinned stats overlay, GPU-driven
+    catch flashes), a Docs entry, and controls (pause, restart, 4K–1M stress test, cadence, scan
+    budget, live species speeds and rest).
+  - **Found:** the occupancy overlay was near black at a 4,096 budget. The neighbour queries are
+    75–94% of a step and grow super-linearly past the GPU cache. 1M agents hung the AMD iGPU before
+    the guard: prediction from measured cost, one step per frame when slow, and fall-backs.
+  - **Committed at the user's request:** phase 3.5 as `f5cfd46` (code, tests, design-doc status),
+    then this record. Grid-ordered queries wait for step 5 / A9; step 4 starts now. Site changes
+    stay uncommitted (untracked integration files).
