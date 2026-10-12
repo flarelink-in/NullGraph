@@ -27,25 +27,25 @@ log, not here.
     exact A1 including AgentGrid ticks 1–5; overflowing A23 green and atomic-slot mutation
     watched failing on every host. Agents GPU: 137/137 on Node/AMD, Node/NVIDIA and Chrome/AMD,
     zero GPU errors. U23 includes allocation/binding failure cleanup.
-  - **Next:** 5.7 timings and bundle, measured in isolation; apply the agreed 10% rule.
-  - **Then:** 5.7 (cost after, with the same spike) and 5.8 (docs, including today's custom-sensor
-    limits and the parent's claim).
+  - **5.7 measured; acceptance paused for the user:** several whole-step cases exceed ~10%
+    (up to +51.6%). Grid-build increase alone is within 10% of the old step in every case.
+    All three hosts now record zero differing words. Full numbers are in the design.
+  - **Next:** discuss performance regressions; recommended investigation is interleaved
+    baseline/after runs on fixed snapshots, isolating sort versus rotating-query cost.
+    Do not advance to 5.8/teacher data or change the agreed semantics without that discussion.
 - **Then: step 7, part 2:** record → train → export, per species.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed): phase 5.5 and initial 5.6 committed as `e4eaad2`;
-  phase 5.6 closure is recorded in the following commit.
-  - **Uncommitted, not Claude's:** camera input work (`src/extras/cameras/OrbitalEventProxy.ts`,
-    `docs/api/cameras.md`, `test/cameras-input.test.mjs`, a `test:cameras` script in
-    `package.json`). Leave it to its owner, and validate commits alone in a worktree. Do not add
-    npm scripts while `package.json` holds that change.
+- **null-graph** (`master`, not pushed): ordered grid committed as `e4eaad2` and `caaf930`;
+  camera pinch/cleanup fix committed as `9ea8a33`, five tests + TypeScript green in a worktree.
+  Phase 5.7 measurements documented; performance acceptance is not granted.
 - **Green:**
   - headless: agents (reference + 63), core, agent-kit 4/4;
   - the agents GPU suite: 137/137 on Node/Dawn with the AMD iGPU and with the NVIDIA GPU, and in
     Chrome.
-- **Bundle:** before ordered grid, `agents.js` 18,178 B min+gzip (C2 ceiling 21,495 B);
-  ordered-grid measurement pending in 5.7.
+- **Bundle:** agents whole entry 19,305 B min+gzip (+1,127 B); 2,190 B below C2 ceiling.
+  Rule path +825 B; MLP still tree-shakes from rules.
 - **Test-engine site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): its
   `node_modules/null-graph/dist` holds the limits build (`7f1acb0`). Restart its dev server with
   `npm run dev -- --force` after any refresh ([`gotchas.md`](./gotchas.md)).
@@ -53,3 +53,4 @@ log, not here.
 ## Open questions for the user
 
 - [`plan.md`](./plan.md) §5, item 3 (the brain-swap stall) is deferred to step 9.
+- Ordered-grid performance: whole-step regressions exceed the ~10% rule; see 5.7 results.
