@@ -45,6 +45,34 @@ Out of scope: training/dataset collection (7), ONNX parsing/export (7–8), ORT/
 (9), learned demo comparisons/cloning quality (10), per-agent genomes, recurrent networks,
 automatic normalization, quantization and per-species brain routing.
 
+### 2.1 Integration facts (verified against this repository, 2026-10-12)
+
+Added at step 6's close, after a check against [`design-principles.md`](./design-principles.md)
+§1 and §14 found this document lacked them. Citations are current.
+
+| # | Claim | Where | Consequence |
+|---|---|---|---|
+| 1 | `setBrain` builds the think stage from `brain.wgsl` and binds `brain.buffers` as group 1 | `AgentSystem.setBrain` (`AgentSystem.ts:163`), `AgentSystem.stage` (`:126`) | An `MlpBrain` is WGSL plus one storage buffer; no new stage kind |
+| 2 | `setBrain` checks `brain.dims` against the definition's widths | `assertBrainDims` call (`AgentSystem.ts:167`) | The network's first input and last output are refused at attach time if they disagree |
+| 3 | The wrapper's accessors read and write only an agent's own row | `obs`, `setAct`, `setReason` (`agentThinkShaders.ts:38–40`) | The kernel touches exactly `OBS_DIM` inputs and `ACT_DIM` outputs per agent |
+| 4 | Sense and think share one gate: alive, newborn (age 0), or the agent's 64-agent block due | `thinksNow` (`agentSenseShaders.ts:10`) | Cadence and gating come free; A4's gating check verifies them for networks |
+| 5 | The act stage brakes on a non-finite turn or throttle | exponent test (`agentActShaders.ts:22–23`) | Identity and relu outputs are not clipped by the brain; overflow ends as a stop, not a corrupt record |
+| 6 | FXC's `tanh` returns NaN for \|x\| ≥ 89; loops beat unrolled code on compile time | S3 ([`agents-design.md`](./agents-design.md) §13, C0) | `tanh` inputs are clamped to ±15; the kernel uses loops |
+| 7 | Compute pipelines are created synchronously | `BatchManager.createComputeStage` (`BatchManager.ts:178`) | `setBrain` stalls for the compile (about 1.1 s under Node/Dawn on NVIDIA, 76 ms in Chrome on AMD, phase 6.3); `setWeights` never compiles |
+| 8 | A brain's group-1 budget is `maxStorageBuffersPerShaderStage − 5` | `AgentSystem.checkExtraBuffers` (`AgentSystem.ts:156`) | One buffer per `MlpBrain`, inside the budget on every device |
+| 9 | The weights must fit `min(maxBufferSize, maxStorageBufferBindingSize)` | `MlpBrain` constructor (`MlpBrain.ts:18`) | The largest network (70,464 B) fits a default device thousands of times over |
+| 10 | A brain may declare an owner check, asked before any stage is built | `Brain.assertDevice?` (`RuleBrain.ts:7`), called at `AgentSystem.ts:166` | A destroyed brain or one from another device is refused early (phase 6.1) |
+
+### 2.2 Engine touchpoints
+
+- **Core: none.** Every mechanism above existed before step 6. Two related core changes were
+  decided outside this step:
+  - asynchronous pipeline creation for brain swaps (fact 7) is deferred to step 9;
+  - limit negotiation (`PROGRESSION_LIMITS`, `7f1acb0`) is not needed by `MlpBrain`, which binds one
+    buffer.
+- **Agents:** the optional `Brain.assertDevice` seam and its one-line call in `setBrain` (phase
+  6.1, fact 10). `RuleBrain` does not implement it.
+
 ## 3. Proposed public contract
 
 These names/signatures are proposed, not existing APIs. Align final implementation with project
@@ -184,6 +212,32 @@ Validate library/TypeScript and IDE build; agents/core and affected agent-kit/AP
 Node/Dawn and Chrome GPU runs where available. Missing hardware is reported as an unverified gate.
 Provide a small known-weight executable usage example, not an untrained neural herd presented as
 learned behaviour. Record test totals, numerical errors, commands and hardware in the handoff.
+
+### 6.1 Errors (verbatim)
+
+Every message comes from `mlpMath.ts` (prefixed `MlpBrain: ` by its `fail`) or `MlpBrain.ts`, and
+is thrown before any GPU resource exists, except the use-after-destroy and device checks, which
+guard an existing brain.
+
+| Where | Message |
+|---|---|
+| validation | `MlpBrain: expected 1–4 affine layers.` |
+| validation | `MlpBrain: layer <i> is missing.` |
+| validation | `MlpBrain: layer <i> input must be 1–<128 for layer 0, else 64>.` |
+| validation | `MlpBrain: layer <i> output must be 1–<16 for the last layer, else 64>.` |
+| validation | `MlpBrain: layer <i> input does not match the previous output.` |
+| validation | `MlpBrain: layer <i> has unsupported activation.` |
+| validation | `MlpBrain: layer <i> weights need <input × output> float32 values.` |
+| validation | `MlpBrain: layer <i> biases need <output> float32 values.` |
+| validation | `MlpBrain: layer <i> weights[<k>] must be finite.` / `… biases[<k>] must be finite.` |
+| `packMlpWeights` | `MlpBrain: packed output needs <floats> floats.` |
+| `packMlpWeights`, `mlpForward` | `MlpBrain: writable views overlap model parameters.` |
+| `mlpForward` | `MlpBrain: input needs <n> floats.` / `output needs <n> floats.` / `scratch needs at least <n> floats.` |
+| `mlpForward` | `MlpBrain: input/output/scratch views overlap.` |
+| constructor | `MlpBrain: weights exceed device buffer limits.` |
+| `assertDevice`, `setWeights` | `MlpBrain: cannot use after destroy().` |
+| `assertDevice` | `MlpBrain: target system must use the same GPU device.` |
+| `setWeights` | `MlpBrain: setWeights requires the same shape and activations; construct a new brain.` |
 
 ## 7. Bundle and performance boundaries
 

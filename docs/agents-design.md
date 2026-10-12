@@ -89,7 +89,8 @@ not download 6.4 MB to run 8 KB of weights. So small dense networks default to a
   decision assumed the seam was trivial (bind one buffer). Planning showed it is not — device
   direction, the fixed-buffer rule of graph capture, two schedules, and shape checks are each easy to
   get wrong — so the seam earns a small, generic, optional module.
-- **Determinism across GPUs.** Lockstep is bit-exact on one device (A7); across vendors it is not,
+- **Determinism across GPUs.** Lockstep is bit-exact on one device while no cell overflows (A7,
+  §6.3); across vendors it is not,
   and nothing depends on it.
 - **Shipping ORT, models or training tools in the npm package.** `files` stays `["dist"]`; ORT stays
   the app's dependency, imported by the app, passed in.
@@ -109,7 +110,8 @@ not download 6.4 MB to run 8 KB of weights. So small dense networks default to a
    here, not discovered in a demo.
 5. **Buffers are fixed for life.** Graph capture's rule, adopted for every brain.
 6. **Sensing is order-independent.** The grid's atomic scatter has no stable order, so built-in
-   sensors use only order-independent reductions (§6.3). Determinism comes from the kernels.
+   sensors use only order-independent reductions (§6.3). Determinism comes from the kernels, and
+   holds while no cell overflows: past the scan budget, the scanned subset follows atomic timing.
 7. **A missed neighbour is a wrong decision.** The conservative direction for queries is to look at
    more, never fewer (§6.2).
 8. **CPU mirrors are pinned by definitions.** Brute-force k-nearest is the definition the grid query
@@ -315,13 +317,21 @@ saw — so the query is exact by construction.
 Crowded cells bound the scan at `maxScanPerCell` (default 64). Past it, neighbours are dropped and
 `overflow` counts them. As in P2 §6.1, there is no safe direction inside the kernel, so the failure
 is surfaced, never silent: the inspector and debug readout show the counter. The default cell keeps
-it rare: at 0.06 agents/m² a 4 m cell averages about one agent.
+it rare: at 0.06 agents/m² a 4 m cell averages about one agent. **That holds for evenly spread
+agents, not for flocks** (measured in phase 4.4): Herd & Wolves exceeded the budget in 85% of steps
+once its flocks formed. Size the budget, or the cell, for the crowd's peak density, and read
+`overflowSteps`.
 
 ### 6.3 Determinism
 
 The scatter's order within a cell depends on atomic timing. Built-in sensors therefore use only
 order-independent reductions: k-nearest with ties broken by agent index, counts, minima. **Same
-device + lockstep + built-in sensors ⇒ bit-exact reruns** (A7). A custom WGSL sensor that sums floats
+device + lockstep + built-in sensors + no overflow ⇒ bit-exact reruns** (A7, overflow-free by
+assertion; [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §8.3). Past the scan budget, a
+crowded cell yields its first `maxScanPerCell` entries in scatter order, which follows atomic
+timing, so reruns diverge. Measured 2026-10-12: 19,990 of 64,000 record words differed between two
+identical 200-step runs at budget 64; none differed with no overflow. Grid-ordered queries (step 5)
+would make that subset deterministic. A custom WGSL sensor that sums floats
 over neighbours breaks this, and the API docs say so.
 
 ---
@@ -581,7 +591,7 @@ are what make the later rows research rather than animation.
 | A4 | `MlpBrain` on the GPU equals the CPU forward pass (≤ 1e-5 relative) |
 | A5 | The same `.onnx` through `OrtBrain` (graph capture on) equals `MlpBrain` (≤ 1e-4 absolute) |
 | A6 | Across 300 interactive frames with ORT, **zero** `mapAsync` outside the inspector (instrumented) |
-| A7 | Two lockstep runs of 600 steps from one seed produce byte-identical agent buffers (same device) |
+| A7 | Two lockstep runs of 600 steps from one seed produce byte-identical agent buffers (same device, no overflow) |
 | A8 | Cloning quality: held-out action MAE ≤ 0.05, and prey survival after 30 s within 10% of the teacher |
 | A9 | Step 5 characterizes full rule-step scaling, density/query quality and proven bottlenecks on available GPU targets; report conditional limits, not a population/timing pass target. Original 20K / ≤2 ms NVIDIA goal is historical (scope amended 2026-10-12); network measurements follow in C2 |
 | A10 | Picking an agent after 120 moving steps returns its agent index |
