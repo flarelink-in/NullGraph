@@ -17,7 +17,9 @@ per-lane routing at 4.6–5.6× a single network in Chrome; see "Phase 7.2 resul
 **Status:** ✅ 7.1 committed (`1dc7e74`); ✅ 7.2 committed (`94069ea`; option B docs `30336d1`);
 ✅ 7.3 committed (`681ccf4`), with one change from the reviewed §4: a species mask per pass instead
 of a slot table (see "Phase 7.3 implementation" below). ✅ 7.4 committed (`3c3ad76`, `f19dbea`):
-A22 green on three host/GPU pairs (see "Phase 7.4 results"). Next: 7.5.
+A22 green on three host/GPU pairs (see "Phase 7.4 results"). ✅ 7.5 committed (`de14ff4`): the
+guide's per-species section with an executable example. **Part 1 is complete**; part 2
+(record → train → export) gets its own design, after step 5's deterministic neighbour lookups.
 **Target:** `src/extras/agents/` (`AgentSystem.setBrain(brain, { species })`, a per-stage species
 gate in the think wrapper), headless and GPU tests, the API guide. Core unchanged.
 
@@ -243,7 +245,7 @@ The existing bind-failure test also asserts that a failed attach destroys its ma
 | **7.2** ✅ | Rows on the GPU (A21); the cost of rows, switches and per-species passes at 2, 8 and 16 species | Both hosts green; numbers below |
 | **7.3** ✅ | Per-species passes: `setBrain(brain, { species })`, a species mask per pass and the gate; U22; a size line | Committed `681ccf4`: headless and both GPU hosts green, U22 watched failing, +366 B; results below |
 | **7.4** ✅ | A22 on both hosts | Committed `3c3ad76`, `f19dbea`: green on Node/Dawn (AMD and NVIDIA) and in Chrome (AMD), watched failing; results below |
-| **7.5** | The guide's per-species section (the passes-or-rows rule) with an executable example; closure | Example test green; `docs/work` updated |
+| **7.5** ✅ | The guide's per-species section (the passes-or-rows rule) with an executable example; closure | Committed `de14ff4`: example test green and watched failing; closure below |
 
 Step 7, part 2 (record → train → export per species, the rest timer as an observation) follows
 with its own design doc, from phase 7.6.
@@ -502,3 +504,59 @@ old text first. Size: +4 B (whole entry 18,178 B; the rule path is unchanged at 
 **Regression:**
 - headless: agents (the reference test plus 59 node:test), core, and agent-kit 4/4;
 - library build with `tsc`.
+
+### Phase 7.5 results — 2026-10-13: part 1 complete
+
+**The guide** (`docs/api/agents.md`):
+- **A new "Per-species brains" section.** Its executable example has prey and wolves share one
+  rule brain; then wolves move to a hand-set chase network and back. The section covers:
+  - assignment;
+  - every species needing a brain, and the error otherwise;
+  - when compiles happen, including the recompile after a brain is retired;
+  - mixing kinds and shapes;
+  - rows (`bySpecies`, per-row `setWeights`, padding rows per the user's decision);
+  - the rule: passes below 8 species, rows from 8, with its measurements;
+  - the cost for a one-brain system.
+- **Refreshed lines that assumed one brain:**
+  - the introduction;
+  - the step diagram (one think pass per brain);
+  - "every species needs a brain";
+  - "a new brain costs a compile";
+  - the MLP's "one network for every species it serves";
+  - ownership;
+  - the validation paragraph (124/124 on three host/GPU pairs).
+- **The README** gains one sentence on per-species brains.
+
+**The example test** (`test/agents-api-example.test.mjs`) now validates three examples. The
+per-species example is type-checked and bundled, then run on a stand-in engine that checks what
+its comments promise:
+- two think passes;
+- moving wolves to the rules builds no stage, and the network leaves the chain;
+- moving them back builds one stage, with the same shader text;
+- both passes' WGSL parses.
+
+**Watched failing, three ways**, each mutation restored byte for byte:
+- before the section existed, when three examples were expected;
+- with retirement disabled in `AgentSystem`: "the network serves nobody and leaves the chain"
+  failed;
+- with the guide's switch building a new rule brain: "moving wolves to the rules compiles
+  nothing" failed.
+
+**A false failure on the way:** `node build.js` alone empties `dist/` and leaves it without
+declarations. The example test then fails on TS7016 for every example, whatever the mutation. The
+two mutations were rerun after `npm run build:lib` ([`work/gotchas.md`](./work/gotchas.md)).
+
+**Regression:** headless agents (the reference test plus 59 node:test), core, and agent-kit 4/4.
+The GPU suite was not rerun, because no agents source has changed since `f19dbea`, which passed
+on three host/GPU pairs. Size is unchanged: whole entry 18,178 B, rule path 12,741 B.
+
+**Part 1 closes here:**
+- **Built:** `setBrain(brain, { species })` and `MlpBrain.bySpecies`, tested by U21/U22 and by
+  A21/A22 on three host/GPU pairs, and documented with an executable example.
+- **Left for later:**
+  - a rows brain for only some species ("Deferred");
+  - rows per agent (Phase 2);
+  - asynchronous stage creation (step 9).
+- **Next:** the design of step 7, part 2: record → train → export, per species. The user chose
+  on 2026-10-13 to build step 5's deterministic neighbour lookups first, so that teacher data
+  stays reproducible when crowded cells overflow.
