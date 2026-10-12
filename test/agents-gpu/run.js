@@ -1,7 +1,7 @@
 // A1 kernel slice. Runs on both Node/Dawn and Chrome through the shared GPU harness.
 import * as A from '../../dist/agents.js';
 import { NullGraph, Camera } from '../../dist/index.js';
-import { groundGrid, gridOccupancy } from '../../dist/debug-ui.js';
+import { groundGrid, gridOccupancy, agentArrows } from '../../dist/debug-ui.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { check, fatal, finish, saveImage } = harnessEnv('__AGENTS_RESULTS__');
@@ -723,7 +723,41 @@ for (let run = 0; run < 2; run++) {
 }
 check('A18/A7: two 600-step catches/respawn runs agree byte-exactly, including obs/actions/reasons/score',
     Object.keys(games[0]).every(key => equal(games[0][key], games[1][key])));
+// Arrow rendering reads GPU records, including dead flags, species and heading.
+const arrowDef = A.defineAgents({ capacity: 3, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 1 })),
+    sensors: [A.Sensors.self()] });
+const arrowSystem = makeSystem(engine, arrowDef);
+arrowSystem.spawn(0, { position: [-3, 0, 0], species: 'prey', heading: 0 });
+arrowSystem.spawn(1, { position: [3, 0, 0], species: 'wolf', heading: Math.PI / 2 });
+arrowSystem.spawn(2, { position: [0, 0, 0], species: 'wolf' });
+arrowSystem.kill(2); arrowSystem.upload();
+const arrowPass = engine.createPass({ name: 'GPU agent arrows', isMainScreenPass: true });
+const arrows = agentArrows(engine, arrowPass, arrowSystem, { colors: [[0, 1, 0], [1, 0, 0]] });
+engine.render([arrowPass]);
+const arrowPixels = await image();
+await saveImage('agents-arrows', arrowPixels, 128, 128);
+const colored = pixels => {
+    let red = 0, green = 0;
+    for (let p = 0; p < pixels.length; p += 4) {
+        if (pixels[p] > 150 && pixels[p + 1] < 60) red++;
+        if (pixels[p + 1] > 150 && pixels[p] < 60) green++;
+    }
+    return { red, green };
+};
+check('arrows: live species draw distinct colors from GPU records', colored(arrowPixels).red > 10 && colored(arrowPixels).green > 10);
+arrowSystem.kill(1); arrowSystem.upload(); engine.render([arrowPass]);
+const deadPixels = await image();
+check('arrows: dead species clips completely, live species remains', colored(deadPixels).red === 0 && colored(deadPixels).green > 10);
+// Mutate only the GPU record, leaving staging untouched: proves there is no CPU position mirror.
+device.queue.writeBuffer(arrowSystem.buffer, 0, new Float32Array([-1, 0, 2, 1]));
+device.queue.writeBuffer(arrowSystem.buffer, 28, new Float32Array([Math.PI / 2]));
+engine.render([arrowPass]);
+check('arrows: GPU-only position/heading changes alter pixels without staging upload', !equal(deadPixels, await image()));
+arrows.destroy(); arrows.destroy();
+check('arrows: destroying draw preserves caller-owned records', (await read(arrowSystem.buffer, 4))[0] === new Uint32Array(new Float32Array([-1]).buffer)[0]);
+arrowSystem.destroy();
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All agent grid, sense, think, act and app-stage GPU checks passed.');
+await finish('All agent grid, sense, think, act, app-stage and arrow GPU checks passed.');
 device.destroy();
 function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }
