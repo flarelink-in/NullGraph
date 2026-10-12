@@ -1107,7 +1107,357 @@ vis.destroy();
     check('inspect (4.4): a request after destroy() is refused', (() => { try { insp.inspect(0); return false; } catch { return true; } })());
 }
 
+// A4 (phase 6.2, docs/agents-mlp-design.md §4.1, §6): MlpBrain as the production think stage. Each
+// live agent's action row must equal mlpForward() applied to the observation row the GPU's own sense
+// stage wrote in that step: |gpu − cpu| ≤ 1e-5 + 1e-5·|cpu|. Then gating, same-shape updates,
+// replacement and lifecycle, each inside a validation error scope.
+{
+    const TOL = 1e-5;
+    const readF = async (b, n) => new Float32Array((await read(b, n)).buffer);
+    const mlpNet = (...layers) => layers.map(([input, output, activation, scale = 1, biasScale = 0.5 * scale]) => ({
+        input, output, activation,
+        weights: Float32Array.from({ length: input * output }, () => (random() * 2 - 1) * scale * Math.sqrt(3 / input)),
+        biases: Float32Array.from({ length: output }, () => (random() * 2 - 1) * biasScale) }));
+    // Signed inputs in [-1, 1) from an integer hash of (agent, field, tick): every step senses new values.
+    const probe = width => A.Sensors.custom({ name: 'probe', width, wgsl: `fn probe(i: u32, a: Agent) -> array<f32, ${width}> {
+    var v: array<f32, ${width}>;
+    for (var k = 0u; k < ${width}u; k++) {
+        var h = (i * 0x9e3779b9u) ^ (k * 0x85ebca6bu) ^ (state.tick * 0xc2b2ae35u) ^ 0x27d4eb2fu;
+        h = (h ^ (h >> 16u)) * 0x7feb352du;
+        h = (h ^ (h >> 15u)) * 0x846ca68bu;
+        h = h ^ (h >> 16u);
+        v[k] = f32(h >> 8u) * (2.0 / 16777216.0) - 1.0;
+    }
+    return v;
+}` });
+    const mlpDef = (obs, act, capacity, species = {}) => A.defineAgents({ capacity, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+        species: [{ name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4, ...species }],
+        sensors: [probe(obs)],
+        actions: act === 2 ? A.Actions.steering() : A.Actions.custom({ name: 'hold', width: act, wgsl: 'fn hold(i: u32) {}' }) });
+    function populate(sys, def, kill = i => i % 23 === 5, extra = () => ({})) {
+        const live = [];
+        for (let i = 0; i < def.capacity; i++) {
+            sys.spawn(i, { position: [random() * 14 - 7, 0, random() * 14 - 7], species: 0,
+                heading: random() * 2 * Math.PI - Math.PI, speed: random() * 2, ...extra(i) });
+            if (kill(i)) sys.kill(i); else live.push(i);
+        }
+        return live;
+    }
+    function fillReason(reason, capacity, value) {      // reason has no COPY_DST
+        const enc = device.createCommandEncoder();
+        dispatch(enc, `@group(0) @binding(0) var<storage, read_write> reason: array<u32>;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${capacity}u) { reason[id.x] = ${value}u; }
+}`, [reason], Math.ceil(capacity / 64));
+        device.queue.submit([enc.finish()]);
+    }
+    // GPU actions against mlpForward of the GPU's observation row, for every listed row. NaN fails.
+    function agree(net, def, obs, act, rows) {
+        const input = new Float32Array(def.obsDim), out = new Float32Array(def.actDim);
+        const scratch = new Float32Array(2 * A.mlpLayout(net).scratchWidth);
+        const r = { maxAbs: 0, maxRel: 0, bad: 0, values: 0 };
+        for (const i of rows) {
+            input.set(obs.subarray(i * def.obsDim, (i + 1) * def.obsDim));
+            A.mlpForward(net, input, out, scratch);
+            for (let k = 0; k < def.actDim; k++) {
+                const g = act[i * def.actDim + k], c = out[k], e = Math.abs(g - c);
+                r.values++;
+                if (!(e <= TOL + TOL * Math.abs(c))) r.bad++;
+                if (Number.isFinite(e)) {
+                    r.maxAbs = Math.max(r.maxAbs, e);
+                    if (Math.abs(c) >= 1e-3) r.maxRel = Math.max(r.maxRel, e / Math.abs(c));   // relative error of ~0 is noise
+                }
+            }
+        }
+        return r;
+    }
+    const errors = r => `max abs ${r.maxAbs.toExponential(2)}, max rel ${r.maxRel.toExponential(2)} where |cpu| ≥ 1e-3`;
+    async function runSystem(net, def, steps, extra, options) {
+        const sys = new A.AgentSystem(engine, def, options), brain = new A.MlpBrain(engine, net);
+        sys.setBrain(brain);
+        const live = populate(sys, def, undefined, extra), liveSet = new Set(live);
+        const dead = Array.from({ length: def.capacity }, (_, i) => i).filter(i => !liveSet.has(i));
+        device.queue.writeBuffer(sys.act, 0, new Float32Array(def.capacity * def.actDim).fill(-7));
+        fillReason(sys.reason, def.capacity, 99);
+        device.pushErrorScope('validation');
+        for (let s = 0; s < steps; s++) await sys.step();
+        const error = await device.popErrorScope();
+        return { sys, brain, live, dead, error, obs: await readF(sys.obs, def.capacity * def.obsDim),
+            act: await readF(sys.act, def.capacity * def.actDim), reason: await read(sys.reason, def.capacity) };
+    }
+    async function fixture(name, net, def, steps, extra) {
+        const run = await runSystem(net, def, steps, extra), { live, dead, act, reason } = run;
+        const r = agree(net, def, run.obs, act, live);
+        const untouched = dead.every(i => reason[i] === 99 && act.subarray(i * def.actDim, (i + 1) * def.actDim).every(v => v === -7));
+        check(`A4 ${name}: ${live.length} live agents × ${def.actDim} actions match mlpForward of their GPU observations ` +
+            `(${errors(r)}); reason 0; ${dead.length} dead rows untouched`,
+            run.error === null && r.bad === 0 && live.every(i => reason[i] === 0) && untouched && dead.length > 0);
+        return { ...run, r };
+    }
+
+    const affine = await fixture('one affine layer 3→2 identity', mlpNet([3, 2, 'identity']), mlpDef(3, 2, 100), 2);
+    const oddNet = mlpNet([5, 7, 'relu'], [7, 3, 'sigmoid']);
+    const odd = await fixture('odd widths 5→7→3 (relu, sigmoid)', oddNet, mlpDef(5, 3, 100), 2);
+    const mixedNet = mlpNet([9, 13, 'tanh'], [13, 6, 'relu'], [6, 11, 'identity'], [11, 5, 'sigmoid']);
+    const mixedDef = mlpDef(9, 5, 100);
+    const mixed = await fixture('four layers 9→13→6→11→5 (tanh, relu, identity, sigmoid)', mixedNet, mixedDef, 2);
+    const maxNet = mlpNet([128, 64, 'relu'], [64, 64, 'tanh'], [64, 64, 'identity'], [64, 16, 'sigmoid']);
+    const widest = await fixture('maximum shape 128→64→64→64→16', maxNet, mlpDef(128, 16, 100), 2);
+
+    // The 24→32→32→2 tanh network of S3 on Herd & Wolves' real sensors, through 20 moving steps.
+    const herdDef = A.defineAgents({ capacity: 2000, world: { min: [-20, -20], max: [20, 20] }, cellSize: 8,
+        species: [
+            { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 8, radius: 0.4 },
+            { name: 'wolf', maxSpeed: 4, maxTurn: 3, accel: 5, senseRadius: 8, radius: 0.6 },
+        ],
+        sensors: [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 }),
+            A.Sensors.nearest({ name: 'prey', species: ['prey'], k: 3 }), A.Sensors.bounds()] });
+    const herdNet = mlpNet([24, 32, 'tanh'], [32, 32, 'tanh'], [32, 2, 'tanh']);
+    const herd = await fixture(`Herd & Wolves ${herdDef.obsDim}→32→32→2 tanh, 20 steps`, herdNet, herdDef, 20,
+        i => ({ position: [random() * 38 - 19, 0, random() * 38 - 19], species: i % 16 === 0 ? 'wolf' : 'prey', energy: random() }));
+    const seenFields = Array.from({ length: herdDef.obsDim }, (_, c) => herd.live.some(i => herd.obs[i * herdDef.obsDim + c] !== 0));
+    check(`A4 Herd & Wolves: the comparison exercised every input — each of the ${herdDef.obsDim} observation fields is ` +
+        `non-zero for some agent (${seenFields.filter(Boolean).length}/${herdDef.obsDim})`, herdDef.obsDim === 24 && seenFields.every(Boolean));
+
+    // Watched failing: biases read from the neighbouring lane must put outputs out of tolerance.
+    const shifted = mixed.brain.wgsl.replaceAll('][r % 4u];', '][(r + 1u) % 4u];');
+    if (shifted === mixed.brain.wgsl) throw new Error('A4 bias-lane injection did not change the shader');
+    mixed.sys.setBrain({ kind: 'stage', dims: mixed.brain.dims, buffers: mixed.brain.buffers, wgsl: shifted, destroy() {} });
+    await mixed.sys.step();
+    const injected = agree(mixedNet, mixedDef, await readF(mixed.sys.obs, 900), await readF(mixed.sys.act, 500), mixed.live);
+    check(`A4 watched failing: biases read from the wrong lane put ${injected.bad} of ${injected.values} outputs out of tolerance`,
+        injected.bad > 0);
+    for (const run of [affine, odd, mixed, widest, herd]) { run.sys.destroy(); run.brain.destroy(); }
+
+    // Extreme inputs, separate from agreement (§4.1). Tanh sees |z| far beyond 89, where FXC's tanh
+    // returns NaN without the clamp, and sigmoid sees |z| in the hundreds. Outputs must stay finite and
+    // in range; rows whose tanh layer saturated completely must still agree.
+    {
+        const net = mlpNet([3, 6, 'identity', 1000], [6, 6, 'tanh'], [6, 4, 'sigmoid', 100]);
+        const def = mlpDef(3, 4, 100), run = await runSystem(net, def, 2);
+        const pre = [net[0], { ...net[1], activation: 'identity' }], input = new Float32Array(3);
+        let beyond89 = 0;
+        const saturated = run.live.filter(i => {
+            input.set(run.obs.subarray(i * 3, i * 3 + 3));
+            const z = A.mlpForward(pre, input);
+            if (z.some(v => Math.abs(v) >= 89)) beyond89++;
+            return z.every(v => Math.abs(v) >= 15);
+        });
+        const inRange = run.live.every(i => run.act.subarray(i * 4, i * 4 + 4).every(v => v >= 0 && v <= 1));
+        const r = agree(net, def, run.obs, run.act, saturated);
+        check(`A4 extreme: tanh pre-activations reach |z| ≥ 89 in ${beyond89} of ${run.live.length} agents and sigmoid ` +
+            `saturates; every output is finite and in [0, 1]; ${saturated.length} fully saturated rows agree (${errors(r)})`,
+            run.error === null && beyond89 > 0 && inRange && saturated.length > 0 && r.bad === 0);
+        run.sys.destroy(); run.brain.destroy();
+    }
+    {
+        // Large finite relu outputs are not clipped. Cancellation makes |gpu − cpu| scale with the sum of
+        // the terms' magnitudes, so the bound here is 1e-5 · (1 + |b| + Σ|w·x|).
+        const net = mlpNet([3, 4, 'relu', 10000]), def = mlpDef(3, 4, 100), run = await runSystem(net, def, 2);
+        const [{ weights: w, biases: b }] = net;
+        let bad = 0, largest = 0;
+        for (const i of run.live) {
+            for (let r = 0; r < 4; r++) {
+                let z = b[r], s = Math.abs(b[r]);
+                for (let k = 0; k < 3; k++) { z += w[r * 3 + k] * run.obs[i * 3 + k]; s += Math.abs(w[r * 3 + k] * run.obs[i * 3 + k]); }
+                const g = run.act[i * 4 + r];
+                largest = Math.max(largest, g);
+                if (!(Math.abs(g - Math.max(0, z)) <= TOL * (1 + s))) bad++;
+            }
+        }
+        check(`A4 extreme: relu outputs up to ${largest.toFixed(0)} pass through unclipped and agree within the conditioning bound`,
+            run.error === null && largest > 1000 && bad === 0);
+        run.sys.destroy(); run.brain.destroy();
+    }
+
+    // Gating with thinkEvery 3 over 6 ticks: exactly the due 64-agent blocks (the last holds 8 rows) and
+    // an off-cadence newborn are evaluated; every other row keeps its observations, actions and reason
+    // bit-exactly, and dead rows keep the sentinel until spawned.
+    {
+        const def = mlpDef(5, 3, 200), net = mlpNet([5, 7, 'relu'], [7, 3, 'sigmoid']);
+        const sys = new A.AgentSystem(engine, def, { thinkEvery: 3 }), brain = new A.MlpBrain(engine, net);
+        sys.setBrain(brain);
+        const alive = new Set(populate(sys, def, i => i === 7 || i === 130 || i === 199, () => ({ age: 1 })));
+        device.queue.writeBuffer(sys.act, 0, new Float32Array(def.capacity * 3).fill(-7));
+        fillReason(sys.reason, def.capacity, 99);
+        let prevObs = await read(sys.obs, def.capacity * 5), prevAct = await read(sys.act, def.capacity * 3);
+        let prevReason = await read(sys.reason, def.capacity);
+        let ok = true, evaluated = 0, worst = { maxAbs: 0, maxRel: 0 };
+        device.pushErrorScope('validation');
+        for (let tick = 0; tick < 6; tick++) {
+            if (tick === 2) { sys.spawn(130, { position: [0, 0, 0], species: 0 }); alive.add(130); }   // block 2 is due at 1 and 4
+            await sys.step();
+            const obsU = await read(sys.obs, def.capacity * 5), actU = await read(sys.act, def.capacity * 3);
+            const reason = await read(sys.reason, def.capacity);
+            const due = new Set([...alive].filter(i => (tick === 2 && i === 130) || (tick + Math.floor(i / 64)) % 3 === 0));
+            const q = agree(net, def, new Float32Array(obsU.buffer), new Float32Array(actU.buffer), [...due]);
+            worst = { maxAbs: Math.max(worst.maxAbs, q.maxAbs), maxRel: Math.max(worst.maxRel, q.maxRel) };
+            if (q.bad) ok = false;
+            for (let i = 0; i < def.capacity; i++) {
+                const changed = [0, 1, 2, 3, 4].some(k => obsU[i * 5 + k] !== prevObs[i * 5 + k]);
+                if (due.has(i)) { if (!changed || reason[i] !== 0) ok = false; continue; }
+                if (changed || reason[i] !== prevReason[i] || [0, 1, 2].some(k => actU[i * 3 + k] !== prevAct[i * 3 + k])) ok = false;
+            }
+            evaluated += due.size;
+            prevObs = obsU; prevAct = actU; prevReason = reason;
+        }
+        const error = await device.popErrorScope();
+        const deadKept = [7, 199].every(i => prevReason[i] === 99 && new Float32Array(prevAct.buffer, i * 12, 3).every(v => v === -7));
+        check(`A4 gating: over 6 ticks with thinkEvery 3, exactly the due blocks (8-row tail included) and an off-cadence ` +
+            `newborn are evaluated (${evaluated} rows, ${errors(worst)}); all other rows keep obs, actions and reason bit-exactly; ` +
+            'dead rows keep the sentinel', error === null && ok && deadKept);
+        sys.destroy(); brain.destroy();
+    }
+
+    // Same-shape updates: one upload into the same buffer; no new stage or chain; the next step uses the
+    // new weights; the caller's later edits do not leak; invalid updates change nothing.
+    {
+        const def = mlpDef(9, 5, 100), shape = [[9, 13, 'tanh'], [13, 6, 'relu'], [6, 11, 'identity'], [11, 5, 'sigmoid']];
+        const w1 = mlpNet(...shape), w2 = mlpNet(...shape);
+        const w2Copy = w2.map(l => ({ ...l, weights: l.weights.slice(), biases: l.biases.slice() }));
+        const sys = new A.AgentSystem(engine, def), brain = new A.MlpBrain(engine, w1);
+        sys.setBrain(brain);
+        const live = populate(sys, def);
+        sys.advance(def.dt);
+        const chain = sys.getComputeStages(), think = chain.find(s => s.name === 'AgentSystem think'), weights = brain.buffers[0];
+        device.pushErrorScope('validation');
+        await sys.step();
+        const first = agree(w1, def, await readF(sys.obs, 900), await readF(sys.act, 500), live);
+        brain.setWeights(w2);
+        for (const l of w2) { l.weights.fill(3); l.biases.fill(3); }
+        await sys.step();
+        const obs2 = await readF(sys.obs, 900), act2 = await readF(sys.act, 500);
+        const second = agree(w2Copy, def, obs2, act2, live), stale = agree(w1, def, obs2, act2, live);
+        let refused = 0;
+        for (const bad of [
+            w2Copy.map((l, k) => k === 3 ? { ...l, activation: 'tanh' } : l),
+            w2Copy.slice(0, 3),
+            w2Copy.map((l, k) => k === 3 ? { ...l, biases: Float32Array.of(0, 0, 0, 0, NaN) } : l),
+        ]) { try { brain.setWeights(bad); } catch { refused++; } }
+        await sys.step();
+        const third = agree(w2Copy, def, await readF(sys.obs, 900), await readF(sys.act, 500), live);
+        const error = await device.popErrorScope();
+        check(`A4 updates: setWeights keeps the weights buffer, cached chain and think stage; the next step uses the new ` +
+            `weights (${errors(second)}) and later edits to the caller's arrays do not leak`,
+            error === null && first.bad === 0 && second.bad === 0 && stale.bad > 0 && brain.buffers[0] === weights &&
+            sys.getComputeStages() === chain && chain.includes(think) && think.enabled);
+        check(`A4 updates: ${refused} of 3 invalid updates (other activation, other depth, a NaN in the last bias) are ` +
+            'refused, and the next step still matches the previous weights', refused === 3 && third.bad === 0);
+        sys.destroy(); brain.destroy();
+    }
+
+    // Replacement: rules → MlpBrain → rules on a system with an app stage and the instance stage. Only
+    // the think stage changes; reasons switch 7 → 0 → 7; the retired stages hold the destroyed MLP
+    // weights but no cached chain reaches them.
+    {
+        const def = mlpDef(6, 2, 150, { mesh: 0, hoverMesh: 1, selectedMesh: 2, boundsRadius: 0.5 });
+        const net = mlpNet([6, 8, 'tanh'], [8, 2, 'tanh']);
+        const rules = () => new A.RuleBrain(`fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, 0.25); setAct(i, ACT_THROTTLE, -0.5); setReason(i, 7u);
+}`);
+        const sys = new A.AgentSystem(engine, def), brain = new A.MlpBrain(engine, net);
+        sys.setBrain(rules());
+        sys.addStepStage({ name: 'count', wgsl: 'fn step(i: u32, tick: u32) { agents[i].ids.w += 1u; }' });
+        const rvis = new VisibilitySystem(engine, { maxInstances: def.capacity });
+        rvis.setGeometry(mega);
+        rvis.setInstanceCount(def.capacity);
+        sys.toInstances(rvis);
+        const live = populate(sys, def);
+        sys.advance(def.dt);
+        const others = sys.getComputeStages().filter(s => s.name !== 'AgentSystem think');
+        const retired = [], problems = [];
+        let steps = 0, pausedKept = true;
+        device.pushErrorScope('validation');
+        for (const [label, next] of [['rules', null], ['MLP', brain], ['rules again', rules()]]) {
+            if (next) {
+                const before = await read(sys.act, def.capacity * 2);
+                retired.push(sys.getComputeStages().find(s => s.name === 'AgentSystem think'));
+                sys.setBrain(next);
+                if (!equal(await read(sys.act, def.capacity * 2), before)) pausedKept = false;   // no step, no inference
+            }
+            const chain = sys.getComputeStages(), at = chain.findIndex(s => s.name === 'AgentSystem think');
+            const kept = chain.filter(s => s.name !== 'AgentSystem think');
+            if (chain.filter(s => s.name === 'AgentSystem think').length !== 1 || !chain[at].enabled ||
+                chain[at - 1].name !== 'AgentSystem sense' || chain[at + 1].name !== 'AgentSystem act' ||
+                retired.some(s => s.enabled || chain.includes(s)) ||
+                kept.length !== others.length || kept.some((s, k) => s !== others[k])) problems.push(`${label} chain`);
+            for (let s = 0; s < 2; s++) { await sys.step(); steps++; }
+            const act = await readF(sys.act, def.capacity * 2), reason = await read(sys.reason, def.capacity);
+            if (next === brain) {
+                const r = agree(net, def, await readF(sys.obs, def.capacity * 6), act, live);
+                if (r.bad || live.some(i => reason[i] !== 0)) problems.push(`${label}: ${r.bad} outputs off`);
+            } else if (live.some(i => act[i * 2] !== 0.25 || act[i * 2 + 1] !== -0.5 || reason[i] !== 7)) problems.push(`${label} actions`);
+        }
+        const rec = await read(sys.buffer, def.capacity * 16), recF = new Float32Array(rec.buffer);
+        let age = 0;
+        for (let s = 0; s < steps; s++) age = Math.fround(age + Math.fround(def.dt));
+        if (live.some(i => rec[i * 16 + 15] !== steps || recF[i * 16 + 9] !== age)) problems.push('app/act stage counts');
+        const rows = await readStorage(rvis.instanceBuffer, def.capacity * 24), rowsF = new Float32Array(rows.buffer);
+        const twin = new Float32Array(def.capacity * 24), twinU = new Uint32Array(twin.buffer);
+        for (let i = 0; i < def.capacity; i++) A.writeAgentInstanceRow(def, { data: recF, u32: rec }, i, { selected: -1, hovered: -1 }, twin, i, twinU);
+        let rowsOff = 0;
+        for (let w = 0; w < def.capacity * 24; w++) {
+            const i = Math.floor(w / 24), k = w % 24, alive = (rec[i * 16 + 13] & 1) !== 0;
+            if (alive && (k === 0 || k === 2 || k === 8 || k === 10)) { if (!(Math.abs(rowsF[w] - twin[w]) <= 2 ** -11 + 2 ** -24)) rowsOff++; }
+            else if ((alive || k === 20) && rows[w] !== twinU[w]) rowsOff++;
+        }
+        if (rowsOff) problems.push(`${rowsOff} instance words`);
+        const swapError = await device.popErrorScope();
+        // The MLP is detached: destroy it, then render every cached chain length and keep stepping.
+        brain.destroy();
+        device.pushErrorScope('validation');
+        for (const frames of [1, 2, 3]) {
+            sys.advance(def.dt * frames);
+            const chain = sys.getComputeStages();
+            if (chain.some(s => !s.enabled || retired.includes(s))) problems.push(`chain of ${frames} reaches a retired stage`);
+            engine.render(chain);
+        }
+        await sys.step();
+        await device.queue.onSubmittedWorkDone();
+        const afterError = await device.popErrorScope();
+        check(`A4 replacement: rules → MLP → rules swaps only the think stage (sense, act, app, tick and instance stages ` +
+            `identical, all running: ${steps} steps counted, instance rows equal the twin); reasons 7 → 0 → 7; a paused ` +
+            `swap infers nothing; with the MLP destroyed, no cached chain reaches a retired stage${problems.length ? `; ${problems.join(', ')}` : ''}`,
+            swapError === null && afterError === null && problems.length === 0 && pausedKept && retired.length === 2);
+        sys.destroy(); rvis.destroy();
+    }
+
+    // Lifecycle: the documented order (system, then brain), idempotent destroy, refusals before any
+    // stage exists, and a rebuilt system on the same engine.
+    {
+        const def = mlpDef(5, 3, 100), net = mlpNet([5, 7, 'relu'], [7, 3, 'sigmoid']);
+        device.pushErrorScope('validation');
+        const sys = new A.AgentSystem(engine, def), brain = new A.MlpBrain(engine, net);
+        sys.setBrain(brain);
+        populate(sys, def);
+        await sys.step();
+        sys.destroy();
+        brain.destroy();
+        brain.destroy();
+        const rebuilt = await runSystem(net, def, 2);
+        const r = agree(net, def, rebuilt.obs, rebuilt.act, rebuilt.live);
+        let refused = 0;
+        const refuses = (fn, pattern) => { try { fn(); } catch (e) { if (pattern.test(e.message)) refused++; } };
+        refuses(() => rebuilt.sys.setBrain(brain), /after destroy/);
+        refuses(() => brain.setWeights(net), /after destroy/);
+        const otherAdapter = await navigator.gpu.requestAdapter(), otherDevice = await otherAdapter.requestDevice();
+        const foreign = new A.MlpBrain({ device: otherDevice }, net);
+        refuses(() => rebuilt.sys.setBrain(foreign), /same GPU device/);
+        foreign.destroy();
+        otherDevice.destroy();
+        await rebuilt.sys.step();
+        const still = agree(net, def, await readF(rebuilt.sys.obs, 500), await readF(rebuilt.sys.act, 300), rebuilt.live);
+        rebuilt.sys.destroy();
+        rebuilt.brain.destroy();
+        await device.queue.onSubmittedWorkDone();
+        const error = await device.popErrorScope();
+        check(`A4 lifecycle: system-then-brain teardown and a second destroy() are clean; a destroyed brain and one from ` +
+            `another device are refused (${refused}/3) and the system keeps its brain; a rebuilt system matches (${errors(r)})`,
+            error === null && rebuilt.error === null && refused === 3 && r.bad === 0 && still.bad === 0);
+    }
+}
+
 allocated.splice(0).forEach(b => b.destroy());
-await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking, label and inspect GPU checks passed.');
+await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking, label, inspect and MLP GPU checks passed.');
 device.destroy();
 function makeSystem(...args) { const s = new A.AgentSystem(...args); s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}')); return s; }

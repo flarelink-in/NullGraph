@@ -3,8 +3,9 @@
 **Parent:** [`agents-design.md`](./agents-design.md) §9.3 and §13, C2 step 6.
 **Builds on:** [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), the production brain
 seam and S3 measurements; [`api/agents.md`](./api/agents.md).
-**Status:** Phases 6.0–6.1 implemented, 2026-10-12. Phase 6.2 GPU numerical/integration
-acceptance and phase 6.3 closure remain outstanding; no A4 results claimed.
+**Status:** Phases 6.0–6.2 implemented and committed, 2026-10-12 (6.0 `e345921`, 6.1 `dbaf884`,
+6.2 in the commit after `97ca592`). A4 passes on Node/Dawn and Chrome. Phase 6.3 (guide example, size/timing report,
+closure) remains; step 6 is not complete.
 **Target:** `D:/orion-realms/null-graph/src/extras/agents/`, focused headless and real-GPU tests,
 and API documentation. Core unchanged. No new dependency.
 **Outcome:** run a supplied small dense network as the existing synchronous GPU think stage,
@@ -251,3 +252,66 @@ Whole-entry size is 17,283 B min+gzip (+1,788 B versus fresh C1; 2,212 B combine
 Representative tree-shaken exports of AgentSystem/defineAgents/Sensors/Actions plus RuleBrain
 measure 12,369 B, versus 13,761 B with MlpBrain. These are named-export bundles, not frame-path
 size claims. No core changes, new dependencies, training, ONNX, site changes or publication.
+
+### Phase 6.2 implementation
+
+**No library source changed:** A4 found nothing to fix. `test/agents-gpu/run.js` adds 14 checks to
+the shared agents GPU suite (106 → **120**). Every numerical check runs the production chain:
+sense writes each observation row, the generated think evaluates it, and each live agent's action
+row is compared with `mlpForward` applied to the observation row the GPU itself wrote, under
+`|gpu − cpu| ≤ 1e-5 + 1e-5·|cpu|`. Inputs come from a custom sensor that hashes (agent, field,
+tick) into [−1, 1), or from Herd & Wolves' real sensors. Relative error is reported only where
+|cpu| ≥ 1e-3: on near-zero outputs it is noise, and the absolute term covers them.
+
+| Fixture | Live rows × actions | Max abs error, Node / Chrome | Max rel error, Node / Chrome |
+|---|---|---|---|
+| One affine layer, 3→2 identity | 95 × 2 | 1.19e-7 / 1.19e-7 | 7.77e-7 / 7.77e-7 |
+| Odd widths, 5→7→3 (relu, sigmoid) | 95 × 3 | 5.96e-8 / 5.96e-8 | 1.75e-7 / 1.75e-7 |
+| Four layers, 9→13→6→11→5 (all four activations) | 95 × 5 | 5.96e-8 / 5.96e-8 | 3.02e-7 / 3.02e-7 |
+| Maximum shape, 128→64→64→64→16 | 95 × 16 | 2.09e-7 / 2.09e-7 | 7.96e-7 / 7.96e-7 |
+| Herd & Wolves 24→32→32→2 tanh, 2,000 agents, 20 moving steps | 1,913 × 2 | 3.58e-7 / 2.98e-7 | 6.84e-6 / 6.77e-6 |
+
+Every fixture has dead rows that keep a sentinel, and a partial last 64-agent block. All 24 of the
+herd's observation fields are non-zero for some agent, so the comparison exercised every input. The
+herd's neighbour lists depend on atomic scatter order, so its errors vary a little from run to run
+(Node: 3.87e-7, 2.98e-7, 3.58e-7 in three runs); the hashed-input fixtures repeat exactly.
+
+- **Extreme inputs (§4.1), separate from agreement:**
+  - Tanh pre-activations reach |z| ≥ 89 in 95 of 95 agents and sigmoid saturates; every output is
+    finite and in [0, 1]; the 90 fully saturated rows agree (max abs 4.17e-7).
+  - Relu outputs up to 11,095 pass through unclipped. A sum of terms that cancel carries error
+    proportional to the terms, not the result, so this check uses `1e-5 · (1 + |b| + Σ|w·x|)`.
+- **Gating:** `thinkEvery` 3, capacity 200 (an 8-row tail block), 6 ticks. Exactly the due blocks
+  and an off-cadence newborn are evaluated (396 rows, all agreeing). Every other row keeps its
+  observations, actions and reason bit-exactly, and dead rows keep the sentinel until spawned.
+- **Updates:** `setWeights` keeps the weights buffer, the cached chain and the think stage, and the
+  next step uses the new weights. Editing the caller's arrays afterwards changes nothing. Three
+  invalid updates (other activation, other depth, a NaN in the last bias) are refused, and the
+  following step still matches the previous weights.
+- **Replacement:** rules → MLP → rules on a system with an app stage and the instance stage.
+  - Only the think stage changes. Sense, act, app, tick and instance stages are the same objects in
+    the same order, and all run: an app counter and every agent's age count 6 steps, and the
+    instance rows equal the CPU twin.
+  - Reasons go 7 → 0 → 7. A swap while paused infers nothing.
+  - After the detached MLP is destroyed, no cached chain (1–3 steps per frame) reaches a retired
+    stage, and rendering them raises no validation error.
+- **Lifecycle:** system-then-brain teardown and a second `destroy()` are clean. A destroyed brain
+  and a brain from another device are refused (3/3) without disturbing the attached brain. A
+  rebuilt system on the same engine matches.
+- **Watched failing:**
+  - In the suite: biases read from the neighbouring lane put 475 of 475 outputs out of tolerance.
+  - Library mutations, each rebuilt, run on Node/Dawn and then restored byte for byte:
+    - Tanh without the clamp fails only the extreme check on Node/Dawn, where FXC's `tanh` returns
+      NaN. That confirms S3 on the production path. Chrome (DXC) still passes 120/120, so the clamp
+      protects one compiler.
+    - `setWeights` without the upload fails both update checks (outputs stay on the old weights,
+      max abs 0.62).
+    - No neutral reason fails 7 checks.
+- **Hosts:** Node/Dawn and headless Chrome, both on the AMD GCN-5 iGPU (D3D12, driver
+  31.0.12002.1002): two shader compilers, one GPU. NVIDIA was not exercised in this phase.
+- **Totals:** 120/120 agents GPU checks on both hosts, zero WebGPU errors. Headless: agents 24
+  reference + 47 node:test, core 17, agent-kit 4/4. Library build and whitespace pass. Tracked
+  `dist/index.js` rebuilt byte-identical. Bundle unchanged at 17,283 B.
+
+Phase 6.3 is next: a small known-weight executable example in the API guide, inference cost and
+size reporting, and closure.
