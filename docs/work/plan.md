@@ -46,9 +46,9 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 2 | C1 | GPU spatial grid, neighbour query, debug views | Agents can find neighbours on the GPU | ✅ `4ebfe99` |
 | 3 | C1 | `AgentSystem`: sense → think (rules) → act on the GPU, arrows demo | A whole population runs with no CPU per agent | ✅ phases 3.0–3.5 ([design](../agents-gpu-loop-design.md)) |
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
-| 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deferred** by the user (2026-10-12); the stress test covers it for now |
+| 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Resumed 2026-10-13 by the user, first for deterministic neighbour lookups** (so step 7's teacher data is reproducible when cells overflow); the rest of the study stays deferred. **Design next** |
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
-| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), **7.5 next** (the guide). Part 2 not designed |
+| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2 waits for step 5's deterministic neighbour lookups (the user, 2026-10-13); not designed |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
 | 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
 | 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
@@ -124,3 +124,8 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   after 7.2's measurements; rows kept for 8 or more species.
 - 2026-10-12: rows first, then the composite; no fallback. Core now negotiates three storage
   limits (`PROGRESSION_LIMITS`), approved by the user, outside any step.
+- 2026-10-13: step 7, part 1 completed. The user asked to "build step 5 first", ahead of step 7,
+  part 2, so that teacher data is reproducible even when crowded cells overflow.
+  - Claude reads that as step 5's deterministic neighbour lookups (grid-ordered queries) first,
+    with the rest of the scaling study still deferred.
+  - The step 5 design states this reading, for the user to confirm before any code.

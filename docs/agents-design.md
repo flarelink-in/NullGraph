@@ -800,11 +800,15 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    +1,424 B for an app that adds `MlpBrain`. **Step 6 is complete.**
 7. `tools/agents`: record → train → export — U11, U12.
    **Part 1, decided with the user 2026-10-12: per-species brains.** One network per species,
-   chosen inside one think stage, designed in
-   [`agents-species-brains-design.md`](./agents-species-brains-design.md), phases 7.1–7.5:
-   weight-table rows of one `MlpBrain` (U21, A21), then, after 7.2 measured per-lane routing at
-   up to 5.6× in Chrome, one think pass per brain gated to its species,
-   `setBrain(brain, { species })` (U22, A22). Rule: passes below 8 species, rows from 8.
+   designed in [`agents-species-brains-design.md`](./agents-species-brains-design.md), phases
+   7.1–7.5:
+   - weight-table rows of one `MlpBrain` (U21, A21);
+   - then, after 7.2 measured per-lane routing at up to 5.6× in Chrome, one think pass per brain,
+     gated to its species: `setBrain(brain, { species })` (U22, A22).
+
+   The rule: passes below 8 species, rows from 8. ✅ **Part 1 is complete (2026-10-13):** both
+   mechanisms are tested on three host/GPU pairs, and the guide has an executable per-species
+   example.
    **Part 2:** record → train → export, with its own design doc next, from phase 7.6.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`

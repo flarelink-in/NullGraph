@@ -32,3 +32,8 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   on the NVIDIA GPU, pass a substring of its name:
   `NG_DAWN_FLAGS=adapter=NVIDIA npm run test:gpu -- --only agents`. The run prints the device it
   used (`[…] on nvidia turing …`). The spikes enumerate both adapters themselves.
+- **`node build.js` alone deletes `dist/` and leaves it without declarations** (`tsc` writes those,
+  under `dist/core/` and `dist/extras/`). Suites that import `dist/*.js` still run. But the guide's
+  example test type-checks against the declarations, so it then fails with TS7016 on every example,
+  whatever you changed. Before that test, and before trusting a mutation that "made it fail", run
+  `npm run build:lib`.
