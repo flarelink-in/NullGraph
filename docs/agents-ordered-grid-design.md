@@ -17,7 +17,8 @@ teacher data is reproducible even when crowded cells overflow the scan budget.
 4. **Custom sensors reading the neighbour lists:** contract (a), later, when a demo needs it; not in
    step 5. Phase 5.8 documents today's limits and fixes the parent's claim (§8).
 
-**Status:** ✅ design decided 2026-10-13. Next: phase 5.5.
+**Status:** ✅ design decided 2026-10-13 (`b7050b7`); ✅ 5.5 measured 2026-10-13 (uncommitted;
+"Phase 5.5 results" below). Next: 5.6.
 
 **Target:**
 - `src/extras/spatial/`: the grid's scatter and the CPU mirror;
@@ -257,7 +258,7 @@ Numbered after the study's later phases 5.0–5.4.
 
 | Phase | Builds | Exit |
 |---|---|---|
-| **5.5** | A measurement spike on today's code, on three host/GPU pairs: (1) A23's scenario, two identical runs with heavy overflow, counting the differing words; (2) the baseline step time and grid share at 4,096 and 65,536 agents (§6) | Numbers recorded; the watch observed, or its absence recorded |
+| **5.5** ✅ | A measurement spike on today's code, on three host/GPU pairs: (1) A23's scenario, two identical runs with heavy overflow, counting the differing words; (2) the baseline step time and grid share at 4,096 and 65,536 agents (§6) | Measured 2026-10-13: the watch observed on all three; results below |
 | **5.6** | The stable scatter, the window and its tick source, and the CPU mirror; U23; A1 exact; A23 green, and watched failing by mutation | Headless green; GPU green on three host/GPU pairs |
 | **5.7** | The same spike after the change; the bundle | Within the 10% rule, or the numbers taken to the user |
 | **5.8** | Docs: the determinism paragraphs (guide, `agent-grid.md`, parent §6); today's custom-sensor limits; closure | Docs match what was measured; `docs/work` updated |
@@ -271,3 +272,48 @@ Numbered after the study's later phases 5.0–5.4.
    about 10% to a step at 4,096 or 65,536 agents, on any host.
 4. **Custom sensors:** contract (a), later, when a demo needs it; not in step 5. Phase 5.8
    documents today's limits and fixes the parent's claim.
+
+## Phase 5.5 results — 2026-10-13: today's grid
+
+**The spike:** `test/spikes/grid-order/` (`run.js`, `index.html`; commands in its header). It is
+not registered as a suite. It runs on every adapter, with the library's step and Herd & Wolves'
+setup: density, sensors, species, speeds, `thinkEvery` 3. The test rule makes prey flee the nearest
+wolf and wolves chase the nearest prey, and both turn away from near walls.
+
+**Divergence (A23's scenario).** Two identical lockstep runs at 4,096 agents with budget 8; every
+one of the 200 steps overflowed. The words that differed afterwards:
+
+| Host and GPU | Records (of 65,536) | Observations (of 98,304) | Actions (of 8,192) |
+|---|---|---|---|
+| Node/Dawn, NVIDIA | 19,257 | 70,086 | 3,901 |
+| Node/Dawn, AMD iGPU | 16,302 | 63,135 | 2,883 |
+| Chrome, AMD iGPU | 16,529 | 63,691 | 2,984 |
+
+The watch is observed on all three host/GPU pairs. Reasons never differ, because the test rule's
+reason depends only on the species.
+
+**Cost before the change.** GPU timestamps, budget 64, the median of 5 trials, in milliseconds;
+"grid" is the grid build alone:
+
+| Agents, start | NVIDIA, Node: step / grid (share) | AMD, Node: step / grid (share) | AMD, Chrome: step / grid (share) |
+|---|---|---|---|
+| 4,096, spread | 0.508 / 0.017 (3.4%) | 0.894 / 0.016 (1.7%) | 0.740 / 0.015 (2.0%) |
+| 4,096, flocked | 0.728 / 0.014 (1.9%) | 1.897 / 0.015 (0.8%) | 1.764 / 0.015 (0.9%) |
+| 65,536, spread | 13.959 / 0.080 (0.6%) | 65.536 / 0.568 (0.9%) | 62.470 / 0.533 (0.9%) |
+| 65,536, flocked | 23.986 / 0.078 (0.3%) | 124.125 / 0.526 (0.4%) | 115.275 / 0.515 (0.4%) |
+
+- **What the 10% rule allows in 5.7:** at 4,096 agents spread, the sort may add at most about
+  51 µs on NVIDIA, 89 µs on AMD under Node and 74 µs in Chrome. At 65,536 agents the allowance is
+  1.4–12 ms.
+- **What matters at 4,096 agents** is the number of dispatches, not bandwidth. Today a step has 12
+  dispatches, 6 of them the grid.
+- **A refinement for 5.6:** choose the digit width that needs the fewest passes, up to 10 bits
+  (1,024 buckets), instead of a fixed 8. Herd & Wolves' 400 cells then need one pass, and its 6,400
+  and 102,400 cells two. 5.6 confirms the choice by measurement.
+- **Overflow during the measured window:**
+  - **flocked:** in every step;
+  - **spread:** in 0–17% of steps. NVIDIA, being faster, runs more steps in the window, and prey
+    gather as they flee.
+- **The first run was discarded.** Without wall avoidance, prey piled into the corners, and a
+  warm-up that ran steps for a fixed time left each host in a different state. The spike now warms
+  up on the grid build alone, which moves nobody.

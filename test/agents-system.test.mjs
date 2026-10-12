@@ -54,13 +54,9 @@ test('U8: cached 0..3 chains repeat the same nodes, with no frame typed-array al
     s.destroy();
 });
 
-test('U16: query defaults match committed step-2 text byte for byte; slices parse and never overlap', async () => {
-    const old = execFileSync('git', ['show', '4ebfe99:src/extras/agents/agentGridShaders.ts'], { encoding: 'utf8' });
-    const compiled = await build({ stdin: { contents: old, loader: 'ts', resolveDir: 'src/extras/agents' },
-        bundle: true, write: false, format: 'esm', platform: 'node' });
-    const legacy = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+test('U16/U23: windowed query slices parse and never overlap; tick is GPU-owned', async () => {
     const def = definition();
-    for (const k of [1, 3, 8]) assert.equal(A.buildAgentGridQueryWGSL(def, 1, 4, k), legacy.buildAgentGridQueryWGSL(def, 1, 4, k));
+    for (const k of [1, 3, 8]) new WgslReflect(A.buildAgentGridQueryWGSL(def, 1, 4, k));
     const m = mock(), s = makeSystem(m.engine, def);
     const queries = m.stages.filter(stage => stage.name.startsWith('AgentSystem query'));
     assert.equal(s.neighbourStride, 4);
@@ -68,6 +64,7 @@ test('U16: query defaults match committed step-2 text byte for byte; slices pars
     assert.match(queries[1].shaderCode, /result\[i \* 4u \+ 1u \+ n\]/);
     for (const stage of m.stages) new WgslReflect(stage.shaderCode);
     assert.equal(queries[0].entries[4].resource.buffer, queries[1].entries[4].resource.buffer);
+    assert.ok(queries.every(q => q.entries[5].resource.buffer === s.state));
     assert.throws(() => A.buildAgentGridQueryWGSL(def, 1, 4, 3, { stride: 3, base: 1 }), /stride and base/);
     s.destroy();
 });
@@ -93,6 +90,26 @@ test('uploads dirty records only; species tuning validates atomically and change
     s.upload(); assert.equal(m.writes.at(-1)[0], s.species);
     s.kill(7); assert.equal(s.records.isAlive(7), false);
     s.destroy();
+});
+
+test('U23: radix stage counts, AgentGrid counter ordering and named limit refusals', () => {
+    for (const total of [255, 6400, 1048576]) {
+        const m = mock(), records = m.engine.device.createBuffer({ size: 128 * 64, usage: GPUBufferUsage.STORAGE });
+        const layout = { ...definition(), grid: { cellsX: total, cellsZ: 1, cellTotal: total } };
+        const grid = new A.PointGrid(m.engine, records, { ...layout, stride: 16 });
+        assert.equal(m.stages.filter(s => s.name === 'PointGrid stable scatter').length, A.gridRadixLayout(total).passes);
+        assert.ok(!m.buffers.some(b => b.label?.includes('cursors')));
+        grid.destroy();
+    }
+    const m = mock(), records = m.engine.device.createBuffer({ size: 128 * 64, usage: GPUBufferUsage.STORAGE });
+    const grid = new A.AgentGrid(m.engine, records, definition());
+    assert.deepEqual(grid.getComputeStages().slice(-2).map(s => s.name), ['AgentGrid nearest', 'AgentGrid tick']);
+    assert.equal(grid.getComputeStages().at(-2).entries[5].resource.buffer, grid.getComputeStages().at(-1).entries[0].resource.buffer);
+    grid.destroy();
+    const limited = mock(); limited.engine.device.limits.maxStorageBufferBindingSize = 9000;
+    const input = limited.engine.device.createBuffer({ size: 6156, usage: GPUBufferUsage.STORAGE });
+    const layout = { ...definition(), grid: { cellsX: 1023, cellsZ: 1, cellTotal: 1023 } };
+    assert.throws(() => new A.PointGrid(limited.engine, input, { ...layout, stride: 3, capacity: 513 }), /radix histogram/);
 });
 
 test('lockstep uploads/submits/awaits without changing selected frame chain; teardown is idempotent', async () => {

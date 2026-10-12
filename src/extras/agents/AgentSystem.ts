@@ -107,7 +107,7 @@ export class AgentSystem {
                 if (sensor.kind !== 'nearest') continue;
                 this.stage(`query ${sensor.name}`, buildAgentGridQueryWGSL(def, def.nearestMasks[sensorIndex++],
                     def.cellSize, sensor.k, { stride: this.neighbourStride, base }),
-                [this.buffer, grid.cellCounts, grid.cellOffsets, grid.cellBodies, this.neighbours], Math.ceil(def.capacity / 64));
+                [this.buffer, grid.cellCounts, grid.cellOffsets, grid.cellBodies, this.neighbours, this.state], Math.ceil(def.capacity / 64));
                 base += sensor.k;
             }
             this.stage('sense', senseCode, [this.buffer, this.neighbours, this.state, this.obs, this.species], Math.ceil(def.capacity / 64));
