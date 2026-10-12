@@ -13,6 +13,7 @@ import { buildAgentThinkWGSL, buildAgentStepWGSL } from './agentThinkShaders';
 import { buildAgentInstanceWGSL, assertInstanceBounds, INSTANCE_ROW_FLOATS, HIGHLIGHT_NONE,
     type AgentHighlight } from './agentInstances';
 import type { VisibilitySystem } from '../visibility/VisibilitySystem';
+import { agentSnapshotLayout, decodeAgentSnapshot, type AgentSnapshot, type AgentSnapshotLayout } from './agentInspect';
 
 export interface AgentSystemOptions {
     /** Fixed at construction; shared sense/think cadence, staggered by 64-agent block. */
@@ -59,6 +60,9 @@ export class AgentSystem {
     private instanceStage?: ComputeStageNode;
     private highlightBuffer?: GPUBuffer;
     private readonly highlightData = new Uint32Array([HIGHLIGHT_NONE, HIGHLIGHT_NONE, 0, 0]);
+    private readonly snapshotLayout: AgentSnapshotLayout;
+    private inspectStaging?: GPUBuffer;
+    private inspectQueue: Promise<unknown> = Promise.resolve();
 
     constructor(public readonly engine: NullGraph, def: AgentDefinition, options: AgentSystemOptions = {}) {
         this.thinkEvery = options.thinkEvery ?? 1;
@@ -70,6 +74,7 @@ export class AgentSystem {
         this.records = new AgentRecords(this.definition);
         this.clock = new FixedStep(def.dt, def.maxStepsPerFrame, def.maxFrameDelta);
         this.speciesData = packSpecies(this.definition);
+        this.snapshotLayout = agentSnapshotLayout(this.definition);
         this.neighbourStride = def.sensors.reduce((n, s) => n + (s.kind === 'nearest' ? s.k : 0), 0);
         const senseCode = buildAgentSenseWGSL(def, this.thinkEvery);
         const actCode = buildAgentActWGSL(def);
@@ -244,6 +249,49 @@ export class AgentSystem {
             throw new Error(`AgentSystem: index ${v} is outside capacity ${this.capacity}.`);
         }
         return v;
+    }
+
+    /**
+     * Step 4 (§9.6): what agent `i` senses, chose and why — its record, observation row, action
+     * row, reason, neighbour indices and the system's counters — copied in one submission after
+     * everything submitted so far, and read back off the frame path. Requests run one at a time.
+     * Resolves null if the system is destroyed before the copy is read.
+     */
+    public inspect(i: number): Promise<AgentSnapshot | null> {
+        this.assertAlive();
+        if (!(Number.isInteger(i) && i >= 0 && i < this.capacity)) {
+            throw new Error(`AgentSystem: index ${i} is outside capacity ${this.capacity}.`);
+        }
+        const run = this.inspectQueue.then(() => this.readSnapshot(i));
+        this.inspectQueue = run.catch(() => undefined);
+        return run;
+    }
+
+    private async readSnapshot(i: number): Promise<AgentSnapshot | null> {
+        if (this.destroyed) return null;
+        const def = this.definition, l = this.snapshotLayout, device = this.engine.device;
+        const staging = this.inspectStaging ??= this.allocate('inspect staging', l.size,
+            GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+        const enc = device.createCommandEncoder({ label: 'AgentSystem inspect' });
+        enc.copyBufferToBuffer(this.buffer, i * AGENT_BYTES, staging, l.record, AGENT_BYTES);
+        enc.copyBufferToBuffer(this.obs, i * def.obsDim * 4, staging, l.obs, def.obsDim * 4);
+        enc.copyBufferToBuffer(this.act, i * def.actDim * 4, staging, l.act, def.actDim * 4);
+        enc.copyBufferToBuffer(this.reason, i * 4, staging, l.reason, 4);
+        if (l.neighbourStride > 0) {
+            enc.copyBufferToBuffer(this.neighbours, i * l.neighbourStride * 4, staging, l.neighbours, l.neighbourStride * 4);
+        }
+        enc.copyBufferToBuffer(this.state, 0, staging, l.state, 16);
+        device.queue.submit([enc.finish()]);
+        try {
+            await staging.mapAsync(GPUMapMode.READ);
+        } catch (error) {
+            if (this.destroyed) return null;   // destroy() released the staging buffer mid-read
+            throw error;
+        }
+        if (this.destroyed) return null;
+        const data = staging.getMappedRange().slice(0);
+        staging.unmap();
+        return decodeAgentSnapshot(def, i, data, l);
     }
 
     public spawn(i: number, init: AgentInit): void { this.assertAlive(); this.records.spawn(i, init); }
