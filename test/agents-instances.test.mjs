@@ -155,7 +155,8 @@ test('chains: the instance stage closes every chain once, also with no step; ret
     assert.equal(stage.enabled, false);
     s.advance(0);
     assert.deepEqual(s.getComputeStages(), [replacement]);
-    assert.equal(m.buffers.filter(b => b.size === 16 && b.usage === (64 | 8)).length, 1, 'retargeting allocated a second highlight');
+    // By label: the think pass's species mask (phase 7.3) is also a 16-byte uniform.
+    assert.equal(m.buffers.filter(b => b.label === 'AgentSystem highlight').length, 1, 'retargeting allocated a second highlight');
     s.destroy();
     assert.equal(replacement.enabled, false);
     assert.equal(m.buffers.find(b => b.label === 'AgentSystem highlight').destroyed, true);
@@ -163,9 +164,9 @@ test('chains: the instance stage closes every chain once, also with no step; ret
 });
 
 test('setHighlight: validates indices, writes 16 bytes only on a change, allocates nothing per call', () => {
-    const m = mock(), s = makeSystem(m.engine);
+    const m = mock(), s = makeSystem(m.engine), setup = m.writes.length;   // setBrain's species mask
     s.setHighlight({ selected: 3 });   // before toInstances: kept, written when the buffer exists
-    assert.equal(m.writes.length, 0);
+    assert.equal(m.writes.length, setup);
     s.toInstances(fakeVis(m.engine, 200));
     const highlight = m.buffers.find(b => b.label === 'AgentSystem highlight');
     const written = () => m.writes.filter(w => w.target === highlight).map(w => w.words);

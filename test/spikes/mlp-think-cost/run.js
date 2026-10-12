@@ -104,14 +104,6 @@ ${species.map((name, r) => `        case SPECIES_${name.toUpperCase()}: { mlpRow
     }
 }`;
 }
-// The rejected strategy 2, as a reference: one dispatch per species, each the single-network code at
-// that species' constant row, returning early for the other species.
-function perSpeciesWGSL(net, name, row) {
-    return A.buildMlpThinkWGSL(net)
-        .replace('fn think(i: u32, species: u32, tick: u32) {',
-            `fn think(i: u32, species: u32, tick: u32) {\n    if (species != SPECIES_${name.toUpperCase()}) { return; }`)
-        .replaceAll('mlpWeights[', `mlpWeights[${row * A.mlpLayout(net).floats / 4}u + `);
-}
 // Which species agent i is, per layout: Herd & Wolves' 1 in 16 wolves, interleaved or first.
 const speciesAt = (layout, i, n) => layout === 'prey' ? 'prey' : layout === 'contiguous' ? (i < n / 16 ? 'wolf' : 'prey')
     : layout === 'alternating' ? (i % 2 ? 'wolf' : 'prey') : (i % 16 === 0 ? 'wolf' : 'prey');
@@ -153,6 +145,11 @@ async function runAdapter(adapter, name) {
     const rowsBrain = A.MlpBrain.bySpecies(engineLike, herdDef(64), { prey: herdNet, wolf: wolfNet });
     const manyBrains = new Map(MANY.map(N => [N, A.MlpBrain.bySpecies(engineLike, manyDef(N)(64),
         Object.fromEntries(manyNames.slice(0, N).map((name, r) => [name, manyNets[r]])))]));
+    // Per-species passes as AgentSystem builds them (phase 7.3): one single-network MlpBrain per
+    // species, each pass gated by its 16-byte species mask. Every other kernel passes every species.
+    const speciesBrains = manyNets.map(net => new A.MlpBrain(engineLike, net));
+    const mask = bits => buffer(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, new Uint32Array([bits, 0, 0, 0]));
+    const everySpecies = mask(0xffff), speciesMasks = manyNets.map((_, r) => mask(1 << r));
 
     // One system's worth of think-stage bindings for capacity n: every agent alive, age 1 (so the
     // cadence, not the newborn rule, decides), tick 0, observations in [-1, 1).
@@ -179,19 +176,19 @@ async function runAdapter(adapter, name) {
     async function pipeline(k, n) {
         const { def, buffers } = setup(k, n);
         const brain = k.many ? manyBrains.get(k.many) : k.rows ? rowsBrain : k.net ? brains.get(k.net) : new A.RuleBrain(RULE);
-        const codes = k.many && k.perSpecies ? manyNames.slice(0, k.many).map((name, r) => perSpeciesWGSL(herdNet, name, r))
-            : k.many ? [brain.wgsl]
-            : k.perSpecies ? [perSpeciesWGSL(herdNet, 'prey', 0), perSpeciesWGSL(herdNet, 'wolf', 1)]
-            : [k.constRows ? constRowsWGSL(herdNet, ['prey', 'wolf']) : brain.wgsl];
+        // [WGSL, group-1 weights or null, species mask] per pass.
+        const passes = k.perSpecies
+            ? speciesBrains.slice(0, k.many ?? 2).map((b, r) => [b.wgsl, b.buffers[0], speciesMasks[r]])
+            : [[k.constRows ? constRowsWGSL(herdNet, ['prey', 'wolf']) : brain.wgsl, k.net ? brain.buffers[0] : null, everySpecies]];
         const t0 = performance.now(), parts = [];
-        for (const wgsl of codes) {
+        for (const [wgsl, weights, gate] of passes) {
             const code = A.buildAgentThinkWGSL(def, wgsl, k.thinkEvery);
             const p = await device.createComputePipelineAsync({ label: k.name, layout: 'auto',
                 compute: { module: device.createShaderModule({ label: k.name, code }), entryPoint: 'cs_main' } });
             const binds = [device.createBindGroup({ layout: p.getBindGroupLayout(0),
-                entries: buffers.map((b, binding) => ({ binding, resource: { buffer: b } })) })];
-            if (k.net) binds.push(device.createBindGroup({ layout: p.getBindGroupLayout(1),
-                entries: [{ binding: 0, resource: { buffer: brain.buffers[0] } }] }));
+                entries: [...buffers, gate].map((b, binding) => ({ binding, resource: { buffer: b } })) })];
+            if (weights) binds.push(device.createBindGroup({ layout: p.getBindGroupLayout(1),
+                entries: [{ binding: 0, resource: { buffer: weights } }] }));
             parts.push({ p, binds });
         }
         return { parts, ms: performance.now() - t0, groups: Math.ceil(n / 64) };
@@ -288,6 +285,7 @@ async function runAdapter(adapter, name) {
     for (const brain of brains.values()) brain.destroy();
     rowsBrain.destroy();
     for (const brain of manyBrains.values()) brain.destroy();
+    for (const brain of speciesBrains) brain.destroy();
     for (const b of made) b.destroy();
     ts?.set.destroy();
     device.destroy();

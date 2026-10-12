@@ -620,7 +620,10 @@ device.queue.writeBuffer(thinking.act, 0, retainedActs);
 const ungated = A.buildAgentThinkWGSL(thinkDef, tickBrain.wgsl, 3).replace('if (!thinksNow(i, a)) { return; }',
     'if ((a.ids.y & 1u) == 0u) { return; }');
 const ungatedEncoder = device.createCommandEncoder();
-dispatch(ungatedEncoder, ungated, [thinking.buffer, thinking.obs, thinking.state, thinking.act, thinking.reason, thinking.species], 3);
+const everySpecies = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+allocated.push(everySpecies);
+device.queue.writeBuffer(everySpecies, 0, new Uint32Array([0xffff, 0, 0, 0]));   // binding 6, the species gate (phase 7.3)
+dispatch(ungatedEncoder, ungated, [thinking.buffer, thinking.obs, thinking.state, thinking.act, thinking.reason, thinking.species, everySpecies], 3);
 device.queue.submit([ungatedEncoder.finish()]);
 check('A16 watched failing: ungated think changes off-cadence block 1 at tick 6',
     new Float32Array((await read(thinking.act, 260)).buffer)[64 * 2] !== -7);
