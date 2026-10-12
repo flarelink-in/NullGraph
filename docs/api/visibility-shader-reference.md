@@ -77,7 +77,7 @@ Refreshed every frame by `upload()`.
 
 | Field | Type | Source |
 |---|---|---|
-| `instanceCount` | `u32` | `setInstances(..., count)` |
+| `instanceCount` | `u32` | `setInstances(..., count)` or `setInstanceCount(n)` |
 | `meshIndex` | `u32` | the batch's mesh (instance tier); 0 for meshlet tier |
 | `hizMaxLevel` | `u32` | `HiZPyramid.maxLevel` |
 | `flags` | `u32` | reserved (0) |

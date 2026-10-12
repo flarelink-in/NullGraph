@@ -68,7 +68,7 @@ function mockDevice() {
     return { device, writes, destroyed };
 }
 
-async function scene() {
+async function scene(maxInstances = 64) {
     const mock = mockDevice();
     const engine = new NullGraph();
     const r = await engine.init(null, { device: mock.device, width: 256, height: 256 });
@@ -78,7 +78,7 @@ async function scene() {
     mega.addMesh('ground', plane.vertices, plane.indices);
     const sphere = Primitives.createSphere(StandardLayout, 1, 8, 6);
     mega.addMesh('sphere', sphere.vertices, sphere.indices);
-    const vis = new VisibilitySystem(engine, { maxInstances: 64 });
+    const vis = new VisibilitySystem(engine, { maxInstances });
     vis.setGeometry(mega);
     const inst = new InstanceBuffer(2);
     inst.write(0, mat4.create(), [0, 0, 0, 10], 0);
@@ -150,6 +150,53 @@ await check('L3: ShadowSystem.destroy unregisters its casters from the SHARED Vi
     assert(after === before,
         `${after - before} caster cull stage(s) outlived ShadowSystem.destroy — on a GPU every later frame ` +
         `is refused at submit ("used in submit while destroyed")`);
+});
+
+// Agents design §9.1 (docs/agents-gpu-loop-design.md): a compute stage that writes the instance
+// rows itself needs a count without a CPU array — upload() must stop overwriting the rows.
+await check('U18: setInstanceCount(n) — upload() writes no instance rows, and the culls see n', async () => {
+    const { mock, engine, vis } = await scene(256);
+    const pass = engine.createPass({ name: 'scene', isMainScreenPass: true });
+    const batch = vis.createInstanceDrawBatch(pass, 'ground', 0);
+    assert(vis.instanceSource === 'cpu', `instanceSource is ${vis.instanceSource} after setInstances, expected 'cpu'`);
+    vis.setInstanceCount(130);
+    assert(vis.instanceSource === 'gpu', `instanceSource is ${vis.instanceSource} after setInstanceCount, expected 'gpu'`);
+    mock.writes.clear();
+    vis.upload();
+    assert(!mock.writes.has(vis.instanceBuffer),
+        'upload() still wrote vis.instanceBuffer — a GPU-written row would be overwritten every frame');
+    const params = paramsBuffers(mock);
+    assert(params.length === 1, `expected the cull's params written once by upload(), saw ${params.length}`);
+    const u32 = new Uint32Array(mock.writes.get(params[0]).at(-1));
+    assert(u32[0] === 130, `the cull params carry instanceCount ${u32[0]}, expected 130`);
+    const groups = vis.getCullStage(batch).dispatchCount[0];
+    assert(groups === 3, `the cull dispatches ${groups} workgroups for 130 instances, expected 3`);
+
+    // setInstances switches back to the CPU array.
+    const inst = new InstanceBuffer(2);
+    vis.setInstances(inst.data, 2);
+    assert(vis.instanceSource === 'cpu', 'setInstances did not switch instanceSource back to cpu');
+    mock.writes.clear();
+    vis.upload();
+    assert(mock.writes.has(vis.instanceBuffer), 'after setInstances, upload() no longer writes the rows');
+});
+
+await check('U18: setInstanceCount refuses a count past maxInstances, or not a whole number', async () => {
+    const { vis } = await scene();
+    const refuses = (n, pattern) => {
+        try { vis.setInstanceCount(n); } catch (e) {
+            assert(pattern.test(e.message), `setInstanceCount(${n}) threw "${e.message}"`);
+            return;
+        }
+        throw new Error(`setInstanceCount(${n}) did not throw`);
+    };
+    refuses(65, /^VisibilitySystem: setInstanceCount received 65 instances, exceeding maxInstances 64\.$/);
+    refuses(-1, /setInstanceCount/);
+    refuses(2.5, /setInstanceCount/);
+    refuses(NaN, /setInstanceCount/);
+    assert(vis.instanceSource === 'cpu', 'a refused call changed instanceSource');
+    vis.setInstanceCount(0);
+    assert(vis.instanceSource === 'gpu', 'setInstanceCount(0) should be accepted');
 });
 
 console.log(failures === 0 ? '\nAll visibility lifecycle tests passed.' : `\n${failures} test(s) FAILED.`);
