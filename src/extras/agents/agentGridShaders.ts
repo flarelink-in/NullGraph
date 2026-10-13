@@ -4,7 +4,8 @@ import { GRID_WINDOW_WGSL } from './agentGridWindow';
 import { AGENT_STRUCT_WGSL, MAX_NEAREST_K, type AgentDefinition } from './agentLayout';
 
 /** Output is k indices per agent, padded with 0xffffffff. Dead query agents match the CPU mirror.
- * Over-budget cells use a deterministic per-agent, per-tick rotating window. */
+ * An over-budget cell yields a deterministic window of its entries that rotates per cell and tick:
+ * every query of the cell reads the same entries, so they stay in cache. */
 export function buildAgentGridQueryWGSL(def: AgentDefinition, mask: number, radius: number, k: number,
     options: { stride?: number; base?: number } = {}): string {
     const stride = options.stride ?? k, base = options.base ?? 0;
@@ -40,12 +41,14 @@ ${pointCellWGSL(def)}
         for (var x = max(0, cx - 1); x <= min(${def.grid.cellsX - 1}, cx + 1); x++) {
             let c = u32(z) * ${def.grid.cellsX}u + u32(x);
             let count = counts[c];
-            var start = 0u;
-            if (count > ${def.maxScanPerCell}u) { start = gridWindow(i, tick) % count; }
-            for (var s = 0u; s < min(count, ${def.maxScanPerCell}u); s++) {
-                var at = start + s;
-                if (at >= count) { at -= count; }
-                let j = bodies[offsets[c] + at];
+            let first = offsets[c];
+            let stop = first + count;
+            var at = first;
+            if (count > ${def.maxScanPerCell}u) { at += gridWindow(c, tick) % count; }
+            for (var left = min(count, ${def.maxScanPerCell}u); left > 0u; left--) {
+                let j = bodies[at];
+                at++;
+                if (at == stop) { at = first; }
                 if (j == i || (agents[j].ids.y & 1u) == 0u ||
                     ((${mask}u >> agents[j].ids.x) & 1u) == 0u) { continue; }
                 let delta = agents[j].posRadius.xz - pos.xz;

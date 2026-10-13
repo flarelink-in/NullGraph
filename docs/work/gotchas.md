@@ -37,3 +37,22 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   example test type-checks against the declarations, so it then fails with TS7016 on every example,
   whatever you changed. Before that test, and before trusting a mutation that "made it fail", run
   `npm run build:lib`.
+- **GPU timestamps are rounded to 65.5 µs under Dawn (100 µs in Chrome).** A pass shorter than a few
+  milliseconds reads as mostly rounding: at 4,096 agents one step is 4–30 units. Repeat the work
+  inside one pass until it lasts 5 ms or more, and stay under 300 ms (Windows resets a GPU that
+  stays busy for about 2 s).
+- **"As many steps as fit in N ms" compares different stretches of a run.** A simulation's step cost
+  drifts as it runs (Herd & Wolves spread: 0.30 → 0.50 ms over 512 steps; flocked: falling). A
+  slower build fits fewer steps into the budget, so it is timed on an earlier stretch. That inflated
+  or hid several of phase 5.7's figures, and one baseline varied by 20% between two runs. To compare
+  two builds: restore one snapshot, run a fixed number of steps, and alternate the builds in one
+  process (`test/spikes/grid-policy/`).
+- **The CPU `pointCell` is not the GPU's.** It divides in f64 and the shader in f32, so an agent
+  within float rounding of a cell edge lands in different cells (seen: 1 agent of 65,536, at
+  x = −24.0000076). A GPU grid compared with `buildPointGrid` then differs although both are right.
+  Compare against an f32 mirror (`gpuCell` in `test/spikes/grid-policy/workload.mjs`) until the
+  library's is fixed.
+- **A background GPU run can stop without a trace.** On 2026-10-13 an attribution run ended
+  mid-adapter with no error output, no report and no process left; the agent session that started
+  it had been restarted. Only the harness's last line (`… done`) and its JSON report prove a run
+  completed.

@@ -46,7 +46,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 2 | C1 | GPU spatial grid, neighbour query, debug views | Agents can find neighbours on the GPU | ✅ `4ebfe99` |
 | 3 | C1 | `AgentSystem`: sense → think (rules) → act on the GPU, arrows demo | A whole population runs with no CPU per agent | ✅ phases 3.0–3.5 ([design](../agents-gpu-loop-design.md)) |
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
-| 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Resumed 2026-10-13 for deterministic neighbour lookups only**; scaling study later. 5.5 and 5.6 correctness ✅; **5.7 measured, acceptance paused**: whole-step regressions exceed ~10%, numbers returned to user ([ordered grid](../agents-ordered-grid-design.md)); 5.8 not started |
+| 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Resumed 2026-10-13 for deterministic neighbour lookups only**; scaling study later. 5.5 and 5.6 correctness ✅; 5.7 ✅ 2026-10-13: the window per querying agent cost +15% to +26%, the user revised decision 2 to a window per cell, and a step is now within the 10% rule (worst case +9.6%) ([ordered grid](../agents-ordered-grid-design.md)); 5.8 not started |
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
 | 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2 waits for step 5's deterministic neighbour lookups (the user, 2026-10-13); not designed |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
@@ -107,8 +107,9 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 6. ~~**Step 5's deterministic neighbour lookups**~~ **Decided 2026-10-13** in
    [`../agents-ordered-grid-design.md`](../agents-ordered-grid-design.md) §10:
    - **Scope:** the fixed-order lookups only; the scaling study later.
-   - **Crowded cells:** a rotating window, offset per querying agent and tick, deterministic.
-     Decided before any teacher data is recorded.
+   - **Crowded cells:** a rotating window, offset per cell and tick, deterministic. Decided
+     before any teacher data is recorded. **Revised 2026-10-13:** first decided per querying
+     agent; phase 5.7 measured that at +15% to +26% on a step, so the user chose a window per cell.
    - **Always on, as a single path.** The numbers come back to the user only if the sort adds more
      than about 10% to a step at 4,096 or 65,536 agents, on any host.
    - **Custom sensors reading the neighbour lists:** a small contract later, when a demo needs it;
@@ -137,3 +138,5 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   part 2, so that teacher data is reproducible even when crowded cells overflow. The user then
   confirmed the scope: step 5 builds the fixed-order lookups only, and the scaling study comes
   later (§5, item 6).
+- 2026-10-13: step 5's crowded-cell window is per cell and tick, not per querying agent, after
+  phase 5.7 measured the per-agent window at +15% to +26% on a step (§5, item 6).
