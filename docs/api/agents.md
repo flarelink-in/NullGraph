@@ -76,16 +76,38 @@ are fixed for the system's lifetime. Species movement parameters can be tuned wi
 - Custom sensors/actions require their declared WGSL signatures; CPU mirrors are needed when
   using the CPU reference routines.
 
+**What a custom sensor can read today.** `Sensors.custom({ name, width, wgsl, mirror? })` compiles
+`fn <name>(i: u32, a: Agent) -> array<f32, width>` into the sense stage. Its contract is the
+agent's own record, `a`.
+
+- **No contract for other agents or the neighbour lists.** Both are in scope in that shader, but
+  nothing is generated or promised for them: no constants for the lists' layout, no documented
+  binding names, and the CPU `mirror` is not given the lists. Do not build on them yet.
+- **No app data.** A sensor cannot bind an app buffer, so walls and other occluders are out of its
+  reach, and true line of sight is not available.
+- **"Can I see the nearest seeker?" needs no custom sensor.**
+  `Sensors.nearest({ name: 'seeker', species: ['seeker'], k: 1 })` gives its side, forward and
+  presence, and the brain can test a view cone and a range from those.
+
 The default actions are steering: turn and throttle in `[-1, 1]`. Movement enforces speed,
 acceleration and turn limits, brakes on non-finite actions, and clamps/reflects at world bounds.
 These are steering agents, not a rigid-body collision solver.
 
 Nearest queries use the bounded grid search described in [agent-grid.md](./agent-grid.md).
 Use `senseRadius <= cellSize`. Dense cells can exceed `maxScanPerCell`: all indices remain
-stored, but a query scans only its budget. Overflow counters expose that loss of perception. It
-also costs determinism: which entries a crowded cell yields follows GPU timing. Flocks pack far
-above their mean density (Herd & Wolves overflowed in 85% of steps at the default 64), so size the
-budget or the cell for the peak, and watch `overflowSteps`.
+stored, but a query scans only its budget, so an agent can miss a neighbour that is in range.
+Overflow counters expose that loss of perception. It does not cost determinism: reruns stay
+bit-exact (see the next section).
+
+- **Which entries a crowded cell yields:** a window of `maxScanPerCell` consecutive entries of
+  the cell, which lists its agents by index. The window's start changes with the cell and the
+  tick, and it wraps. Every query that scans the cell in a tick reads the same entries, and over
+  many ticks every agent of the cell gets the same share of scans.
+- **A window is a run of consecutive indices.** Agents spawned as one index block per species
+  sit together in a cell's list. In a cell many times over its budget, a window can therefore
+  hold a single species on a given tick.
+- **Flocks pack far above their mean density** (Herd & Wolves overflowed in 85% of steps at the
+  default 64), so size the budget or the cell for the peak, and watch `overflowSteps`.
 
 ## The frame and fixed-step paths
 
@@ -103,8 +125,18 @@ blocks; newborns get an immediate decision. Act/app/tick still run each simulati
 Observations/actions can therefore represent an earlier decision than the current position.
 
 `await agents.step()` uploads and submits one step, waiting for GPU completion. It is the
-lockstep experiment/test path, not a replacement for the regular frame loop. Reruns on one device
-are bit-exact only with built-in sensors and no grid overflow; no cross-device guarantee is made.
+lockstep experiment/test path, not a replacement for the regular frame loop.
+
+**Lockstep reruns on one device are bit-exact, with or without grid overflow.** The same
+definition, spawns and brains, stepped the same number of times, give the same records,
+observations, actions and reasons, word for word.
+
+- **It holds for** the built-in sensors, and for a custom sensor that reads only its own agent's
+  record. The grid lists each cell's agents in a fixed order, and a crowded cell's window depends
+  only on the cell and the tick.
+- **It needs** brains and app stages that write only their own agent's rows, as the next section
+  asks.
+- **No cross-device guarantee is made:** float rounding differs between GPUs.
 
 **CPU records are a staging area, not a live mirror.** After GPU movement, `agents.records`
 does not contain current positions. `spawn(i, init)` and `kill(i)` dirty individual records;
@@ -380,11 +412,12 @@ Dispose those caller-owned resources separately once no dependent work can use t
 Headless tests cover layouts, CPU mirrors, generated WGSL, the MLP's mathematics and validation,
 request queues and refusals. The agents GPU suite covers the production loop, instance output,
 picking, label following, inspection, the allocation/upload budget, teardown (A20), `MlpBrain`
-on the production chain (A4), weight-table rows (A21) and per-species passes (A22). It passes
-124/124 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU and on an NVIDIA GPU, and in
-Chrome. A4's networks, from one affine layer to the largest allowed shape, agree with
-`mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA
-GPU.
+on the production chain (A4), weight-table rows (A21), per-species passes (A22), the grid's exact
+order and crowded-cell windows (A1), and bit-exact reruns without overflow (A7) and with overflow
+in every step (A23). It passes 137/137 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU
+and on an NVIDIA GPU, and in Chrome. A4's networks, from one affine layer to the largest allowed
+shape, agree with `mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found
+3.8e-7 on an NVIDIA GPU.
 
 `test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's three TypeScript
 examples:
