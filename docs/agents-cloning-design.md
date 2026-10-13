@@ -19,8 +19,9 @@ neighbour lookups were completed for it.
    user.
 6. **The scene is the demo's defaults only.**
 
-**Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`; results at the
-end). 7.7, the trainer, is next.
+**Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`). ✅ 7.7 built
+and measured 2026-10-13, not committed: **both species meet the 0.05 bar at round 0** (results at
+the end). Next: 7.8, the copy in the running simulation.
 
 **Target:** `tools/agents/` (new, in the repository, not in the package), tests, one guide
 section. **`src/` unchanged; no bundle bytes.**
@@ -299,6 +300,30 @@ install, no native code.
 **Cost, estimated, to be measured in 7.7:** about 1,900 weights; 300,000 rows × 40 passes is a
 few minutes of plain JS on one core.
 
+**As built in 7.7:**
+- **Training is in f64; the result is f32.** The forward and backward passes run in f64, with
+  `MlpBrain`'s activations exactly: `tanh` with its input clamped to ±15 (and a zero slope
+  outside), and the stable sigmoid. The weights are returned as `Float32Array`s and judged with
+  `mlpForward`.
+- **Initial weights** are uniform in ±√(6 / (in + out)), or ±√(6 / in) before a `relu`, from
+  `rand01`; biases start at zero.
+- **The defaults are what 7.7 measured to meet the bar:**
+  - 24→64→64→64→2 with `tanh` throughout, the largest shape `MlpBrain` runs at 64-wide layers;
+  - 200 passes;
+  - a step size that decays exponentially from 1e-2 at the first pass to 1e-4 at the last.
+
+  The draft's start, 24→32→32→2 at 40 passes from 3e-3, fell far short for prey (results below).
+  **Adam's other constants** are β1 0.9, β2 0.999 and ε 1e-8.
+- **The best pass is chosen on the held-out episode,** the same episode the error is reported on,
+  so the report is slightly optimistic. That was measured: the best and last passes differ by at
+  most 0.0003.
+- **`train.mjs` writes `<species>.mlp.json` (§4.2) itself.** It reads each file back and refuses to
+  finish if a weight changed bit for bit. Nothing that varies between runs (such as the time taken)
+  goes in the file, so the same dataset and seed write the same bytes. Timing goes to
+  `<species>.report.json`, one per species, so species trained in separate runs keep both.
+- **`tools/agents/cli.mjs`** holds what the command lines share: the check that `dist/` is not
+  older than `src/`, and the option readers. `record.mjs` now uses it too.
+
 ## 8. Judging the copy
 
 ### Decision by decision
@@ -420,7 +445,7 @@ Phases continue from part 1's 7.5.
 | Phase | Builds | Exit |
 |---|---|---|
 | **7.6** ✅ | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
-| **7.7** | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time |
+| **7.7** ✅ | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time. Built 2026-10-13, not committed: both species within 0.05 at round 0; results below |
 | **7.8** | `evaluate.mjs`; rounds of correction if needed | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. **Within §8's bars, or the numbers go back to the user** with the options: a larger shape, more rounds, the wander value as an observation, or a bar they accept |
 | **7.9** | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated |
 | **7.10** | `<species>.onnx` writer; U12; A27 | ONNX Runtime's output equals `mlpForward`'s. Stays in this part (§14, decision 4) |
@@ -529,3 +554,121 @@ wolf row and one prey row in 16.
 - **Size:** 95 MB in all.
 
 **Left for later phases:** `tools/agents/README.md` (7.9).
+
+## Phase 7.7 results — 2026-10-13: the trainer, and round-0 students
+
+**Built** (not committed; no `src/` change):
+- `tools/agents/mlp-train.mjs`: the trainer (§7, "As built").
+- `tools/agents/train.mjs`: its command line, `npm run agents:train`.
+- `tools/agents/cli.mjs`: the checks and option readers both command lines share.
+- `trainingSet` in `dataset.mjs`: one species' rows, read in place.
+
+**U11** (two tests; the agents suite is now reference + 68):
+- **Linear fit:** 10 → 3, fitted to a mean-squared error of 1.1e-12 (bar 1e-6), down from 0.76 at
+  the first pass.
+- **XOR**, with 4 hidden units: 0.009, 0.988, 0.991, 0.009.
+- **Determinism:** the same rows and seed give the same weights, bit for bit; another seed does not.
+  The command line's files repeat byte for byte too.
+- **The gradient against central differences,** through all four activations at the deepest shape
+  (5→6→4→3→2): worst relative error 3.9e-6 (bar 1e-4), all 87 gradients large enough to compare.
+- **Best-pass selection:** the best pass is the one returned, pass 5 of 12 in the test, so not the
+  last.
+- **Errors by reason** add up to the whole.
+- **Refusals by name:** a species with nothing to train on (§11); a shape the rows do not fit; a
+  shape `MlpBrain` cannot run, with its own message.
+
+**Watched failing:** 7 mutations, each seen failing U11 and restored byte for byte:
+- the activation's slope dropped from the backward pass;
+- the bias gradient dropped;
+- an unseeded shuffle;
+- the last pass returned instead of the best;
+- training on the driver's action columns instead of the label;
+- frozen rows kept;
+- kept errors shifted by a row.
+
+**One was missed at first:** with frozen rows kept, every check still passed. The test now asserts
+that no frozen or held-out row trains.
+
+**The dataset:** a fresh round-0 recording on the AMD iGPU at `cf3f972`, a clean tree, with §6's
+defaults. It reproduced 7.6's numbers exactly: the same catches per seed, and 360,453 prey rows.
+- **Prey:** 288,362 rows train, and 72,091 are held out (seed 15).
+- **Wolves:** 117,652 live rows train, and 28,984 are held out.
+
+**Round 0: three shapes, 40 passes each** (the default schedule, 3e-3 to 1e-4; tanh throughout).
+Held-out mean absolute error against the label:
+
+| Shape (weights) | Prey turn | Prey throttle | Wolf turn | Wolf throttle | Time, prey + wolves |
+|---|---|---|---|---|---|
+| 24→16→16→2 (706) | 0.214 | 0.012 | 0.094 | 0.002 | 47 + 19 s |
+| 24→32→32→2 (1,922) | 0.177 | 0.006 | 0.060 | 0.002 | 107 + 41 s |
+| 24→64→64→2 (5,890) | 0.135 | 0.005 | **0.048** | 0.001 | 283 + 111 s |
+
+The three ran side by side on a Ryzen 5 5600H (6 cores, 12 threads), so the times are under load.
+
+**By reason, at 24→64→64→2** (turn):
+- **prey:** flee 0.121, flock 0.138, wall 0.251;
+- **wolves:** chase 0.041, wander 0.076, wall 0.149.
+
+**What the three shapes show:**
+- **The wolves meet the 0.05 bar** at 64×64, and every throttle meets it at every shape.
+- **The prey's turn does not:** 0.135 at the best shape, 2.7 times the bar.
+- **It is underfitting, not overfitting.** Training error equals held-out error within 0.003, and
+  the best pass was the last, or the one before it, in every run. Capacity and training help. More
+  data, or 7.8's rounds of correction, which fix drift rather than underfitting, would not.
+- **The error is spread, not only at the label's jumps.** This comes from a scratch diagnostic at
+  64×64:
+  - the median turn error is 0.091, and the worst 10% of rows hold 35% of the error;
+  - rows near no jump still average 0.113;
+  - one jump is everywhere: 67% of held-out prey rows have a neighbour within 2.4 m and within
+    0.4 m of the centreline, where the separation term flips sign by up to 2.4.
+- **Best against last:** at most 0.0003 apart, so choosing the pass on the held-out episode flatters
+  the report by about that much.
+
+**Longer and larger: prey only, run side by side** (64×64×64 is the largest shape `MlpBrain` runs
+with 64-wide layers):
+
+| Run | Shape | Passes | Step size | Prey turn | Prey throttle | On training rows (turn) | Time |
+|---|---|---|---|---|---|---|---|
+| E1 | 24→64→64→2 | 150 | 3e-3 → 1e-4 | 0.084 | 0.0009 | 0.082 | 19.6 min |
+| E3 | 24→64→64→2 | 150 | 1e-2 → 1e-4 | 0.067 | 0.0004 | 0.065 | 19.8 min |
+| E2 | 24→64→64→64→2 | 150 | 3e-3 → 1e-4 | 0.059 | 0.0007 | 0.055 | 33.1 min |
+| **E4** | 24→64→64→64→2 | 200 | 1e-2 → 1e-4 | **0.033** | 0.0002 | 0.031 | 43.5 min |
+
+- **Longer training roughly halves the prey's error:** at 64×64, 0.135 after 40 passes becomes
+  0.067 after 150 with the larger first step.
+- **Depth and the larger first step both help, and they add up:** E4 combines them and reaches
+  0.033. It crossed 0.05 at pass 75, and its best pass was 199 of 200.
+- **The training rows stay close:** 0.031 against 0.033 held out.
+
+**The round-0 students** (E4's settings for both species; they are now the trainer's defaults,
+§7):
+
+| Species | Turn | Throttle | Turn median / 90th percentile | On training rows (turn) | Time |
+|---|---|---|---|---|---|
+| Prey | **0.033** | 0.0002 | 0.018 / 0.075 | 0.031 | 43.5 min |
+| Wolves | **0.011** | 0.0002 | 0.003 / 0.024 | 0.007 | 17.9 min |
+
+- **The bar, 0.05 per species and action, is met by both species,** for the turn and the throttle.
+- **By reason, it is met everywhere except the wall:**
+  - prey: flock 0.030, flee 0.030, wall 0.101;
+  - wolves: chase 0.008, wander 0.013, wall 0.058.
+
+  The wall branch is about 5% of rows for each species. The bar is per species and action, not per
+  reason, so this is reported, not gated. 7.8 shows whether it matters in the running simulation.
+- **Wolves now generalise a little less well** than they fit (0.007 on training rows, 0.011 held
+  out). They are still four times inside the bar.
+- **The students live in `tools/agents/out/e4-64x64x64-200-r01/`** (ignored). That folder has
+  `prey.mlp.json` and `wolf.mlp.json`, with the prey's `report.json` from before reports went per
+  species and `wolf.report.json`. `npm run agents:train` with the new defaults reproduces them from
+  the same recording.
+
+**What changed against the draft (§7):**
+- **The defaults:** 24→64→64→64→2 at 200 passes from 1e-2, not 24→32→32→2 at 40 passes from
+  3e-3.
+- **The cost:** "a few minutes" was the draft's estimate. Meeting the bar takes about an hour of
+  CPU for the two species.
+- **One report per species** (`<species>.report.json`), so species trained in separate runs keep
+  both.
+
+**Next: 7.8.** `evaluate.mjs` will run T, C, S and the mixed runs, comparing catches and the
+students' error on their own runs. Rounds of correction come only if the students drift.
