@@ -21,7 +21,7 @@ log, not here.
       over, and an `Identity` of an initializer is followed;
     - weights outside the file are refused with the fix named; **look again in step 9;**
     - no "Use OrtBrain" in refusals until step 9; the reader's size line is 2,600 B.
-  - **Committed 2026-10-14:** the design `a8778ce`, 8.0 `7829f4f`, 8.1 (the commit after `7829f4f`).
+  - **Committed 2026-10-14:** the design `a8778ce`, 8.0 `7829f4f`, 8.1 `8aa243a`.
   - **8.0:** `test/onnx-fixtures/` (`make.py`, `fixtures.json`, `requirements.txt`): 16 files from
     PyTorch's two exporters, scikit-learn and `onnx.helper`.
     - **PyTorch's default call stores every weight tensor over 256 B outside the `.onnx` file.**
@@ -31,13 +31,20 @@ log, not here.
     - 13 foreign files read with their makers' weights bit for bit; 3 are refused as listed.
     - 34 of 34 mutations were caught. The reader is 2,525 B min+gzip; the agents entry is
       unchanged at 19,323 B.
-  - **Next action: 8.2,** A28 in the `onnx` GPU suite: the reader's `MlpBrain` against ONNX
-    Runtime on the same bytes, on Node/NVIDIA, Node/AMD and Chrome. Then 8.3: the guide
-    (`docs/api/inference.md`), the README row, the parent's wording.
+  - **8.2 is committed** (the commit after `8aa243a`): A28 in `test/onnx-gpu/run.js`. For 17
+    files (the Herd & Wolves networks in three forms, and the 13 fixtures the reader takes), the
+    reader's `MlpBrain` and ONNX Runtime give the same actions from the same bytes.
+    - 23 of 23 checks, zero GPU errors, on Node/NVIDIA, Node/AMD and Chrome/AMD; worst difference
+      4.5e-6 (the bound is 1e-4).
+    - Watched failing under 5 mutations; a square layer read the other way round fails exactly
+      the 6 files that have one.
+  - **Next action: 8.3,** the guide (`docs/api/inference.md`) with a checked example and
+    "exporting from PyTorch" (lead with `external_data=False`), the README row, the agents
+    guide's "As ONNX" line, `tools/agents/README.md`, the parent's §9.3, §11 and §12.5.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed). Nothing uncommitted after 8.1's commit.
+- **null-graph** (`master`, not pushed). Nothing uncommitted after 8.2's commit.
   - **Stale until 8.3:** `docs/api/agents.md` and `tools/agents/README.md` still say that ONNX is
     not read; the README's table has no row for the new entry.
 - **`venv/`** (ignored) gained PyTorch 2.14.1, onnx, onnxruntime, onnxscript, scikit-learn and
@@ -53,10 +60,11 @@ log, not here.
 - **Another worktree exists:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`),
   left from 5.6's validation. It holds a `node_modules` junction. Remove that first with
   `cmd /c rmdir`, which drops the link only, before `git worktree remove`, which may follow it.
-- **Green on 2026-10-14, on the state 8.1's commit holds:** headless agents (reference + 73),
-  inference (7), agent-kit (4), core; `onnx` 5/5 on Node/NVIDIA.
-  - From 2026-10-13, not re-run: `onnx` on Node/AMD and Chrome; `agent-tools` 15/15 on three
-    host/GPU pairs.
+- **Green on 2026-10-14:**
+  - on the state 8.1's commit holds: headless agents (reference + 73), inference (7), agent-kit
+    (4), core;
+  - with 8.2: `onnx` 23/23 on Node/NVIDIA, Node/AMD and Chrome/AMD.
+  - From 2026-10-13, not re-run: `agent-tools` 15/15 on three host/GPU pairs.
   - Not re-run, and untouched: the agents GPU suite (137) and the other GPU suites.
 - **Bundle:** agents 19,323 B (C2 ceiling 21,495 B), unchanged by step 8. The reader is 2,525 B
   in its own entry (line 2,600 B).
