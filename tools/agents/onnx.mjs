@@ -24,7 +24,9 @@ export const ONNX_OPSET = 13;
 const OPS = Object.freeze({ identity: null, relu: 'Relu', tanh: 'Tanh', sigmoid: 'Sigmoid' });
 const utf8 = new TextEncoder();
 
-function varint(n) {
+// The encoding helpers are exported for test/onnx-fixtures/build.mjs, which builds the graphs
+// this writer does not: the other dense forms, and files that are wrong.
+export function varint(n) {
     const out = [];
     let v = BigInt(n);
     do {
@@ -36,12 +38,12 @@ function varint(n) {
     return out;
 }
 const key = (field, wire) => varint((field << 3) | wire);
-const int = (field, n) => [...key(field, 0), ...varint(n)];
-const msg = (field, bytes) => [...key(field, 2), ...varint(bytes.length), ...bytes];
-const str = (field, s) => msg(field, utf8.encode(s));
+export const int = (field, n) => [...key(field, 0), ...varint(n)];
+export const msg = (field, bytes) => [...key(field, 2), ...varint(bytes.length), ...bytes];
+export const str = (field, s) => msg(field, utf8.encode(s));
 
 /** A float tensor's value info; a string dimension is a named, free one. */
-function valueInfo(name, dims) {
+export function valueInfo(name, dims) {
     const shape = dims.flatMap(d => msg(1, typeof d === 'string' ? str(2, d) : int(1, d)));
     return [...str(1, name), ...msg(2, msg(1, [...int(1, 1), ...msg(2, shape)]))];
 }

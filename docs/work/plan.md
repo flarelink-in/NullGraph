@@ -48,9 +48,9 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
 | 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deterministic neighbour lookups ✅ 2026-10-13** (phases 5.5–5.8, [ordered grid](../agents-ordered-grid-design.md)): reruns are bit-exact with overflow; crowded cells yield a window per cell and tick (the user revised decision 2 after the window per querying agent cost +15% to +26%); a step is within the 10% rule (worst case +9.6%); 5.7 `de87b3f`, 5.8 the guides. **The scaling study (phases 5.0–5.4) is still deferred, so step 5 is not complete** |
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
-| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2: design decided 2026-10-13 (`f1244cb`, [cloning](../agents-cloning-design.md), phases 7.6–7.10); 7.6 ✅ (the scenario, the label pass, the recorder, `c2608d7`); 7.7 ✅ (the trainer; round-0 students, `0d3fb9f`); 7.8 ✅ (the copy in the running simulation: catches within 1% of the rule without wander, no drift, no round of correction, `8afc6fa`); 7.9 ✅ (the two networks committed in `tools/agents/models/herd-wolves`, U26, A26, A8, the guide's "A trained network", the tools' README, `cd76a25`); 7.10 ✅ (the `.onnx` writer, U12, A27: ONNX Runtime within 4.5e-6 of `mlpForward`). **Part 2 is built** |
-| 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
-| 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
+| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2: design decided 2026-10-13 (`f1244cb`, [cloning](../agents-cloning-design.md), phases 7.6–7.10); 7.6 ✅ (the scenario, the label pass, the recorder, `c2608d7`); 7.7 ✅ (the trainer; round-0 students, `0d3fb9f`); 7.8 ✅ (the copy in the running simulation: catches within 1% of the rule without wander, no drift, no round of correction, `8afc6fa`); 7.9 ✅ (the two networks committed in `tools/agents/models/herd-wolves`, U26, A26, A8, the guide's "A trained network", the tools' README, `cd76a25`); 7.10 ✅ (the `.onnx` writer, U12, A27: ONNX Runtime within 4.5e-6 of `mlpForward`, `834b360`). **Part 2 is built and committed** |
+| 8 | C2 | Reading ONNX: `mlpFromOnnx` in a new entry, `null-graph/inference` (the parent's `MlpBrain.fromOnnx`; [design](../agents-onnx-reader-design.md), phases 8.0–8.3) | Load models trained anywhere | Design decided 2026-10-14 (`a8778ce`; §5, item 8). 8.0 ✅ (`7829f4f`): 16 files from PyTorch, scikit-learn and `onnx.helper`, with what each maker computed. 8.1 ✅ (the commit after `7829f4f`): the entry and `mlpFromOnnx` (2,525 B; 13 foreign files read bit for bit, 3 refused as listed; 34 of 34 mutations caught). 8.2 (ONNX Runtime as judge on the GPU) next; 8.3 (the guide) not started |
+| 9 | C2 | `OrtBrain` and the generic ONNX Runtime adapter, in `null-graph/inference` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first. The entry itself is created by step 8. To decide here: weights stored outside the `.onnx` file (§5, item 8) |
 | 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
 
 **C1 is a product on its own:** crowds, herds and RTS units with no ML.
@@ -125,6 +125,23 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
    - **The bars:** the parent's A8; if they are missed, the numbers come back to the user.
    - **The scene:** the demo's defaults only.
 
+8. ~~**Step 8: reading ONNX**~~ **Decided 2026-10-14** in
+   [`../agents-onnx-reader-design.md`](../agents-onnx-reader-design.md) §14.
+   - **Before phase 8.0:**
+     - the reader goes in a new entry, `null-graph/inference`, created in this step;
+     - so it is a function, `mlpFromOnnx(bytes)`, and the agents entry keeps its 2,172 B;
+     - files written by other exporters are committed as fixtures, made in `venv/`.
+   - **After phase 8.0** (the recommended option each time):
+     - a `Cast` to float32 or a `Flatten` before the first layer and a `Reshape` after the last
+       are passed over, which reads scikit-learn's regressors (68 B);
+     - "Use OrtBrain" stays out of the refusals until step 9;
+     - the reader has a size line of its own; no TensorFlow or Keras fixtures now.
+   - **After phase 8.1's first build:**
+     - **weights outside the file are refused, with the fix named.** PyTorch's default call
+       writes them that way. **To be looked at again in step 9,** where larger models arrive;
+     - an `Identity` of an initializer, which PyTorch's older exporter writes for tensors with
+       equal values, is followed (65 B); the reader's size line is 2,600 B min+gzip.
+
 ## 6. Constraints that hold for every step
 
 - Design doc before code; build in phases; tests watched failing before they pass.
@@ -153,3 +170,13 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - 2026-10-13: step 7, part 2 designed and decided (§5, item 7). Against the parent's §9.5: labels
   come from a separate pass of the teacher, and `.mlp.json` is the working format, with `.onnx`
   last. The rest timer does not become an observation.
+- 2026-10-14: step 8's reader is a function, `mlpFromOnnx`, in `null-graph/inference`, an entry
+  the parent planned for step 9 and step 8 now creates. The parent's `MlpBrain.fromOnnx` is
+  retired, and C2's allowance on the agents entry is not spent on it. Files from other exporters
+  are committed as test fixtures (§5, item 8).
+- 2026-10-14: the reader's subset grows beyond the parent's six operators by nodes that change
+  no value: `Cast` to float32, `Flatten` and `Reshape` at the ends of the chain only, and an
+  `Identity` of an initializer. Phase 8.0 found them in scikit-learn's files and in PyTorch's
+  older exporter's (§5, item 8).
+- 2026-10-14: step 9 gains a question from step 8: whether to read weights that an exporter
+  stored outside the `.onnx` file (§5, item 8).

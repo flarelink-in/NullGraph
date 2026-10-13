@@ -745,3 +745,78 @@ network), and two equal 7×7 weight matrices. The fourteen earlier files did not
 ### Not done
 
 - **TensorFlow and Keras,** and any real reinforcement-learning library (§14, item 7).
+
+## Phase 8.1 results — 2026-10-14: the entry and the reader
+
+**Built:**
+- `src/extras/inference/index.ts` and `mlpOnnx.ts` (226 lines): `mlpFromOnnx(bytes)` and the
+  `OnnxMlp` type. It imports types only from the agents code.
+- `build.js` and `package.json`: the entry `null-graph/inference`, and `npm run test:inference`.
+- `test/inference-onnx.test.mjs`: seven tests. `test/onnx-fixtures/build.mjs`: graphs encoded by
+  hand for them, on the writer's encoding helpers, which `tools/agents/onnx.mjs` now exports.
+- `test/spikes/mlp-think-cost/size.mjs`: two lines for the new entry, and a check that no agents
+  bundle holds the reader.
+
+**As decided** (§14):
+- weights outside the file are refused, with the fix named (item 8);
+- a `Cast` or a `Flatten` before the first layer and a `Reshape` after the last are passed over
+  (item 4);
+- an `Identity` of an initializer is followed back to it (item 9);
+- no refusal mentions `OrtBrain` (item 5).
+
+**Tests** (`npm run test:inference`, 7 of 7):
+
+| Test | What it showed |
+|---|---|
+| The entry | It exports `mlpFromOnnx` alone, and the files `package.json` names exist |
+| U12 | Five layers written by `tools/agents/onnx.mjs` come back bit for bit, a `-0` included, with `obs`, `act` and the metadata; also from an `ArrayBuffer`, from a view at an odd offset, and after the file is wiped. `mlpLayout` then refuses the five layers: the limit is `MlpBrain`'s |
+| U29 | 23 forms of one three-layer network give it back bit for bit; the 23 files are all different bytes. The end nodes and an `Identity` are refused between two layers, and so are a `Cast` to float64 and a `Flatten` on axis 0 |
+| U30 | Of 718 prefixes of one file, 715 are refused by name and 3 read, exactly the three cut after the operator set. Of 10,000 files with one byte changed, 5,795 read and 4,205 are refused by name; **none throws anything else;** the slowest took 0.8 ms. The named cases of §10 hold, and two `Identity` nodes that feed each other are refused at once |
+| U31 | **13 files from other makers read with their makers' weights bit for bit,** and `mlpForward` is within 4.2e-7 of the makers' outputs. 3 are refused with the stated messages: `torch-double`, `torch-heads`, `torch-outside` |
+| U14 | 39 wrong files or arguments are each refused with their message. Among them: a web page and a `.mlp.json` file in place of the model, and a promise that was not awaited |
+| Size | Below |
+
+**Watched failing:** 34 mutations of `mlpOnnx.ts`, each rebuilt and run; **34 of 34 were caught.**
+Among them: no transpose; `Gemm` ignoring `transB`; the bias always taken as `Add`'s second
+operand; no limit on a varint; no check of a length against the bytes left; no notice of a loop;
+no limit on reused tensors; any `Cast` passed over; an `Identity` not followed; layers sharing one
+decoded array.
+- **A loop cannot hang the reader even without its check:** with that check removed, the limit on
+  reused tensors ended the walk, and the test failed on the message instead of running forever.
+- **One mutation was caught by a hang:** with no limit on the `Identity` nodes followed, two that
+  feed each other never end. The run was stopped after 20 s, and no process was left behind.
+
+**Sizes** (min+gzip, `size.mjs`'s settings):
+
+| | |
+|---|---:|
+| The reader as its own bundle (line 2,600 B) | 2,525 B |
+| Whole agents entry, before and after | 19,323 B and 19,323 B |
+| An app with rules and `MlpBrain` | 15,517 B |
+| The same app with `mlpFromOnnx` | 17,840 B |
+
+- The reader holds none of `MlpBrain`'s code, and the agents entry none of the reader.
+- An import of the entry that uses nothing leaves no bytes behind.
+
+**Also green after the change:** the headless agents suite (reference + 73), agent-kit (4 of 4),
+core headless, and the `onnx` GPU suite on Node/NVIDIA (5 of 5). The library type-checks
+(`npm run build:lib`).
+
+**Differs from the design as it stood before this phase:**
+- **A limit on reused tensors** (§6, §11), after `torch-shared` showed that real files share
+  tensors: without a limit, the reader's memory was not bounded by the file.
+- **An `Identity` of an initializer is followed,** and the size line is 2,600 B, after
+  `torchscript-shared` (§14, item 9). The first build of this phase refused that file at 2,460 B.
+- **U12 reads five layers from one file,** not from two: the reader has no layer limit, and the
+  test shows where the limit is.
+- **The size line is a test,** not only a line in `size.mjs`.
+- **Module-level constants are marked pure,** so that an app importing the entry for something
+  else carries none of the reader. Step 9 adds more to this entry.
+
+**Not done, by plan:**
+- **The README row, `docs/api/inference.md` and the agents guide's "As ONNX" line:** phase 8.3.
+  Until then the guide still says that ONNX is not read.
+- **A28,** the comparison with ONNX Runtime on the GPU: phase 8.2.
+- **Not run:** the GPU suites in Chrome and on the AMD GPU; they are untouched by this phase.
+
+**Next:** phase 8.2.

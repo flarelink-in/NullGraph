@@ -43,6 +43,7 @@ Detail belongs in the design doc, not in `now.md` or the log.
 |---|---|
 | `npm run build:lib` | Build `dist/`. **Every test imports `dist/`**: build after any `src/` change. `test:gpu` warns when `dist/` is older than `src/`. |
 | `npm run test:agents` · `test:core` · `test:visibility` · … | Headless suites (mock devices, math, WGSL parsing). |
+| `npm run test:inference` | Step 8: the ONNX reader of `null-graph/inference`, headless. Reads `test/onnx-fixtures/fixtures.json`; also holds the reader's size line. |
 | `npm run test:gpu` | Every GPU suite in Node through Dawn, one process per suite, plus a render smoke test. `-- --only agents` to pick one; `-- --json-dir out` for JSON reports. |
 | `npm run test:gpu:browser` | The same suites in headless Chrome. `-- --only agents`, `-- --chrome <path>`. |
 | `NG_GPU_ARTIFACTS=<dir> npm run test:gpu` | Also save the frames harnesses render, as PNGs. |
