@@ -7,4 +7,5 @@ venv
 git_commit.sh
 git-commit.py
 docs/post-presets.md
+tools/agents/out
 firebase.json
