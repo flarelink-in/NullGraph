@@ -51,7 +51,7 @@ Detail belongs in the design doc, not in `now.md` or the log.
 | `npm run spike:s3` | Spike S3: think-kernel cost on every adapter Dawn offers. A measurement, not a suite. |
 | `npm run agents:record` | Step 7, part 2: record what Herd & Wolves' rule decides, headless, into `tools/agents/out/` (ignored). `-- --episodes 2 --steps 360` for a short one. |
 | `npm run agents:train` | Step 7, part 2: train one network per species on a recording, CPU only; writes `<species>.mlp.json` and `<species>.report.json` beside it. `-- --hidden 16x16 --epochs 2` for a quick one. |
-| `npm run agents:evaluate` | Step 7, part 2: run the teacher, the rule without wander, and the students in the simulation, headless; prints catches and each driver's error against the label, and writes `evaluation.json` beside the students. `-- --students <dir>` picks them; `-- --episodes 1 --steps 300` for a quick one. |
+| `npm run agents:evaluate` | Step 7, part 2: run the teacher, the rule without wander, and the students in the simulation, headless; prints catches and each driver's error against the label, and writes `evaluation.json` beside the students. `-- --students tools/agents/models/herd-wolves` judges the committed networks; `-- --episodes 1 --steps 300` for a quick one. |
 
 To refresh the test-engine site after library changes: `npm run yalc:push` here (it leaves a
 **production** `dist/`; run `npm run build:lib` before committing), then restart the site with
