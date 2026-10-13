@@ -7,8 +7,8 @@
 // default tools/agents/out/onnx, which git ignores. Each file stores its species and its
 // observation and action names as metadata. CPU only; the same network gives the same bytes.
 //
-// Nothing in the library reads these files yet (MlpBrain.fromOnnx is step 8). ONNX Runtime does:
-// check A27 runs them against mlpForward.
+// The library reads these files back with mlpFromOnnx (null-graph/inference; check U12), and ONNX
+// Runtime runs them: check A27 against mlpForward, check A28 against the network read back.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

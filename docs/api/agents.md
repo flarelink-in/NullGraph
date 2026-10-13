@@ -3,9 +3,10 @@
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
 entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
 which runs a small dense network you supply, per-species brains, and loading a trained network
-(C2 step 7). Training, ONNX import, ONNX Runtime brains, camera eyes and a replay/rewind UI are not
-implemented by this API. Training is done by tools in the repository, outside the package
-([a trained network](#a-trained-network)).
+(C2 step 7). Training, ONNX Runtime brains, camera eyes and a replay/rewind UI are not implemented
+by this API. Training is done by tools in the repository, outside the package
+([a trained network](#a-trained-network)). An `.onnx` file is read by another entry,
+`null-graph/inference` ([inference.md](./inference.md)).
 
 ## Minimal rule simulation
 
@@ -417,8 +418,10 @@ the system, or give the species another brain, before destroying the returned br
   measured.
 - **Game rules stay in the app.** A resting wolf is frozen by the demo's app stage, and a frozen
   agent's action is not applied, so the network was never trained to rest.
-- **As ONNX:** `npm run agents:export` writes each network as a 41 KB `.onnx` file. This API
-  does not read ONNX yet; ONNX Runtime runs the files and agrees with `mlpForward` within 4.5e-6.
+- **As ONNX:** `npm run agents:export` writes each network as a 41 KB `.onnx` file.
+  `mlpFromOnnx`, from `null-graph/inference`, reads such a file back to the same network bit for
+  bit ([inference.md](./inference.md)). ONNX Runtime runs the files and agrees with `mlpForward`
+  within 4.5e-6.
 - **To train your own:** `npm run agents:record`, `agents:train` and `agents:evaluate`, described
   in [`tools/agents/README.md`](../../tools/agents/README.md). They run under Node, and training
   the two networks takes about an hour of CPU.

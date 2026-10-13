@@ -144,7 +144,9 @@ rest 5 s, flocking and fleeing on.
 - **No equality across GPUs.** A recording made on one GPU differs from one made on another.
 - **The site's demo has its own copy of the rule** until it moves onto `scenario/herd-wolves.mjs`.
   The two were compared once, by a scratch script: 0 rows differed over 600 steps.
-- **Reading `.onnx`** is not built: `MlpBrain.fromOnnx` is the library's next step.
+- **Reading `.onnx`** is the library's, not these tools': `mlpFromOnnx` in `null-graph/inference`
+  reads what `agents:export` writes back to the same network, bit for bit
+  ([`docs/api/inference.md`](../../docs/api/inference.md)).
 
 ## Tests
 
