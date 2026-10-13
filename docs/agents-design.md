@@ -492,6 +492,13 @@ offsets and writing `act`. It is the shipping brain for many games, and the teac
 - `MlpBrain.fromOnnx(bytes)` reads the dense subset: `Gemm`, or `MatMul` + `Add`, then `Relu` /
   `Tanh` / `Sigmoid`, with float32 initializers. That is what `torch.onnx.export` of a stack of
   `Linear` + activation layers emits. Any other op is refused by name, pointing at `OrtBrain`.
+  **As built in step 8** ([`agents-onnx-reader-design.md`](./agents-onnx-reader-design.md),
+  decided with the user 2026-10-14): a function, `mlpFromOnnx(bytes)`, in `null-graph/inference`,
+  which returns an `MlpNetwork`. It also passes over a `Cast` to float32 or a `Flatten` before
+  the first layer, a `Reshape` after the last, and an `Identity` of an initializer, which
+  scikit-learn and PyTorch's older exporter write. Weights stored outside the file, which is
+  what PyTorch's default call writes, are refused with the fix named; step 9 looks again. No
+  refusal points at `OrtBrain` until step 9 builds it.
 - **Phase 2 seam:** the record's `genome` word will select a row of a weight table; Phase 1 has one
   row.
 
@@ -537,7 +544,9 @@ dependency**: listed, never auto-installed, never bundled. An app that imports o
    seeded. No Python, nothing to install.
 3. **`export.mjs`** writes `brain.onnx` (`Gemm` + activation), extending
    `test/onnx-gpu/tiny-model.mjs`'s encoder.
-4. The same file runs in `MlpBrain.fromOnnx` and in `OrtBrain`; A5 checks they agree.
+4. The same file runs in `MlpBrain.fromOnnx` and in `OrtBrain`; A5 checks they agree. (Step 8
+   built the reader as `mlpFromOnnx`, and its A28 makes this comparison without `OrtBrain`: the
+   bytes read into an `MlpBrain` against ONNX Runtime running the same bytes.)
 
 This is behaviour cloning — "make the network copy the rules". It is the honest first step: it
 proves the loop end to end, and its quality is measured (A8), not claimed. A brain trained anywhere
@@ -597,7 +606,7 @@ are what make the later rows research rather than animation.
 | U9 | Every generated WGSL module parses, declares its entry point, uses each binding, and contains no backtick |
 | U10 | `MlpBrain` CPU forward equals a reference on known weights; the kernel's constants match the network |
 | U11 | The trainer fits y = Ax + b (10 dims) to MSE < 1e-6 and XOR with one hidden layer; the same seed gives byte-identical weights |
-| U12 | Exporter ↔ `fromOnnx` round trip is byte-exact on weights; an unsupported op is refused by name |
+| U12 | Exporter ↔ `fromOnnx` round trip is byte-exact on weights; an unsupported op is refused by name. Built in two halves: the writer's in step 7 (phase 7.10), the reader's in step 8 (`mlpFromOnnx`), with U29–U31 and A28 beside it |
 | U13 | The `OrtBrain` scheduler against a fake async session: one run in flight, latest wins, lockstep order sense → run → act, a rebind refused |
 | U14 | Every §11 error fires and names the offender |
 | U15 | The suite exits non-zero on failure — verified once by injection ([design-principles](./design-principles.md) §13.2) |
@@ -635,7 +644,7 @@ are what make the later rows research rather than animation.
 | Index out of range | `AgentSystem: index <i> is outside capacity <n>.` |
 | Used after destroy | `AgentSystem: used after destroy().` |
 | Network too wide | `MlpBrain: layer <k> is <w> wide; the built-in kernel takes ≤ 64. Use OrtBrain.` |
-| Unsupported ONNX op | `MlpBrain.fromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid. Use OrtBrain.` |
+| Unsupported ONNX op | `MlpBrain.fromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid. Use OrtBrain.` As built in step 8: `mlpFromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid.`, with the reader's other refusals in [`agents-onnx-reader-design.md`](./agents-onnx-reader-design.md) §11 |
 | ORT on another device | `OrtBrain: ONNX Runtime uses a different device. Set ort.env.webgpu.device = engine.device before creating the session, or init the engine with { device: await ort.env.webgpu.device }.` |
 | Model shape | `OrtBrain: input "<n>" is [<dims>] <type>; expected [N, <obsDim>] float32.` |
 | Mixed schedules | `OrtBrain: step() while an interactive run is in flight — await it first.` |
@@ -682,6 +691,9 @@ imports them and adds stage D.
 (`MlpBrain`, `fromOnnx`); `inference.js` (the generic ORT adapter plus `OrtBrain`'s wrapper) a few
 KB, paid only by apps that import it; `visibility.js` about +40 B; core +0 B. ONNX Runtime itself:
 0 B in every bundle.
+**Since step 8** the ONNX reader is in `inference.js`, not in `agents.js`: 2,525 B min+gzip under a
+line of its own of 2,600 B, paid only by apps that import it. `agents.js` is 19,323 B of C2's
+21,495 B, with nothing spent on the reader.
 
 ---
 
@@ -836,7 +848,9 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    **Part 2:** record → train → export, phases 7.6–7.10:
    [`agents-cloning-design.md`](./agents-cloning-design.md), decided with the user 2026-10-13.
    Nothing is built yet.
-8. `MlpBrain.fromOnnx` — U12.
+8. `MlpBrain.fromOnnx` — U12. **Built as `mlpFromOnnx` in `null-graph/inference`,** phases
+   8.0–8.3: [`agents-onnx-reader-design.md`](./agents-onnx-reader-design.md), decided with the user
+   2026-10-14. The entry of step 9 is created here.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
    over it — U13, A5, A6. ORT as an optional peer dependency.
 10. **Demo:** switch Rules / Network (WGSL) / Network (ORT) live, with per-step timings on screen;

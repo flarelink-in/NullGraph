@@ -18,7 +18,7 @@
 //   ValueInfoProto  1 name · 2 type
 //   TypeProto       1 tensor_type → { 1 elem_type, 2 shape → { 1 dim → { 1 dim_value | 2 dim_param } } }
 //
-// Plain JS, no node: imports. Reading ONNX is step 8 (MlpBrain.fromOnnx), not this file.
+// Plain JS, no node: imports. Reading ONNX is the library's: mlpFromOnnx, in null-graph/inference.
 
 export const ONNX_OPSET = 13;
 const OPS = Object.freeze({ identity: null, relu: 'Relu', tanh: 'Tanh', sigmoid: 'Sigmoid' });

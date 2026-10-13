@@ -8,25 +8,9 @@ import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 import { AgentSystem, defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
 import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
+import { standIn } from './stand-in-engine.mjs';   // runs an example's setup without a GPU
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-
-globalThis.GPUBufferUsage ??= { STORAGE: 128, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64 };
-// Runs an example's setup without a GPU: buffers and uploads are inert; built stages are recorded.
-function standIn() {
-    const stages = [];
-    const engine = {
-        device: { limits: { maxStorageBufferBindingSize: 128 * 1024 * 1024, maxBufferSize: 256 * 1024 * 1024,
-            maxComputeWorkgroupsPerDimension: 65535, maxComputeInvocationsPerWorkgroup: 256, maxComputeWorkgroupSizeX: 256,
-            maxStorageBuffersPerShaderStage: 8 },
-        createBuffer(o) { return { ...o, destroy() {} }; },
-        queue: { writeBuffer() {} } },
-        createComputeStage(o) { const s = { ...o, enabled: true, preClearBuffers: [] }; stages.push(s); return s; },
-        setComputePassBindGroup() {},
-        render() {},
-    };
-    return { engine, stages };
-}
 
 test('API guide: every example type-checks, bundles and generates a valid think module', async () => {
     const guide = readFileSync(join(root, 'docs/api/agents.md'), 'utf8');

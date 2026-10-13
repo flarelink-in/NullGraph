@@ -36,7 +36,9 @@ phase's commit.
   fixture behaves as listed; 34 of 34 mutations were caught.
 - **Phase 8.2 was built on 2026-10-14:** on three host and GPU pairs, the reader's `MlpBrain` and
   ONNX Runtime give the same actions from the same bytes, within 4.5e-6, for 17 files.
-- **Next: phase 8.3,** the guide and the README row.
+- **Phase 8.3 was built on 2026-10-14:** the guide, `docs/api/inference.md`, with a checked
+  example; the README row; the older documents brought in line.
+- **Step 8 is built** ("Closure of step 8", at the end).
 
 **Target:** a new entry `src/extras/inference/` with one file, tests, fixtures, one guide. Core
 and the agents entry unchanged. No new dependency.
@@ -489,7 +491,7 @@ must not carry the adapter. `size.mjs` checks it from step 9 on.
 | **8.0** ✅ | `test/onnx-fixtures/make.py`, `requirements.txt`, `fixtures.json` (§9). No library code | **Measured:** per exporter, what the file holds; whether the prototype takes it; the judges' agreement. §5 is confirmed or amended, with the user's word if the subset grows. Run 2026-10-14, not committed; results at the end. The subset grows by three end nodes: §14, item 4 |
 | **8.1** ✅ | The entry (§12) and `mlpOnnx.ts`; U12's reader half, U29, U30, U31, U14; the size lines | The Herd & Wolves files read back bit for bit; every fixture behaves as recorded; the reader is within its line and the agents entry is unchanged to the byte; the suite is green headless. Built 2026-10-14, not committed; results at the end. The README row and the guide are phase 8.3's |
 | **8.2** ✅ | A28 in the `onnx` suite | ONNX Runtime agrees within 1e-4 on Node/NVIDIA, Node/AMD and Chrome/AMD. Built 2026-10-14: 23 of 23 checks on all three, worst difference 4.5e-6; results at the end |
-| **8.3** | `docs/api/inference.md` with a checked example and "exporting a policy from PyTorch"; the agents guide's "As ONNX" line; the README row; `tools/agents/README.md`; the parent's §9.3, §11 and §12.5 brought in line; closure | Docs match what was measured; `docs/work` updated |
+| **8.3** ✅ | `docs/api/inference.md` with a checked example and "exporting a policy from PyTorch"; the agents guide's "As ONNX" line; the README row; `tools/agents/README.md`; the parent's §9.3, §11 and §12.5 brought in line; closure | Docs match what was measured; `docs/work` updated. Built 2026-10-14; results at the end |
 
 Every test is watched failing before it passes. One phase per commit.
 
@@ -885,3 +887,77 @@ A first check states the coverage: the reader refuses exactly `torch-double`, `t
 **Not run:** the other GPU suites; this phase changes one test file.
 
 **Next:** phase 8.3.
+
+## Phase 8.3 results — 2026-10-14: the guide
+
+**Built:**
+- `docs/api/inference.md`: the entry's guide. One checked example, `useOnnxNetwork`; what a file
+  must hold; exporting from PyTorch and from scikit-learn; the refusals and what to do about
+  each; what nothing checks; cost; validation.
+- `test/inference-api-example.test.mjs`, in `npm run test:inference` (now 8 tests). The guide's
+  example is type-checked, bundled and run on a stand-in engine:
+  - it loads both committed networks from `.onnx` bytes, one think pass per species;
+  - it refuses a file with other names, a file of other widths (and destroys the brain it made
+    for it), and a file whose weights are outside it;
+  - **every `torch.onnx.export` call the guide shows must carry `external_data=False`.**
+- `test/stand-in-engine.mjs`: the stand-in engine, now shared with the agents guide's test, which
+  had its own copy.
+- `README.md`: the row for `null-graph/inference`.
+- `docs/api/agents.md` (the introduction and the "As ONNX" line), `tools/agents/README.md` and
+  two comments in `tools/agents/`: they said that ONNX was not read.
+- The parent, [`agents-design.md`](./agents-design.md): §9.3, §9.5, §10 (U12), §11, §12.5 and
+  §13 keep the plan's words and now say what was built, pointing here.
+
+**The guide's recipes were run before they were written down** (PyTorch 2.14.1, scikit-learn
+1.7.2, in `venv/`), and their files read with the built reader:
+
+| Recipe | Result |
+|---|---|
+| `torch.onnx.export(policy, (example,), "policy.onnx", external_data=False)`, a 24→64→64→2 network | One file of 30,794 B. Read; `mlpForward` is within 5.2e-8 of PyTorch |
+| The same call without `external_data=False` | Two files, 7,927 B and 23,040 B. Refused, with the message that names the argument |
+| `torch.onnx.export(model.pi, …)`, for a model with a policy part and a value part | Read; within 3.7e-8 |
+| Node metadata removed with the `onnx` package | 30,794 B becomes 26,167 B; no path is left; still read |
+| A scikit-learn `MLPRegressor`, 24→32→32→2, through `to_onnx` | Read; within 1.0e-7 |
+
+**Watched failing:** 6 breakages of the guide, 6 of 6 caught: the argument dropped from the export
+call; a refused brain not destroyed; the names not checked; the action names checked against the
+observations; a type error; the species not passed on.
+
+**Green:** headless agents (reference + 73, its guide examples now on the shared stand-in),
+inference (8), agent-kit (4), core; `onnx` 23 of 23 on Node/NVIDIA. The 74 local links of the
+edited documents resolve.
+
+**Left as they are:** the records of finished steps that name `MlpBrain.fromOnnx`
+(`agents-mlp-design.md`, `agents-cloning-design.md`, `handoff.md`).
+
+## Closure of step 8 — 2026-10-14
+
+**Every phase, 8.0 to 8.3, is built and measured.** An app can load a small dense network from an
+`.onnx` file without a converter and without ONNX Runtime.
+
+| Asked for | Result |
+|---|---|
+| Read a dense network from an `.onnx` file | `mlpFromOnnx(bytes)`, in `null-graph/inference`, returns an `MlpNetwork` |
+| "Load models trained anywhere" | 13 files from PyTorch 2.14.1 (both exporters), scikit-learn 1.7.2 and `onnx.helper` read with their makers' weights bit for bit; 3 are refused by name, as they should be |
+| A judge that shares nothing with the reader | ONNX Runtime on the same bytes agrees with the reader's `MlpBrain` within 4.5e-6, for 17 files on three host and GPU pairs (A28) |
+| No cost to apps that do not use it | The agents entry is unchanged at 19,323 B, with 2,172 B of C2's allowance left. The reader is 2,525 B in its own entry |
+| Safe on files from anywhere | 10,000 damaged files and every cut-short prefix give a network or a refusal by name; memory and time are bounded by the file |
+| A guide | `docs/api/inference.md`, with a checked example and recipes that were run |
+
+**What the measurements changed against the first draft:**
+- **The reader left the agents entry,** as a function. A static method would have cost every
+  `MlpBrain` app 1,767 B.
+- **PyTorch's default call stores the weights outside the file.** The reader refuses that with
+  the fix named, and the guide leads with it.
+- **Four nodes that change no value are taken** beyond the parent's six operators: `Cast`,
+  `Flatten`, `Reshape`, `Identity`. scikit-learn's files and some of PyTorch's cannot be read
+  without them.
+- **Real files share tensors between layers,** so the reader limits what its copies may add up to.
+- **The fixtures are text,** because git here can alter a tiny binary on checkout.
+
+**Left open:**
+- **Weights outside the file:** the user looks again in step 9, where larger models arrive.
+- **Activations `MlpBrain` does not have** (`LeakyRelu`, `Elu`, `Clip`), graphs with several
+  outputs, float64 weights: refused by name.
+- **Files from TensorFlow, Keras and reinforcement-learning libraries** are not measured.
+- **The site's demo** still loads `.mlp.json`: step 10.
