@@ -187,6 +187,9 @@ species encoding/routing and any needed rest/time state; do not promise teacher 
 or weight-table rows of one `MlpBrain` from 8 species
 ([`agents-species-brains-design.md`](./agents-species-brains-design.md)); the rest timer becomes
 an observation in step 7, part 2.
+**Revised 2026-10-13:** the rest timer does not become an observation. A resting wolf is frozen,
+so its action is never applied, and the trainer drops those rows
+([`agents-cloning-design.md`](./agents-cloning-design.md) §5; decision 2).
 
 ## 6. Tests and acceptance
 

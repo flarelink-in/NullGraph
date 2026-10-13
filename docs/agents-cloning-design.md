@@ -1,0 +1,461 @@
+# NullGraph Agents — C2 step 7, part 2: record → train → export — Technical Design
+
+**Parent:** [`agents-design.md`](./agents-design.md) §9.5 (the training tools) and §13, C2 step 7.
+**Builds on:**
+- [`agents-species-brains-design.md`](./agents-species-brains-design.md): one brain per species;
+- [`agents-mlp-design.md`](./agents-mlp-design.md): `MlpBrain`, its network format and limits;
+- [`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md): bit-exact lockstep reruns.
+
+**Asked by the user, 2026-10-13:** "start step 7 part 2 design", after step 5's deterministic
+neighbour lookups were completed for it.
+
+**Decided with the user, 2026-10-13** (§14; [`work/plan.md`](./work/plan.md) §5, item 7):
+1. **The network copies the rule's decision without its random wander and its index coin-flips.**
+2. **No observation for the wolf's rest timer:** a resting wolf is frozen, and its rows are dropped.
+3. **The teacher lives in this repository,** under `tools/agents/`.
+4. **`.mlp.json` is the working format,** with the two trained Herd & Wolves files committed;
+   `.onnx` is written in the last phase, 7.10, and stays in this part.
+5. **The bars are the parent's A8,** read as in §8; if they are missed, the numbers go back to the
+   user.
+6. **The scene is the demo's defaults only.**
+
+**Status:** ✅ design decided 2026-10-13. No code yet; phase 7.6 is next.
+
+**Target:** `tools/agents/` (new, in the repository, not in the package), tests, one guide
+section. **`src/` unchanged; no bundle bytes.**
+
+---
+
+## 1. Purpose
+
+**Make the first network that has learned Herd & Wolves.** Three tools:
+1. **record** what the rule brain decides, in a headless lockstep run;
+2. **train** one small network per species to give the same decisions;
+3. **export** each network as a file that today's `MlpBrain` runs.
+
+Then **measure the copy**, twice: decision by decision, and in the running simulation.
+
+**Words used here:**
+- **teacher:** the rule brain that is copied;
+- **student:** a network trained to copy it;
+- **label:** the action the teacher gives for one observation;
+- **driver:** whichever brain is moving the agents during a run.
+
+### The single most important pre-existing fact
+
+**The teacher is a GPU rule, so it can label any observation, for free.** A human demonstrator
+can only show what they did. This teacher can also be asked what it *would* do in a situation the
+student got itself into. The recorder is built around that: labels come from a separate pass, so
+they do not depend on who is driving (§6).
+
+### The second fact: the teacher's action is not a function of what the student sees
+
+Herd & Wolves' rule reads three things beside the observations (fact 1):
+- **the wolf's rest timer,** from its record;
+- **a wander value,** a hash of the agent's index and the tick, constant for 32 steps;
+- **two coin-flips by index parity,** for exact ties and for a wall dead ahead.
+
+A network sees observations only. Trained on the teacher's raw actions, it would learn the average
+over what it cannot see, and its error could not go below the size of the hidden part. For prey
+that is not fleeing, the wander term alone is 0.3 × a uniform value in [−1, 1). Before any clamp,
+that is a mean absolute error of 0.15 on the turn: three times the parent's target of 0.05 (A8).
+
+### Non-goals
+
+- **Learning by trial and reward** (reinforcement learning), and any training in the browser or on
+  the GPU. The parent's non-goals stand.
+- **A student that remembers.** The networks are feed-forward: observation in, action out.
+- **Reading ONNX** (`MlpBrain.fromOnnx`, step 8), **ONNX Runtime brains** (step 9), and **the live
+  Rules / Network switch** (step 10).
+- **Other scenes.** The tools take a scenario module, but only Herd & Wolves is delivered and
+  measured.
+- **One network for every setting.** The students are trained at the demo's defaults (§5). How
+  they behave when the speed or rest sliders move is not promised.
+- **A new library API.** `src/` is not touched (§12).
+
+### Design principles applied
+
+- **Verify against the tree** ([`design-principles.md`](./design-principles.md) §1): §3's table.
+- **A CPU mirror is a second implementation, and it drifts** (§13.1): labels are computed by the
+  teacher's own WGSL on the GPU, never by a JavaScript port of the rule (§5, rejected options).
+- **Tests pin numbers, and must be seen to fail** (§13): §10.
+- **Measure, then claim:** the copy's quality is a measured number with a stated bar (§8), and the
+  numbers go back to the user when the bar is missed (§13, phase 7.8).
+
+## 2. Architecture
+
+```
+            ┌───────────────────── one lockstep step (Node + Dawn) ─────────────────────┐
+ scenario   │ grid → queries → sense → think (driver) → LABEL PASS → act → app → tick   │
+ (teacher)  └───────────────│──────────────────────────────│──────────────────────────────┘
+                            ▼ obs                          ▼ labels (the rule, minus what
+                                                             the student cannot see)
+ record.mjs ──────────► dataset: rows of (obs, label, driver's act) + header ──┐
+                                                                               ▼
+ train.mjs  ◄──────────────────────────────────────────────────────────── per species
+     │  plain JS: Adam, mean-squared error, seeded
+     ▼
+ prey.mlp.json, wolf.mlp.json  ──►  evaluate.mjs: the students drive; the label pass still
+     │                               labels every observation they meet
+     ▼                                        │
+ MlpBrain per species (today's API)           └──► more rows for the next round, if needed
+```
+
+- **The driver and the label are separate.** In the first run the teacher drives. In later runs
+  the students drive. The label pass is the same in both.
+- **Everything runs headless** under Node with Dawn, in lockstep, as the parent planned (§9.5).
+
+## 3. Integration facts (verified against this repository, 2026-10-13)
+
+| # | Fact | Where | Consequence |
+|---|---|---|---|
+| 1 | The demo's rule reads the wolf's rest timer (`agents[i].state.w`), a wander hash of `(i, tick >> 5)` and index parity (`i % 2`), beside `obs`, a settings buffer and prey's `maxSpeed` | the test-engine site, `HerdWolvesGPU/brain.ts`, `HERD_BRAIN` | The teacher's action is not a function of the observation. The label must leave those inputs out (§5) |
+| 2 | A rule's `think` may read every agent record, the tick and its own group-1 buffers | `agentThinkShaders.ts:26–55`; `AgentSystem.ts:208–225` | Hidden inputs are legal for a rule. Every teacher needs fact 1's audit |
+| 3 | A frozen agent's action is never applied: act zeroes its velocity and returns | `agentActShaders.ts:69–74` | The demo freezes a resting wolf. Its action needs no copying (§5) |
+| 4 | Sense and think share one gate, `thinksNow`: alive, and newborn or `(tick + i / 64) % thinkEvery == 0` | `agentSenseShaders.ts:10–12`; `agentThinkShaders.ts:47` | An agent's `obs` row and its action row always come from the same step |
+| 5 | `obs`, `act`, `reason`, `state` and the records are `COPY_SRC` | `AgentSystem.ts:96–101` | A tool reads them back with its own copies |
+| 6 | The think wrapper is exported: `buildAgentThinkWGSL(def, wgsl, thinkEvery)`. A think pass writes only its own agents' rows, behind a species mask | `agentThinkShaders.ts:26, 36, 48`; `agents/index.ts` | A tool can run a second think pass that writes into its own buffers: the label pass (§6) |
+| 7 | A step is grid → queries → sense → think passes → act → app stages → tick | `AgentSystem.ts:150–155` | The label pass belongs after the last think and before act |
+| 8 | `await agents.step()` uploads, submits one step and waits | `AgentSystem.ts:381–387` | Lockstep recording, as the parent's §9.5 asks |
+| 9 | Lockstep reruns on one device are bit-exact, with or without overflow | ordered-grid design, closure; A7, A23 | A recording is reproducible on its device, byte for byte |
+| 10 | `MlpBrain` takes 1–4 dense layers: input ≤ 128, hidden ≤ 64, output ≤ 16. `mlpForward` is its f32 CPU reference, and the GPU agrees with it within 1e-5 + 1e-5·\|cpu\| (A4) | `mlpMath.ts:29–39, 110`; mlp design | The trainer's result is judged by `mlpForward`: what is measured is what runs |
+| 11 | Each species can have its own brain, of its own shape: one gated think pass per brain | `AgentSystem.ts:179–205`; A22 | One network per species needs nothing new |
+| 12 | `rand01(i, tick, stream)` has a bit-exact CPU twin | `RuleBrain.ts:32` | Seeds, sampling and initial weights need no new generator |
+| 13 | The repository already encodes ONNX by hand, and runs ONNX Runtime under Node | `test/onnx-gpu/tiny-model.mjs:42`; `test/onnx-gpu/run.js` | An exported `.onnx` can be checked against `mlpForward` before step 8's reader exists |
+| 14 | The package ships `dist` only | `package.json:11–13` | Tools and trained files live in the repository. No bundle bytes |
+| 15 | Herd & Wolves observes 24 floats (self 2, nearest wolf 5, three nearest prey 15, bounds 2) and acts with 2 (turn, throttle) | the demo's `defineAgents`; `agentLayout.ts:70–73` | 24 → … → 2 networks: the shape S3 and phase 6.3 timed |
+| 16 | The demo's rules exist only in the test-engine site | search of this repository | The teacher must come into this repository to run headless (§5) |
+
+## 4. Data model
+
+### 4.1 A dataset
+
+One recording is a folder: `header.json` and, per species, two flat little-endian files.
+
+| File | Row | Contents |
+|---|---|---|
+| `<species>.f32` | `obsDim + 2 × actDim` floats (28 for Herd & Wolves) | the observation, the label, the driver's action |
+| `<species>.u32` | 4 words | episode, tick, agent index, flags: bit 0 frozen, bits 4–7 the teacher's reason code |
+
+**`header.json` holds what makes the files reproducible:**
+- the format version; the scenario's name, and a hash of each WGSL text (driver, label, app stages);
+- the definition: capacity, world, cell size, scan budget, `dt`, `thinkEvery`, species, and
+  `obsNames` and `actNames` in order;
+- the scenario's settings (speeds, rest seconds, flocking and fleeing switches);
+- the episodes: seed, steps, and who drove each;
+- the sampling: read-back stride and keep rate per species;
+- the row count and SHA-256 of every file;
+- where it was made: the library's commit (and whether the tree was dirty), Node's version, the
+  GPU adapter.
+
+**Not committed:** datasets are tens of megabytes. They go to `tools/agents/out/`, which is ignored.
+
+### 4.2 A trained network
+
+`<species>.mlp.json`, one per species:
+
+```jsonc
+{
+  "format": "null-graph/mlp", "version": 1,
+  "species": "prey",
+  "obsNames": ["self.speed", "self.energy", "wolf[0].side", "…"],   // the definition's, in order
+  "actNames": ["turn", "throttle"],
+  "layers": [{ "input": 24, "output": 32, "activation": "tanh", "weights": [/* row-major */], "biases": [] }],
+  "trainedOn": { "dataset": "<sha-256 of header.json>", "teacher": "<hash of the label WGSL>",
+                 "settings": {}, "seed": 1, "rounds": 1 },
+  "measured": { "heldOutMae": { "turn": 0, "throttle": 0 }, "rows": 0 }
+}
+```
+
+- **`layers` is `MlpNetwork`** with arrays for the two `Float32Array`s. Numbers are written with 9
+  significant digits, which is enough to read every f32 back exactly.
+- **Loading it needs no new API:** turn the arrays into `Float32Array`s, check `obsNames` and
+  `actNames` against the definition, then `new MlpBrain(engine, layers)` and
+  `agents.setBrain(brain, { species })`.
+- **Committed:** the two Herd & Wolves files and their report, about 25 KB each (§14, decision 4).
+
+## 5. The teacher and the label
+
+### The teacher comes into the repository
+
+`tools/agents/scenario/herd-wolves.mjs` holds what the demo holds today: the definition, the
+rule, the two app stages (catches, respawn), the spawn and the settings. It is the demo's code,
+with one change of shape: **the rule's three hidden inputs and its reason word go through four
+small named functions.**
+
+```wgsl
+fn wander(i: u32, tick: u32) -> f32 { … }    // the hash, as today
+fn coin(i: u32) -> bool { return (i % 2u) == 0u; }
+fn resting(i: u32) -> bool { return agents[i].state.w > 0.0; }
+fn tag(i: u32, tick: u32, why: u32) -> u32 { return why; }
+```
+
+**The driver's text** uses them as written, and decides exactly what `HERD_BRAIN` decides. Phase
+7.6 checks that once against the site's file: the same actions, word for word, over 600 steps.
+
+### The label is the teacher without what the student cannot see
+
+**The label's text** is the same rule with the four functions replaced:
+
+| Function | In the label's text | Why |
+|---|---|---|
+| `wander` | returns 0 | The student has no source of chance. The label is the rule's decision without its wander |
+| `coin` | returns `true` | One fixed side for exact ties and for a wall dead ahead, instead of a side by index |
+| `resting` | returns `false` | A resting wolf is frozen, so its action is never applied (fact 3). The label says what it would do otherwise, and the trainer drops frozen rows |
+| `tag` | returns `(tick << 8) \| (frozen << 4) \| why` | The row carries the step it was written in, so the recorder knows which rows are fresh without re-deriving the think gate on the CPU |
+
+**The label is then a function of the species and the observation only,** at fixed settings. That
+is something a network can learn, and an error against it measures the network and nothing else.
+
+**What this gives up:** the student does not wander, and it always picks the same side on a tie.
+Phase 7.8 measures what that changes in the running simulation (§8).
+
+**The settings are fixed at the demo's defaults:** 4,096 agents, one wolf in 16, `thinkEvery` 3,
+scan budget 64, prey speed 3.2, wolf speed 4.2, rest 5 s, flocking and fleeing on.
+
+### Rejected
+
+- **Labels from the driver's own `act`,** as the parent's §9.5 sketched. The hidden inputs put a
+  floor under the error that no network can pass (§1). The driver's action is still recorded
+  beside the label, so phase 7.6 can state that floor as a measured number.
+- **Labels from a JavaScript port of the rule.** It is a second implementation of 60 lines of
+  branching WGSL, and nothing would hold the two together (design-principles §13.1).
+- **The rest timer as an observation** ([`agents-mlp-design.md`](./agents-mlp-design.md) §5.1
+  noted it for this part). It would change the demo's definition to teach the network an action
+  that is never applied. Dropping frozen rows costs nothing (§14, decision 2).
+- **The wander value as an observation.** It would let the student wander like the teacher. It
+  needs a sensor that reads the tick, which a custom sensor has no contract for today, or a rule
+  that wanders by the agent's age instead. Kept as the fallback if 7.8 shows that wander matters
+  (§14, decision 1).
+
+## 6. Recording
+
+### The label pass
+
+The recorder builds one more think stage with the library's own wrapper (fact 6):
+
+- **Its code** is `buildAgentThinkWGSL(definition, labelText, thinkEvery)`: the same gate, the same
+  accessors, the same tick as the system's think.
+- **It reads** the system's records, observations, state and species table, and the scenario's
+  settings.
+- **It writes** into two buffers the recorder owns: the labels, and their tag words.
+- **It runs** after the system's last think pass and before act (fact 7). The recorder splices it
+  into the step's stage array at the stage named `AgentSystem act`, and refuses by name if that
+  stage is not found (§11).
+
+Because the gate is shared (fact 4), **an agent's observation row and its label row are written in
+the same step, for the same agents.** The tag's tick says which step.
+
+**Tried before this draft,** with a scratch script outside the repository: 4,096 agents under
+Node/Dawn on the AMD iGPU, 300 lockstep steps with respawns and resting wolves, and a stand-in
+rule that has the demo's three kinds of hidden input behind §5's four functions.
+- **Given the driver's text, the label pass wrote the system's own actions, word for word,** in
+  all 300 steps; no validation error.
+- **Spliced after act instead, it differed** in 223 of 300 steps (4,531 rows): the check A25 needs.
+- **Given the label's text,** every row the system's think wrote in a step carried that step's
+  tag, and the driver's turn differed from the label's by 0.11 on average. That is the stand-in
+  rule's hidden part, more than twice the 0.05 bar; 7.6 measures the real rule's.
+
+### What a recording run does
+
+For each episode (a seed):
+1. spawn as the demo spawns, with that seed;
+2. step in lockstep (fact 8). Every `stride` steps, copy out the observations, the labels, the
+   tags and the driver's actions;
+3. keep the rows whose tag was written since the last copy, so each agent's decision is kept once;
+4. keep a share of them by a hash of the agent, the tick and the species (fact 12), so prey do
+   not outnumber wolves fifteen to one in the files.
+
+**Defaults:** 5 episodes of 1,800 steps (30 s); a copy every 6 steps; every wolf row and one prey
+row in 16. That is about 75,000 rows per species and episode, and about 45 MB per species in all.
+**The last episode is held out:** training never sees it.
+
+**Reproducible:** on one device, the same library build, scenario and seeds give the same bytes
+(fact 9). The header's hashes say so, and A24 checks it.
+
+**Who drives is a parameter.** In round 0 the teacher drives both species. Later rounds can put a
+student on either species (§8). The label pass does not change.
+
+## 7. Training
+
+`tools/agents/mlp-train.mjs` is the parent's "150-line dense-network trainer in plain JS": no
+install, no native code.
+
+- **The network:** `MlpNetwork`'s shapes. Start at 24 → 32 → 32 → 2 with `tanh` throughout: the
+  shape phases S3 and 6.3 timed, and actions already lie in [−1, 1]. Each species has its own
+  shape; 7.7 tries smaller and larger ones within `MlpBrain`'s limits (fact 10).
+- **The loss:** mean-squared error against the label. **The optimizer:** Adam, mini-batches of
+  256, a fixed number of passes over the rows, with the step size decaying.
+- **Seeded:** initial weights and the shuffle come from `rand01` (fact 12). One thread, in order:
+  the same rows and seed give byte-identical weights on one Node version (U11).
+- **Rows used:** one species' rows, minus frozen ones, minus the held-out episode.
+- **The result is stored as f32 and judged as f32.** After training, every reported error is
+  computed with the library's `mlpForward` on the rounded weights (fact 10), including its clamp of
+  `tanh`'s input to ±15.
+- **The best pass wins:** the trainer keeps the weights with the lowest held-out error, not the
+  last ones.
+
+**Cost, estimated, to be measured in 7.7:** about 1,900 weights; 300,000 rows × 40 passes is a
+few minutes of plain JS on one core.
+
+## 8. Judging the copy
+
+### Decision by decision
+
+**Held-out error:** the mean absolute difference between the student's action and the label, on
+the episode training never saw. Reported per species, per action (turn, throttle) and per reason
+code, so a weak branch of the rule shows.
+
+**The bar is the parent's A8: 0.05 or less, per species and action.**
+
+### In the running simulation
+
+`tools/agents/evaluate.mjs` runs held-out seeds for 30 s each, in lockstep, under four drivers:
+
+| Run | Prey | Wolves | Answers |
+|---|---|---|---|
+| **T** | teacher | teacher | the reference, with its spread across seeds |
+| **C** | the rule without wander and coin-flips | the same | what the label, followed exactly, does |
+| **S** | student | student | the copy |
+| **Sp** | student | teacher | how good the prey's copy is alone |
+| **Sw** | teacher | student | how good the wolves' copy is alone |
+
+It reports:
+- **catches in 30 s.** The parent's A8 says "prey survival"; in this demo a caught prey respawns,
+  so the count of catches is that measure;
+- **mean speed** per species, and **how tight the herds are** (the mean distance to the nearest
+  prey, from the observations);
+- **the student's error on its own run:** the label pass is still running, so every observation
+  the student meets has a label. This is the error that counts, because a student drifts into
+  situations the teacher never visited.
+
+**The bars:**
+- **S against C: mean catches over 5 held-out seeds within 10%** (A8's figure). T's own spread
+  across seeds is reported beside it, because a 10% bar means little if seeds alone differ by more.
+- **C against T is reported, not gated.** If the rule without wander behaves differently from the
+  rule, that is a property of the label, not of the training, and it goes back to the user (§14,
+  decision 1).
+
+### Rounds of correction
+
+If the student's error on its own run is well above its held-out error, the cause is the one
+named above: it visits situations that are not in its data. The fix is known as dataset
+aggregation:
+1. let the students drive, and record the observations they meet, with the teacher's labels;
+2. add those rows to the dataset;
+3. train again from scratch, with the same seed.
+
+The recorder needs nothing new for this: only the driver changes. **Whether any round is needed
+is not known;** 7.8 measures it, and stops at 3 rounds.
+
+## 9. Export and loading
+
+- **`<species>.mlp.json`** (§4.2) is the working format, written by `train.mjs`. It loads into
+  today's `MlpBrain` with six lines of app code.
+- **The names are checked on load.** `obsNames` and `actNames` must equal the definition's, in
+  order. Equal widths do not show that a feature means what the network expects (the guide says
+  so already); equal names do.
+- **`<species>.onnx`** is written last (phase 7.10): `Gemm` + activation per layer, extending
+  `test/onnx-gpu/tiny-model.mjs`'s encoder, as the parent's §9.5 says. Step 8's reader does not
+  exist yet, so the file is checked the other way (fact 13): ONNX Runtime runs it under Node, and
+  its output must equal `mlpForward`'s.
+- **A guide section,** "A trained network", shows the loading code as an executable example.
+
+## 10. Test suite
+
+**Headless** (`npm run test:agents`, new file `test/agents-tools.test.mjs`):
+
+| # | Asserts |
+|---|---|
+| U11 | The trainer fits y = Ax + b (10 inputs) to a mean-squared error under 1e-6, and XOR with one hidden layer. The same seed gives byte-identical weights. Its gradients equal finite differences within 1e-4 relative; **watched failing** with one term of the backward pass dropped |
+| U12 | The ONNX writer's bytes decode to the layers that were written: shapes, activations, weights bit for bit. (The reader half and "an unsupported op is refused by name" stay with step 8) |
+| U24 | A dataset written and read back is byte-identical. One flipped byte fails its hash, and a short file is refused with both sizes named |
+| U25 | The scenario's two rule texts parse inside the think wrapper. They differ in the four functions and nowhere else. A tag packs and unpacks tick, frozen and reason |
+| U26 | A `.mlp.json` written and read back gives bit-identical f32 weights. A file whose `obsNames` differ from the definition is refused, naming the first difference |
+| U27 | The row sampler is the same on every run, keeps the asked share within 1% over 100,000 rows, and never puts a held-out episode's row into training |
+
+**GPU** (`test/agents-gpu`, Node + Dawn and Chrome where the check does not need files):
+
+| # | Asserts |
+|---|---|
+| A24 | Two recordings of the same seeds are byte-identical, every file. A recording with another seed is not |
+| A25 | The label pass, given the driver's text, writes the system's own actions, word for word, for exactly the agents that thought in that step, over 300 steps with respawns. **Watched failing** with the pass spliced after act, where a newborn's gate has already closed |
+| A26 | The committed Herd & Wolves files load into one `MlpBrain` per species, and one step's actions equal `mlpForward` of that step's observations within A4's tolerance |
+| A8 | Cloning quality, the parent's check, with its two bars stated in §8: held-out error at most 0.05 per species and action; catches of S within 10% of C over 30 s on 5 seeds |
+| A27 | ONNX Runtime runs each exported `.onnx` on 256 held-out observations, and its actions equal `mlpForward`'s within 1e-4 (the bound of the parent's A5). Node only, in the `onnx` suite |
+
+## 11. Errors
+
+| Condition | Message |
+|---|---|
+| The step has no stage named `AgentSystem act` | `agents-tools: the step has no "AgentSystem act" stage. These tools are tied to the library build they were written for; rebuild, or update tools/agents/label-pass.mjs.` |
+| `dist/` is older than `src/` | `agents-tools: dist/ is older than src/. Run npm run build:lib first.` |
+| A dataset file's size disagrees with its header | `dataset: <file> is <n> bytes; header.json promises <m> (<rows> rows × <stride> bytes).` |
+| A file's hash disagrees | `dataset: <file> does not match header.json's SHA-256. It was changed or cut short.` |
+| The dataset's layout is not the definition's | `dataset: obsNames[<k>] is "<a>"; the scenario's definition has "<b>".` |
+| A species has no usable rows | `train: no rows for species "<name>" after dropping frozen rows and the held-out episode.` |
+| A network file does not fit the definition | `model: <file> obsNames[<k>] is "<a>"; the definition has "<b>".` |
+| A shape `MlpBrain` cannot run | `MlpBrain`'s own messages, unchanged |
+
+## 12. Engine touchpoints
+
+### Required: none
+
+No change to core or to `src/extras/agents/`. Nothing is added to the package (fact 14), so the
+C2 allowance keeps its 2,172 B for step 8.
+
+### Optional, not proposed now: a public seam for a pass that only watches
+
+The label pass relies on a stage's name to find its place in the step (§6). That is the
+zero-change path, and its cost is honest: a library refactor that renames the stage breaks the
+tools, loudly (§11), and A25 fails. A public seam, such as a way to add a think pass with its own
+output buffers, would remove that coupling for an estimated 300 B. It is worth proposing only if a
+second tool needs it.
+
+## 13. Build order
+
+Phases continue from part 1's 7.5.
+
+| Phase | Builds | Exit |
+|---|---|---|
+| **7.6** | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
+| **7.7** | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time |
+| **7.8** | `evaluate.mjs`; rounds of correction if needed | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. **Within §8's bars, or the numbers go back to the user** with the options: a larger shape, more rounds, the wander value as an observation, or a bar they accept |
+| **7.9** | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated |
+| **7.10** | `<species>.onnx` writer; U12; A27 | ONNX Runtime's output equals `mlpForward`'s. Stays in this part (§14, decision 4) |
+
+Every test is watched failing before it passes.
+
+### Deferred
+
+- **Reading ONNX:** step 8. **ONNX Runtime brains:** step 9. **The live switch and its timings:**
+  step 10, which also moves the demo onto the scenario file (§14, decision 3).
+- **Students that hold across settings** (speed, rest, cadence): train over a range, later.
+- **A student that wanders:** only if 7.8 shows the need.
+- **Scenes other than Herd & Wolves,** and any learning beyond copying a rule.
+
+## 14. Decisions (the user, 2026-10-13)
+
+The user accepted the six recommendations of the draft, and kept the `.onnx` phase in this part.
+
+1. **What the network copies:** the rule's decision without its random wander and its index
+   coin-flips. A network can then match it, and the error measures the network. The copy does not
+   wander; 7.8 measures what that changes.
+   - **Not chosen:** the wander value as an extra observation. It stays the fallback if 7.8 shows
+     that wander matters.
+2. **The wolf's rest timer:** no new observation. A resting wolf is frozen, so its action is never
+   applied; the trainer drops those rows, and the demo's definition stays as it is. This replaces
+   the note in [`agents-mlp-design.md`](./agents-mlp-design.md) §5.1.
+3. **Where the teacher lives:** `tools/agents/scenario/herd-wolves.mjs` in this repository holds
+   the rules that are trained on. The site's demo keeps its own copy until step 10. Each trained
+   file carries a hash of the teacher's text, so the demo can tell when its rules have moved on.
+4. **Which files:**
+   - `.mlp.json` now, which today's `MlpBrain` loads;
+   - the two Herd & Wolves files and their report are committed (about 50 KB); datasets are not;
+   - `.onnx` is the last phase, 7.10, checked by ONNX Runtime. It stays in this part and does not
+     move to step 8.
+5. **The bars:** the parent's A8, read as in §8: held-out error at most 0.05 per species and action
+   against the label; catches within 10% of the rule without wander, over 30 s on 5 seeds. If 7.8
+   misses them after 3 rounds and the largest allowed shape, the numbers go back to the user.
+6. **The scene:** the demo's defaults only (4,096 agents, `thinkEvery` 3, budget 64, speeds 3.2 and
+   4.2, rest 5 s, flocking and fleeing on). Other settings are deferred.

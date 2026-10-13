@@ -543,6 +543,11 @@ This is behaviour cloning — "make the network copy the rules". It is the hones
 proves the loop end to end, and its quality is measured (A8), not claimed. A brain trained anywhere
 else (PyTorch → ONNX) plugs into the same socket.
 
+**Detailed in [`agents-cloning-design.md`](./agents-cloning-design.md)** (decided with the user,
+2026-10-13). It changes two things in the list above: labels come from a separate pass of the
+teacher, not from the driver's own actions, and a `.mlp.json` file is the working format, with
+`brain.onnx` last.
+
 ### 9.6 Why the built-in kernel is the default
 
 | | `MlpBrain` (WGSL) | `OrtBrain` |
@@ -828,7 +833,9 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    The rule: passes below 8 species, rows from 8. ✅ **Part 1 is complete (2026-10-13):** both
    mechanisms are tested on three host/GPU pairs, and the guide has an executable per-species
    example.
-   **Part 2:** record → train → export, with its own design doc next, from phase 7.6.
+   **Part 2:** record → train → export, phases 7.6–7.10:
+   [`agents-cloning-design.md`](./agents-cloning-design.md), decided with the user 2026-10-13.
+   Nothing is built yet.
 8. `MlpBrain.fromOnnx` — U12.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
    over it — U13, A5, A6. ORT as an optional peer dependency.

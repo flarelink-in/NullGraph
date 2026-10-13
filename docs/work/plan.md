@@ -48,7 +48,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 4 | C1 | Instanced darts, picking, labels, inspector, API guide | Agents are visible, clickable and explainable | ✅ phases 4.1–4.5 |
 | 5 | C1 | Scaling limits and bottleneck study ([design](../agents-demo-design.md)) | Honest limits for users | **Deterministic neighbour lookups ✅ 2026-10-13** (phases 5.5–5.8, [ordered grid](../agents-ordered-grid-design.md)): reruns are bit-exact with overflow; crowded cells yield a window per cell and tick (the user revised decision 2 after the window per querying agent cost +15% to +26%); a step is within the 10% rule (worst case +9.6%); 5.7 `de87b3f`, 5.8 the guides. **The scaling study (phases 5.0–5.4) is still deferred, so step 5 is not complete** |
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
-| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2 waited for step 5's deterministic neighbour lookups, which are done (2026-10-13); not designed |
+| 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2: design decided 2026-10-13 ([cloning](../agents-cloning-design.md), phases 7.6–7.10); 7.6 next |
 | 8 | C2 | `MlpBrain.fromOnnx` | Load models trained anywhere | Not started |
 | 9 | C2 | `null-graph/inference` + `OrtBrain` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Designed, not built; spikes first |
 | 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
@@ -115,6 +115,16 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
    - **Custom sensors reading the neighbour lists:** a small contract later, when a demo needs it;
      not in step 5. Phase 5.8 documents today's limits and fixes the parent's claim.
 
+7. ~~**Step 7, part 2: record → train → export**~~ **Decided 2026-10-13** in
+   [`../agents-cloning-design.md`](../agents-cloning-design.md) §14:
+   - **The network copies** the rule's decision without its random wander and index coin-flips.
+   - **No observation for the wolf's rest timer:** a resting wolf is frozen; its rows are dropped.
+   - **The teacher lives in this repository,** under `tools/agents/`.
+   - **Files:** `.mlp.json` now, with the two trained Herd & Wolves files committed; `.onnx` in
+     the last phase, 7.10, which stays in step 7.
+   - **The bars:** the parent's A8; if they are missed, the numbers come back to the user.
+   - **The scene:** the demo's defaults only.
+
 ## 6. Constraints that hold for every step
 
 - Design doc before code; build in phases; tests watched failing before they pass.
@@ -140,3 +150,6 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   later (§5, item 6).
 - 2026-10-13: step 5's crowded-cell window is per cell and tick, not per querying agent, after
   phase 5.7 measured the per-agent window at +15% to +26% on a step (§5, item 6).
+- 2026-10-13: step 7, part 2 designed and decided (§5, item 7). Against the parent's §9.5: labels
+  come from a separate pass of the teacher, and `.mlp.json` is the working format, with `.onnx`
+  last. The rest timer does not become an observation.
