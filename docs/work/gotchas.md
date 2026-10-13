@@ -68,3 +68,26 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   adopts the device ONNX Runtime made. After `session.release()` on the last session, a
   `mapAsync` on that device rejected with `AbortError`, and the harness crashed with no check
   reported. Do the GPU work that reads back before releasing the last session.
+- **`pip` in `venv/` cannot verify downloads on this machine without a certificate file.**
+  - **Symptom:** `SSLCertVerificationError … unable to get local issuer certificate` for
+    pypi.org, on every install.
+  - **Cause:** Avast's HTTPS scanning re-signs each connection with its own root ("Avast
+    Web/Mail Shield Root"). Windows trusts that root, so browsers and Python's own `ssl` work;
+    `pip` trusts only its bundled list.
+  - **What to do:** `venv/Scripts/python -m pip install --cert venv/pip-ca-bundle.pem <package>`.
+    That file (made 2026-10-14, ignored with `venv/`) is the venv's `certifi` list plus that one
+    root, copied from the Windows store. Verification stays on.
+  - **Do not** use `--trusted-host`: it turns verification off.
+  - A newer `pip` (24.2 or later) reads the Windows store itself; the venv's is 22.2.1 and was
+    left as it is.
+- **`torch.onnx.export` fails on Windows when the console is not UTF-8.** It prints a check mark,
+  and under `cp1252` (a pipe, a redirected log) the export stops with `UnicodeEncodeError:
+  'charmap' codec can't encode character '✅'`. Call
+  `sys.stdout.reconfigure(encoding='utf-8')` first, as `test/onnx-fixtures/make.py` does.
+- **A small binary file can be changed by git on checkout here.** `core.autocrlf` is `true` and
+  the repository has no `.gitattributes`, so git calls a file text when it holds no zero byte. A
+  217-byte `.onnx` had none, and 13 line-feed bytes. Keep small binaries as base64 inside a text
+  file, as `test/onnx-fixtures/fixtures.json` does, or add a `.gitattributes` rule first.
+- **A heredoc in an agent's Bash tool can fail on its quote characters** (`unexpected EOF while
+  looking for matching`), although the delimiter is quoted. Seen twice on 2026-10-14 with text
+  holding `"""` or many apostrophes. Write the text with the file tools instead.

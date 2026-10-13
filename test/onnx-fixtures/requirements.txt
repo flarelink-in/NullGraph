@@ -1,0 +1,13 @@
+# Step 8, phase 8.0: the versions make.py was run with on 2026-10-14 (Python 3.10.6, Windows).
+# Only regenerating fixtures.json needs them; the tests need no Python.
+#
+#   venv/Scripts/python -m pip install -r test/onnx-fixtures/requirements.txt
+#
+# On the machine this was made on, pip also needs --cert venv/pip-ca-bundle.pem (docs/work/gotchas.md).
+torch==2.14.1
+onnx==1.23.2
+onnxscript==0.7.2
+onnxruntime==1.23.2
+scikit-learn==1.7.2
+skl2onnx==1.20.0
+numpy==2.2.6

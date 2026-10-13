@@ -53,6 +53,7 @@ Detail belongs in the design doc, not in `now.md` or the log.
 | `npm run agents:train` | Step 7, part 2: train one network per species on a recording, CPU only; writes `<species>.mlp.json` and `<species>.report.json` beside it. `-- --hidden 16x16 --epochs 2` for a quick one. |
 | `npm run agents:evaluate` | Step 7, part 2: run the teacher, the rule without wander, and the students in the simulation, headless; prints catches and each driver's error against the label, and writes `evaluation.json` beside the students. `-- --students tools/agents/models/herd-wolves` judges the committed networks; `-- --episodes 1 --steps 300` for a quick one. |
 | `npm run agents:export` | Step 7, part 2: write the trained networks as `.onnx` files into `tools/agents/out/onnx` (ignored). CPU only, under a second. `-- --students <dir>` picks other networks. |
+| `venv/Scripts/python test/onnx-fixtures/make.py` | Step 8, phase 8.0: rewrite `test/onnx-fixtures/fixtures.json`, the small `.onnx` files that PyTorch, scikit-learn and `onnx.helper` write, with what each maker computed. `--list` prints what each file holds. Needs the packages of `requirements.txt` in `venv/` (see `gotchas.md` for `pip` there). The tests need no Python. A new case goes at the end of `torch_cases()`, or the earlier files change with the random stream. |
 
 To refresh the test-engine site after library changes: `npm run yalc:push` here (it leaves a
 **production** `dist/`; run `npm run build:lib` before committing), then restart the site with

@@ -606,3 +606,142 @@ Found by re-reading the first draft against the repository, the prototype and th
   connection with its own root, which Windows trusts and `pip` does not. Fixed by giving `pip` a
   certificate file that adds that one root (`venv/pip-ca-bundle.pem`); verification stays on.
   Recorded in `gotchas.md`.
+
+## Phase 8.0 results — 2026-10-14: what exporters write
+
+**Built** (no library code; `src/` untouched; not committed):
+- `test/onnx-fixtures/make.py`: makes fourteen small networks with four makers and records each,
+  as §9 says. **Two more were added the same day** ("Two more files", below): sixteen now.
+- `test/onnx-fixtures/fixtures.json`: 104,303 B of text for the fourteen, whose files are
+  32,077 B together; 127,818 B and 39,410 B with the two more.
+- `test/onnx-fixtures/requirements.txt`: the versions used (fact 21).
+- **Two runs wrote the same `fixtures.json`, byte for byte.**
+
+### What each maker writes for a dense network
+
+| Made with | The model | Nodes | Weights | IR, opset |
+|---|---|---|---|---|
+| PyTorch 2.14.1, default exporter | a batch, `[N, 5]` | `Gemm`, with `transA` 0, `transB` 1, `alpha` 1 and `beta` 1 all written out; then the activation | `[output, input]`, raw bytes | 10, 20 |
+| the same | no bias | `Gemm` with two inputs | the same | the same |
+| the same | one vector, `[5]` | `MatMul`, then `Add(result, bias)` | `[input, output]`, raw bytes | the same |
+| the same | `nn.Flatten()` first | the `Flatten` is gone: as the first row | the same | the same |
+| PyTorch 2.14.1, older exporter (`dynamo=False`) | a batch | `Gemm`, with `alpha`, `beta` and `transB` 1 | `[output, input]`, raw bytes | 9, 20 |
+| the same | no bias | **`MatMul` alone** | `[input, output]`, raw bytes | the same |
+| the same | one vector | `MatMul`, then **`Add(bias, result)`** | the same | the same |
+| the same | `nn.Flatten()` first | **the `Flatten` stays** (`axis` 1), then as a batch | the same | the same |
+| scikit-learn 1.7.2 `MLPRegressor`, through skl2onnx 1.20.0 | any | **`Cast` to float32**, then `MatMul`, `Add` and the activation per layer, then **`Reshape` to `[-1, 1]`** | `[input, output]`, a float list; biases are `[1, output]` | 10, 21 |
+| `onnx.helper`, by hand | a batch | `Gemm` with no `transB`; `Gemm` with two inputs | a float list | 6, 11 |
+
+- **Every form of §5 that an exporter writes was in the draft:** `Gemm` with `transB` 1, `MatMul`
+  with `Add` in either order, `MatMul` alone, a `Gemm` without a bias, `[1, output]` biases, raw
+  bytes and float lists.
+- **`transB` 0 came from no exporter.** Only the hand-built file has it. It stays in the subset:
+  it is ONNX's default.
+- **Not in the draft: `Cast` and `Reshape` (scikit-learn) and `Flatten` (PyTorch's older
+  exporter).** §14, item 4.
+- **scikit-learn's regressors have that shape whatever the activation or the number of outputs**
+  (checked: `tanh`, `relu`, `logistic`, `identity`; one, two and three outputs; one and two hidden
+  layers). Its classifier is not a chain (`Softmax`, `ArgMax`, `ZipMap`) and stays refused.
+
+### The largest finding: PyTorch's default call puts the weights outside the file
+
+`torch.onnx.export(model, (x,), "model.onnx")`, with no other argument:
+
+| A weight tensor of | Stored |
+|---|---|
+| 63 or 64 floats (up to 256 B) | inside `model.onnx` |
+| 65 floats (260 B) or more | in `model.onnx.data` |
+
+- **For 24→64→64→64→2:** `model.onnx` is 10,518 B and holds the graph and the biases;
+  `model.onnx.data` is 39,424 B and holds all four weight matrices.
+- **So nearly every real network exported the obvious way arrives as two files,** and the `.onnx`
+  alone cannot be read. It is the first refusal a PyTorch user would meet.
+- **One file comes from any of:**
+  - `torch.onnx.export(model, (x,), path, external_data=False)`: 49,713 B;
+  - `torch.onnx.export(model, (x,)).save(path)`: 49,713 B;
+  - the older exporter, `dynamo=False`: 41,125 B.
+- **An empty `model.onnx.data` is written beside every small model** too.
+
+§14, item 8.
+
+### What the reader would do with the fourteen files
+
+Measured with the second prototype (outside the repository), which is written to this revision.
+
+| Result | Files |
+|---|---|
+| **Read.** The weights equal the maker's bit for bit; `mlpForward` is within 4.2e-7 of the maker's outputs | 9: `torch-chain`, `-acts`, `-nobias`, `-vector`, `-flatten`; `torchscript-chain`, `-vector`, `-nobias`; `helper-gemm0` |
+| **Read only if the end nodes are passed over** (§14, item 4, since decided); then also bit for bit, within 1.8e-7 | 2: `sklearn-mlp`, `torchscript-flatten` |
+| **Refused, as designed,** each with its own message | 3: `torch-double` (float64), `torch-heads` (two outputs), `torch-outside` (weights outside the file) |
+
+- **The first prototype refused `sklearn-mlp` for the wrong reason:** `initializer "shape_tensor"
+  has data type 7`. It decoded every tensor before looking at the graph. The second round's rule
+  (§6: check the graph, then decode only what a layer uses) names the `Cast` node instead.
+- **The Herd & Wolves files** still read back bit for bit, in about 2 ms each, from a
+  `Uint8Array` and from an `ArrayBuffer`.
+
+### The second prototype under random damage
+
+- **20,000 files with one random byte changed:** about half still read; every other one was
+  refused with a message of §11. **None threw anything else,** and the slowest took 3.3 ms.
+- **Every strict prefix of `torchscript-chain`** (697 of them) was refused by name: 692 as cut
+  short, 4 for having no graph, 1 for having no operator set.
+- **Its size:** 2,332 B min+gzip as its own bundle; 2,400 B with the end nodes passed over (§12).
+
+### The judges
+
+- **The maker, `onnxruntime` 1.23.2 and `onnx`'s reference evaluator agree within 2.7e-7** on
+  every file that can be run.
+- **ONNX Runtime Web 1.29.0, the judge A28 will use, loads all twelve files that can be run**
+  (IR versions 6, 9 and 10; opsets 11, 20 and 21) and gives the maker's outputs within 2.4e-7.
+  Checked on its CPU provider under Node.
+- **It cannot run two files, of the same two kinds the reader refuses:** `torch-double` (it has
+  no float64 `Gemm`) and `torch-outside` (the second file is missing).
+
+### Also seen
+
+- **PyTorch's default exporter writes the author's file paths into the file:** a stack trace per
+  node, in the node's metadata. The fixtures have those entries removed, one per node, and each
+  record says so; the rest of the metadata is kept, so the files still hold fields the reader
+  must skip. The guide should warn anyone who publishes a model.
+- **A tiny file can hold no zero byte.** `torchscript-nobias` is 217 B with none, and with 13
+  line-feed bytes: git here would have taken it for text and changed it on checkout (fact 18).
+- **On Windows, `torch.onnx.export` fails when the console is not UTF-8.** It prints a check mark
+  that `cp1252` cannot encode, and the export stops with `UnicodeEncodeError`. `make.py` sets
+  UTF-8 output first. In `gotchas.md`.
+- **`onnx.checker` refuses `torch-outside`** without its second file, as it should.
+- **Names:** the default exporter names the input after `forward`'s parameter (`input`, `obs`) and
+  the output after its last operation (`linear_1`, `tanh`). The older one takes `input_names` and
+  `output_names`.
+- **Sizes:** the default exporter's files are 1.3 to 6.9 KB for these networks, mostly node
+  metadata. The older exporter's are 217 to 775 B.
+
+### Differs from §9's plan
+
+- **Fourteen cases, not eleven:** `torch-outside` and `torchscript-flatten` were added when the
+  first run showed what to ask.
+- **The files are larger than the user was first told** ("a few hundred bytes to about 2 KB
+  each"): the default exporter's node metadata. 32 KB of files, 104 KB of JSON with their records.
+- **What the reader should do with each file is stated by the test,** not stored with the file.
+
+### Two more files: tensors that hold equal values
+
+Added on 2026-10-14, after the user's word on the end nodes. One network through both PyTorch
+exporters: 5→7→7→7→3 `tanh`, every bias zero (as many reinforcement-learning libraries start a
+network), and two equal 7×7 weight matrices. The fourteen earlier files did not change by a byte.
+
+| File | What the exporter wrote |
+|---|---|
+| `torch-shared` (default exporter) | The zero biases are gone: each `Gemm` has two inputs. **The two equal matrices are stored once,** and two `Gemm` nodes read that one tensor |
+| `torchscript-shared` (older exporter) | Each equal tensor is stored once, and **the other layers read an `Identity` of it:** `Identity(0.bias) → 2.bias`, `Identity(0.bias) → 4.bias`, `Identity(2.weight) → 4.weight` |
+
+- **A layer may share its weights with another** in a real file. The reader gives each layer its
+  own copy, and limits what the copies may add up to (§6).
+- **The older exporter's file was refused** as the design then stood: a bias that is an `Identity`
+  of an initializer is not an initializer. The user has since decided that such an `Identity` is
+  followed (§14, item 9), and the file is read.
+- **Both files run in `onnxruntime`** and agree with PyTorch within 6.0e-8.
+
+### Not done
+
+- **TensorFlow and Keras,** and any real reinforcement-learning library (§14, item 7).

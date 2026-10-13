@@ -1,0 +1,2433 @@
+{
+ "format": "null-graph/onnx-fixtures",
+ "version": 1,
+ "about": "Written by test/onnx-fixtures/make.py. Do not edit by hand.",
+ "made": {
+  "python": "3.10.6",
+  "packages": {
+   "torch": "2.14.1+cpu",
+   "onnx": "1.23.2",
+   "onnxruntime": "1.23.2",
+   "sklearn": "1.7.2",
+   "skl2onnx": "1.20.0",
+   "numpy": "2.2.6",
+   "onnxscript": "0.7.2"
+  }
+ },
+ "cases": [
+  {
+   "name": "helper-gemm0",
+   "exporter": "onnx.helper 1.23.2",
+   "call": "helper.make_model: Gemm without transB (so 0) on float_data, Tanh, Gemm(transB=1) without a bias; opset 11, IR 6",
+   "onnx": "CAYSC29ubnguaGVscGVyOrsDChwKAXgKAncwCgJiMBICejAaBWZpcnN0IgRHZW1tChYKAnowEgJoMBoGc3F1YXNoIgRUYW5oCigKAmgwCgJ3MRIBeRoGc2Vjb25kIgRHZW1tKg0KBnRyYW5zQhgBoAECEgdieS1oYW5kKpkBCAUIBxABIowBuYZNv6WteD4hA9S/ffYnP6tckj+hvOe+oWjcPjx6gD6D6Mm+kcZcv1cVAsDCiLQ/BRpDvdBtIUAKg1M/QDmOPmdNKL9uPLI/KpwBvxj0yD8D9su+tWo+Pt3mwr+F9xVAnZDAvZwtxb62k08/8jBkv+mBRD8165W/95QLP+6lhb8MJeu/JwEYv4xhu79CAncwKiYIBxABIhykow0/oIexPBZrAj/6/Lo9Ay21voBv5jz2t4Y/QgJiMCpgCAMIBxABIlSmhju+hxVDv3lLeL8tDGO+6u4/v4+48D8z25a/23GKv+udnL5NZyY/JkSJvng5db8GkU6/A5uzvk0ueT8HXXq/Cgq7vRrxHL+ZNKY+YlXLPiqNu79CAncxWhQKAXgSDwoNCAESCQoDEgFuCgIIBWIUCgF5Eg8KDQgBEgkKAxIBbgoCCANCBAoAEAs=",
+   "bytes": 467,
+   "sha256": "270b290bcedfbdbafd1630f2e874954f88e15df64c32b1f8edd00d20df1222cf",
+   "holds": {
+    "irVersion": 6,
+    "opsets": {
+     "": 11
+    },
+    "producer": "onnx.helper",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "first",
+      "inputs": ["x", "w0", "b0"],
+      "outputs": ["z0"],
+      "attributes": {}
+     },
+     {
+      "op": "Tanh",
+      "name": "squash",
+      "inputs": ["z0"],
+      "outputs": ["h0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "second",
+      "inputs": ["h0", "w1"],
+      "outputs": ["y"],
+      "attributes": {
+       "transB": 1
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "w0",
+      "dims": [5, 7],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "b0",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "w1",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "float_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "x",
+      "type": "FLOAT",
+      "dims": ["n", 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "y",
+      "type": "FLOAT",
+      "dims": ["n", 3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.802836955, 0.250932574, 0.826218247, 0.18595393, 0.767607272, 0.242849901, -0.394352049, 0.277780533, -1.52267039, -1.17124045, -1.65634549, -0.862404883, -0.657431066, 2.34323239, 0.545241773, 0.656104863, -2.03255248, 1.39246917, -0.0940258279, -1.04412627, 1.143453, 1.41042352, -0.506289124, -0.385113597, -1.83706808, -0.452610999, -0.047632236, 1.56994915, 0.81084764, -0.593767583, 0.430485755, 2.52232742, -0.398361295, -0.891371846, -1.46391439],
+     "biases": [0.553278208, 0.0216711164, 0.509446502, 0.091302827, -0.353859037, 0.0281293392, 1.05248904]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.183130831, -0.762047231, -0.969901621, -0.221726134, -0.749739289, 1.88063228, -1.17856443, -1.08159959, -0.305892318, 0.650013745, -0.268098056, -0.957908154, -0.806900382, -0.350792021, 0.973362744, -0.977981985, -0.0913277417, -0.613053918, 0.324620038, 0.397135794, -1.46524549],
+     "biases": [0.0, 0.0, 0.0]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-1.19909596, -0.241654232, -0.876402497],
+     [1.33869052, 0.952979684, 0.389036506],
+     [-1.28926528, -0.497847617, -0.676434875],
+     [-0.10714829, 2.54331231, 2.76120377]
+    ],
+    "onnxruntime": [
+     [-1.19909608, -0.241654277, -0.876402438],
+     [1.33869076, 0.952979803, 0.389036775],
+     [-1.28926516, -0.497847557, -0.676434875],
+     [-0.10714829, 2.54331231, 2.76120377]
+    ],
+    "reference": [
+     [-1.19909596, -0.241654232, -0.876402497],
+     [1.33869052, 0.952979684, 0.389036506],
+     [-1.28926528, -0.497847617, -0.676434875],
+     [-0.10714829, 2.54331231, 2.76120377]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 2.682209014892578e-07,
+    "makerAgainstReference": 0.0,
+    "onnxruntimeAgainstReference": 2.682209014892578e-07
+   }
+  },
+  {
+   "name": "sklearn-mlp",
+   "exporter": "skl2onnx 1.20.0 (scikit-learn 1.7.2)",
+   "call": "skl2onnx.to_onnx(MLPRegressor(hidden_layer_sizes=(7,), activation=\"tanh\"), X[:1].astype(float32))",
+   "onnx": "CAoSCHNrbDJvbm54GgYxLjIwLjAiB2FpLm9ubngoADIAOr4GCigKAVgSCmNhc3RfaW5wdXQaBENhc3QiBENhc3QqCQoCdG8YAaABAjoACjcKCmNhc3RfaW5wdXQKC2NvZWZmaWNpZW50EgptdWxfcmVzdWx0GgZNYXRNdWwiBk1hdE11bDoACjAKCm11bF9yZXN1bHQKCmludGVyY2VwdHMSCmFkZF9yZXN1bHQaA0FkZCIDQWRkOgAKLAoKYWRkX3Jlc3VsdBIQbmV4dF9hY3RpdmF0aW9ucxoEVGFuaCIEVGFuaDoACkAKEG5leHRfYWN0aXZhdGlvbnMKDGNvZWZmaWNpZW50MRILbXVsX3Jlc3VsdDEaB01hdE11bDEiBk1hdE11bDoACjQKC211bF9yZXN1bHQxCgtpbnRlcmNlcHRzMRILYWRkX3Jlc3VsdDEaBEFkZDEiA0FkZDoACjkKC2FkZF9yZXN1bHQxCgxzaGFwZV90ZW5zb3ISCHZhcmlhYmxlGgdSZXNoYXBlIgdSZXNoYXBlOgASEk9OTlgoTUxQUmVncmVzc29yKSqiAQgFCAcQASKMAQ8VAj+DtC4/sJQAP1k4xzzehsu+R/I1v8UVob3EZPK9FJVNPG9qL7z7ecg9Ni2mPSa7sj4LsY8+GucYPi1srb1Wz6K+e5cwP05jgr5Mb8G+WB4Yv6ekKT8tigm/UAWLvq9fIL85btG+0mMuvn92FD/ui0u+kWcqPxmIJb9HfUK+GzsYvusXtT4kyxk/Qgtjb2VmZmljaWVudCowCAEIBxABIhwRvoy+kdmavVCUsL6d188+Pe8zPskNF7/pVio+QgppbnRlcmNlcHRzKmoIBwgDEAEiVKxZ9D7cpjS/K7u2vfYA3D43tjw/wfDhPRjKMb/MGoK9xTftvgrEXT7uqte+9FUFv3Xmmj3Rkxm/u3fBPsxGKT+BvCo/Rv5avqGZAz58w2w+3m9ku0IMY29lZmZpY2llbnQxKiEIAQgDEAEiDHSNzrwxrj2/u0Ymv0ILaW50ZXJjZXB0czEqHwgCEAc6C////////////wEBQgxzaGFwZV90ZW5zb3JaEQoBWBIMCgoIARIGCgAKAggFYhgKCHZhcmlhYmxlEgwKCggBEgYKAAoCCAFCBAoAEBU=",
+   "bytes": 872,
+   "sha256": "4149255e6f6f48dc4b825a158730e7720d356a41a40f0819b52817c4dbcbf45a",
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 21
+    },
+    "producer": "skl2onnx 1.20.0",
+    "nodes": [
+     {
+      "op": "Cast",
+      "name": "Cast",
+      "inputs": ["X"],
+      "outputs": ["cast_input"],
+      "attributes": {
+       "to": 1
+      }
+     },
+     {
+      "op": "MatMul",
+      "name": "MatMul",
+      "inputs": ["cast_input", "coefficient"],
+      "outputs": ["mul_result"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "Add",
+      "inputs": ["mul_result", "intercepts"],
+      "outputs": ["add_result"],
+      "attributes": {}
+     },
+     {
+      "op": "Tanh",
+      "name": "Tanh",
+      "inputs": ["add_result"],
+      "outputs": ["next_activations"],
+      "attributes": {}
+     },
+     {
+      "op": "MatMul",
+      "name": "MatMul1",
+      "inputs": ["next_activations", "coefficient1"],
+      "outputs": ["mul_result1"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "Add1",
+      "inputs": ["mul_result1", "intercepts1"],
+      "outputs": ["add_result1"],
+      "attributes": {}
+     },
+     {
+      "op": "Reshape",
+      "name": "Reshape",
+      "inputs": ["add_result1", "shape_tensor"],
+      "outputs": ["variable"],
+      "attributes": {}
+     }
+    ],
+    "initializers": [
+     {
+      "name": "coefficient",
+      "dims": [5, 7],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "intercepts",
+      "dims": [1, 7],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "coefficient1",
+      "dims": [7, 3],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "intercepts1",
+      "dims": [1, 3],
+      "type": "FLOAT",
+      "storage": "float_data"
+     },
+     {
+      "name": "shape_tensor",
+      "dims": [2],
+      "type": "INT64",
+      "storage": "int64_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "X",
+      "type": "FLOAT",
+      "dims": [null, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "variable",
+      "type": "FLOAT",
+      "dims": [null, 1]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.508133829, -0.118356258, 0.149319082, 0.662668645, -0.198775977, 0.68244189, 0.01254775, -0.0846789852, -0.537264645, 0.665642798, 0.502268791, -0.0107065281, -0.317988098, -0.271524906, -0.646607935, 0.0243188608, 0.0978889093, 0.689811409, -0.626460016, -0.18993102, -0.39751333, 0.0811409205, -0.254663885, -0.409044057, -0.148662969, -0.710728109, 0.349084079, -0.377802253, -0.170302659, 0.353698105, -0.0786548033, 0.280647606, -0.594213009, 0.579933107, 0.60075593],
+     "biases": [-0.274887592, -0.0756102875, -0.344881535, 0.405941874, 0.175717309, -0.590054095, 0.166347161]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.477246642, 0.429694831, -0.694489956, 0.216568142, 0.0756348744, 0.661236525, 0.128515735, -0.705671072, 0.737155378, -0.0635276735, -0.421225965, -0.599911749, 0.666938841, 0.231214464, -0.0892241821, 0.110322483, -0.463316113, -0.520842791, 0.377866596, -0.213860601, -0.00348567171],
+     "biases": [-0.0252139345, -0.7409392, -0.649516761]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.18786197392567974, -1.1680990411101158, -0.5022294513722414],
+     [0.40960373580776355, -0.995352180616362, -0.7263451404319017],
+     [-0.11695004520633531, -1.0454185892237986, -0.5098135677320534],
+     [0.7603789357867702, -0.050190348108322236, 0.1819261030482915]
+    ],
+    "onnxruntime": [
+     [-0.187861949, -1.16809905, -0.502229452],
+     [0.409603804, -0.995352209, -0.726345181],
+     [-0.116949953, -1.0454185, -0.509813607],
+     [0.760378897, -0.0501902699, 0.181926131]
+    ],
+    "reference": [
+     [-0.187861949, -1.16809905, -0.502229452],
+     [0.409603804, -0.995352268, -0.726345181],
+     [-0.11695002, -1.04541862, -0.509813547],
+     [0.760379016, -0.0501903296, 0.181926072]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 9.206750703483202e-08,
+    "makerAgainstReference": 8.760263214835362e-08,
+    "onnxruntimeAgainstReference": 1.1920928955078125e-07
+   }
+  },
+  {
+   "name": "torch-acts",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(model, (zeros(2, 5),), path, dynamic_shapes=({0: Dim(\"batch\")},))",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6ySwKwgQKBWlucHV0CggwLndlaWdodAoGMC5iaWFzEgZsaW5lYXIaC25vZGVfbGluZWFyIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnIKCW5hbWVzcGFjZRJlOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzA6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQsICVwXzBfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMCcsICdsaW5lYXInXQrPAwoGbGluZWFyEgRyZWx1Gglub2RlX3JlbHUiBFJlbHVKcAoJbmFtZXNwYWNlEmM6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMTogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlJlTFUvcmVsdTogYXRlbi5yZWx1LmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5SZUxVJywgJ2F0ZW4ucmVsdS5kZWZhdWx0J11KgwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSaSVyZWx1IDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLnJlbHUuZGVmYXVsdF0oYXJncyA9ICglbGluZWFyLCksIGt3YXJncyA9IHt9KUovChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIRWycnLCAnMScsICdyZWx1J10KygQKBHJlbHUKCDIud2VpZ2h0CgYyLmJpYXMSCGxpbmVhcl8xGg1ub2RlX2xpbmVhcl8xIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzI6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMTogYXRlbi5saW5lYXIuZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyJywgJ2F0ZW4ubGluZWFyLmRlZmF1bHQnXUqfAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRKEASVsaW5lYXJfMSA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICglcmVsdSwgJXBfMl93ZWlnaHQsICVwXzJfYmlhcyksIGt3YXJncyA9IHt9KUozChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIVWycnLCAnMicsICdsaW5lYXJfMSddCvQDCghsaW5lYXJfMRIHc2lnbW9pZBoMbm9kZV9zaWdtb2lkIgdTaWdtb2lkSnkKCW5hbWVzcGFjZRJsOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzM6IHRvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5TaWdtb2lkL3NpZ21vaWQ6IGF0ZW4uc2lnbW9pZC5kZWZhdWx0SooBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSaFsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmFjdGl2YXRpb24uU2lnbW9pZCcsICdhdGVuLnNpZ21vaWQuZGVmYXVsdCddSosBChZwa2cudG9yY2gub25ueC5meF9ub2RlEnElc2lnbW9pZCA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5zaWdtb2lkLmRlZmF1bHRdKGFyZ3MgPSAoJWxpbmVhcl8xLCksIGt3YXJncyA9IHt9KUoyChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIUWycnLCAnMycsICdzaWdtb2lkJ10K0AQKB3NpZ21vaWQKCDQud2VpZ2h0CgY0LmJpYXMSCGxpbmVhcl8yGg1ub2RlX2xpbmVhcl8yIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzQ6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMjogYXRlbi5saW5lYXIuZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyJywgJ2F0ZW4ubGluZWFyLmRlZmF1bHQnXUqiAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRKHASVsaW5lYXJfMiA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICglc2lnbW9pZCwgJXBfNF93ZWlnaHQsICVwXzRfYmlhcyksIGt3YXJncyA9IHt9KUozChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIVWycnLCAnNCcsICdsaW5lYXJfMiddCtMDCghsaW5lYXJfMhIEdGFuaBoJbm9kZV90YW5oIgRUYW5oSnAKCW5hbWVzcGFjZRJjOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzU6IHRvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oL3Rhbmg6IGF0ZW4udGFuaC5kZWZhdWx0SoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmFjdGl2YXRpb24uVGFuaCcsICdhdGVuLnRhbmguZGVmYXVsdCddSoUBChZwa2cudG9yY2gub25ueC5meF9ub2RlEmsldGFuaCA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi50YW5oLmRlZmF1bHRdKGFyZ3MgPSAoJWxpbmVhcl8yLCksIGt3YXJncyA9IHt9KUovChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIRWycnLCAnNScsICd0YW5oJ10SCm1haW5fZ3JhcGgqnwEIBwgFEAFCCDAud2VpZ2h0SowB0PXkPXLO4D5gOBi+wpSDvp74mz6QScA8hNpDPnPypr4K75y+CBwsvp3GxL7asyO+uBTLvei2Mj5wGps9huq9viCx8TwwxBq+cAgZPpRhoz4/F4y++Kl3vVBdrT0IiZk+OK1FvrIv0z5EA8C+lsm4PoDLlLvu1K4+UF3TPtA8Qr5Ql0W+DgKIPrghlr4qKggHEAFCBjAuYmlhc0oc0BDEPGBPwDx1fay+FmatvlyCoz603gc+ANyuOSqCAQgECAcQAUIIMi53ZWlnaHRKcJI9P76WYcC+Pg4aPmF0hL7YXXq+FCeHvejfHD3A2H29wJcCvJVYpz7Lm6c+tol8PoBoFTxfDZw+QMvIvEnXlj7CdyE+HuMNvmgsFj1uOyY+kQYxvniqUr1YfLe9aM7PPV7JEL7AsHW9kAfpvEBNuzsqHggEEAFCBjIuYmlhc0oQ8HuFPVxf+b144KE9xFC7vipCCAMIBBABQgg0LndlaWdodEowYCIJvuD+xj7QF2g9IFHKvCBUgL2qY6y+4MHOPDjAuz6MeQc+wJjUvlxNR77ArRK+KhoIAxABQgY0LmJpYXNKDPZnvD7YFie+hBJWPlqaAQoFaW5wdXQSEwoRCAESDQoHEgViYXRjaAoCCAUiPQovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSClVTRVJfSU5QVVQiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmViXAoEdGFuaBITChEIARINCgcSBWJhdGNoCgIIAyI/CjBwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5PdXRwdXRTcGVjLmtpbmQSC1VTRVJfT1VUUFVUasgBCggwLndlaWdodBIOCgwIARIICgIIBwoCCAUiPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIvCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCnBfMF93ZWlnaHRqwAEKBjAuYmlhcxIKCggIARIECgIIByI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi0KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIIcF8wX2JpYXNqyAEKCDIud2VpZ2h0Eg4KDAgBEggKAggECgIIByI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi8KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIKcF8yX3dlaWdodGrAAQoGMi5iaWFzEgoKCAgBEgQKAggEIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLQohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEghwXzJfYmlhc2rIAQoINC53ZWlnaHQSDgoMCAESCAoCCAMKAggEIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLwohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgpwXzRfd2VpZ2h0asABCgY0LmJpYXMSCgoICAESBAoCCAMiPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSItCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCHBfNF9iaWFzah0KBmxpbmVhchITChEIARINCgcSBWJhdGNoCgIIB2obCgRyZWx1EhMKEQgBEg0KBxIFYmF0Y2gKAggHah8KCGxpbmVhcl8xEhMKEQgBEg0KBxIFYmF0Y2gKAggEah4KB3NpZ21vaWQSEwoRCAESDQoHEgViYXRjaAoCCARqHwoIbGluZWFyXzISEwoRCAESDQoHEgViYXRjaAoCCAOCAdICCjBwa2cudG9yY2guZXhwb3J0LkV4cG9ydGVkUHJvZ3JhbS5ncmFwaF9zaWduYXR1cmUSnQIKIyBpbnB1dHMKcF8wX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMC53ZWlnaHQnCnBfMF9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PScwLmJpYXMnCnBfMl93ZWlnaHQ6IFBBUkFNRVRFUiB0YXJnZXQ9JzIud2VpZ2h0JwpwXzJfYmlhczogUEFSQU1FVEVSIHRhcmdldD0nMi5iaWFzJwpwXzRfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PSc0LndlaWdodCcKcF80X2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzQuYmlhcycKaW5wdXQ6IFVTRVJfSU5QVVQKCiMgb3V0cHV0cwp0YW5oOiBVU0VSX09VVFBVVAqCAUoKMnBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLnJhbmdlX2NvbnN0cmFpbnRzEhR7czMxOiBWUlswLCBpbnRfb29dfUIECgAQFA==",
+   "bytes": 5737,
+   "sha256": "fbfe8f4ed8ced7a146a5dda0917bdcb9dc3e64fb77a533545c56579b340563de",
+   "edited": "removed 6 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 7666,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "0.weight", "0.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Relu",
+      "name": "node_relu",
+      "inputs": ["linear"],
+      "outputs": ["relu"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_1",
+      "inputs": ["relu", "2.weight", "2.bias"],
+      "outputs": ["linear_1"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Sigmoid",
+      "name": "node_sigmoid",
+      "inputs": ["linear_1"],
+      "outputs": ["sigmoid"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_2",
+      "inputs": ["sigmoid", "4.weight", "4.bias"],
+      "outputs": ["linear_2"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear_2"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.weight",
+      "dims": [4, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.bias",
+      "dims": [4],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "4.weight",
+      "dims": [3, 4],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "4.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": ["batch", 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "tanh",
+      "type": "FLOAT",
+      "dims": ["batch", 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "relu",
+     "weights": [0.111796975, 0.439075053, -0.148652554, -0.256994307, 0.304631174, 0.0234725773, 0.191263258, -0.326068491, -0.306511223, -0.168075681, -0.384327799, -0.159865767, -0.0991606116, 0.174525857, 0.0757340193, -0.370929897, 0.0295034051, -0.151139021, 0.149446249, 0.319103837, -0.273614854, -0.0604648292, 0.0846506357, 0.29987359, -0.19304359, 0.412473261, -0.375024915, 0.360912979, -0.00454086065, 0.341468275, 0.412821293, -0.189685106, -0.192960024, 0.265640676, -0.293226004],
+     "biases": [0.0239337981, 0.0234753489, -0.336894661, -0.338669479, 0.319353938, 0.132685483, 0.00033351779]
+    },
+    {
+     "input": 7,
+     "output": 4,
+     "activation": "sigmoid",
+     "weights": [-0.18675831, -0.375744522, 0.150444955, -0.258700401, -0.24449861, -0.0659925044, 0.0382994711, -0.061974287, -0.00797075033, 0.326847702, 0.327360481, 0.246619076, 0.00911915302, 0.304789513, -0.0245109797, 0.294611245, 0.157683402, -0.138561696, 0.0366634429, 0.162336081, -0.172876611, -0.0514321029, -0.0895926356, 0.101467907, -0.141393155, -0.0599830151, -0.0284459889, 0.00571599603],
+     "biases": [0.0651777983, -0.121763915, 0.0790414214, -0.365850568]
+    },
+    {
+     "input": 4,
+     "output": 3,
+     "activation": "tanh",
+     "weights": [-0.133920193, 0.388663292, 0.0566633344, -0.0246968865, -0.0626604557, -0.336697876, 0.0252389312, 0.366700888, 0.132299602, -0.41522789, -0.19463104, -0.143240929],
+     "biases": [0.367980659, -0.163173079, 0.209055007]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.471782118, -0.194905877, -0.089656122],
+     [0.490453571, -0.211619064, -0.122438952],
+     [0.470948637, -0.193443537, -0.0883041695],
+     [0.5582515, -0.291322291, -0.206717804]
+    ],
+    "onnxruntime": [
+     [0.471782088, -0.194905847, -0.089656122],
+     [0.490453541, -0.211619064, -0.12243893],
+     [0.470948666, -0.193443537, -0.0883041322],
+     [0.558251619, -0.291322321, -0.206717819]
+    ],
+    "reference": [
+     [0.471782148, -0.194905862, -0.089656122],
+     [0.490453601, -0.211619064, -0.122438945],
+     [0.470948666, -0.193443552, -0.0883041397],
+     [0.5582515, -0.291322291, -0.206717804]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 1.1920928955078125e-07,
+    "makerAgainstReference": 2.9802322387695312e-08,
+    "onnxruntimeAgainstReference": 1.1920928955078125e-07
+   }
+  },
+  {
+   "name": "torch-chain",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(model, (zeros(1, 5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6zhoKwgQKBWlucHV0CggwLndlaWdodAoGMC5iaWFzEgZsaW5lYXIaC25vZGVfbGluZWFyIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnIKCW5hbWVzcGFjZRJlOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzA6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQsICVwXzBfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMCcsICdsaW5lYXInXQrPAwoGbGluZWFyEgR0YW5oGglub2RlX3RhbmgiBFRhbmhKcAoJbmFtZXNwYWNlEmM6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMTogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaDogYXRlbi50YW5oLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oJywgJ2F0ZW4udGFuaC5kZWZhdWx0J11KgwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSaSV0YW5oIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLnRhbmguZGVmYXVsdF0oYXJncyA9ICglbGluZWFyLCksIGt3YXJncyA9IHt9KUovChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIRWycnLCAnMScsICd0YW5oJ10KygQKBHRhbmgKCDIud2VpZ2h0CgYyLmJpYXMSCGxpbmVhcl8xGg1ub2RlX2xpbmVhcl8xIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzI6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMTogYXRlbi5saW5lYXIuZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyJywgJ2F0ZW4ubGluZWFyLmRlZmF1bHQnXUqfAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRKEASVsaW5lYXJfMSA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICgldGFuaCwgJXBfMl93ZWlnaHQsICVwXzJfYmlhcyksIGt3YXJncyA9IHt9KUozChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIVWycnLCAnMicsICdsaW5lYXJfMSddEgptYWluX2dyYXBoKp8BCAcIBRABQggwLndlaWdodEqMAcBhsz2SIJ4+nm7MPkhbOr7AQUo8mDQEPhK/tj59hd6+6LSPPTYxrb7ydr8+ZFklPkhgib4MorG+whTkvhLlsz4Mi4s+PLBgvsBH6Lz47pe+6YuWviA2FzwzDrS+6PWmPQB4hD6N3L2+GP/xvZAwr7yo6v090G8+vcCRwL66+iS+KoHjviSmi7040jC+KioIBxABQgYwLmJpYXNKHMhjzz74QkW9rGJ8Prz83r5Ql6S9QuKePsAahD4qZggDCAcQAUIIMi53ZWlnaHRKVGzRsT0In3C+ztsyPlFYsT7gvtW8kntSPggQg76moRk+wIv+PNG6pz46alE+U8K2PgyAhr3g0gu8cG8/vbCYS73yapy+RLKEvlDa372iX4W+72e1vioaCAMQAUIGMi5iaWFzSgzUdTm+sMGdPD5Pvr5alQEKBWlucHV0Eg4KDAgBEggKAggBCgIIBSI9Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIKVVNFUl9JTlBVVCI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZWJbCghsaW5lYXJfMRIOCgwIARIICgIIAQoCCAMiPwowcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuT3V0cHV0U3BlYy5raW5kEgtVU0VSX09VVFBVVGrIAQoIMC53ZWlnaHQSDgoMCAESCAoCCAcKAggFIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLwohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgpwXzBfd2VpZ2h0asABCgYwLmJpYXMSCgoICAESBAoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSItCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCHBfMF9iaWFzasgBCggyLndlaWdodBIOCgwIARIICgIIAwoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIvCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCnBfMl93ZWlnaHRqwAEKBjIuYmlhcxIKCggIARIECgIIAyI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi0KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIIcF8yX2JpYXNqGAoGbGluZWFyEg4KDAgBEggKAggBCgIIB2oWCgR0YW5oEg4KDAgBEggKAggBCgIIB4IBigIKMHBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLmdyYXBoX3NpZ25hdHVyZRLVAQojIGlucHV0cwpwXzBfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PScwLndlaWdodCcKcF8wX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzAuYmlhcycKcF8yX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMi53ZWlnaHQnCnBfMl9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PScyLmJpYXMnCmlucHV0OiBVU0VSX0lOUFVUCgojIG91dHB1dHMKbGluZWFyXzE6IFVTRVJfT1VUUFVUCoIBOAoycGtnLnRvcmNoLmV4cG9ydC5FeHBvcnRlZFByb2dyYW0ucmFuZ2VfY29uc3RyYWludHMSAnt9QgQKABAU",
+   "bytes": 3438,
+   "sha256": "47930e7e65484923a1f64424ba70d26e07269e0cd6cd2c3b12bdfe6f2cda398c",
+   "edited": "removed 3 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 4401,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "0.weight", "0.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_1",
+      "inputs": ["tanh", "2.weight", "2.bias"],
+      "outputs": ["linear_1"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear_1",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.0875887871, 0.308842242, 0.399281442, -0.181988835, 0.0123447776, 0.129106879, 0.356926501, -0.434612185, 0.07016927, -0.338266075, 0.373954356, 0.161473811, -0.268312693, -0.346939445, -0.44547087, 0.351357043, 0.272545218, -0.219422281, -0.0283545256, -0.296745062, -0.29403618, 0.009229213, -0.351670831, 0.0815237164, 0.258728027, -0.370823294, -0.118162334, -0.0213854611, 0.123982728, -0.0464933515, -0.376111984, -0.161112696, -0.444344819, -0.0681879818, -0.172676921],
+     "biases": [0.405058146, -0.0481595695, 0.246470153, -0.43552196, -0.0803667307, 0.31031996, 0.258016586]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.0868252218, -0.234981656, 0.174666613, 0.346376926, -0.0260919929, 0.205549508, -0.255981684, 0.150030702, 0.0310724974, 0.327597171, 0.204506785, 0.356951326, -0.0656739175, -0.00853416324, -0.0467371345, -0.049706161, -0.305503428, -0.259172559, -0.109303117, -0.260495245, -0.354308575],
+     "biases": [-0.181113541, 0.0192573965, -0.37169832]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.236944139, 0.0201985594, -0.513847589],
+     [-0.188655853, -0.508205414, 0.288725257],
+     [-0.218980908, 0.0524889268, -0.51095736],
+     [-0.394858569, -0.318909466, 0.465513051]
+    ],
+    "onnxruntime": [
+     [-0.236944169, 0.0201985501, -0.513847589],
+     [-0.188655883, -0.508205414, 0.288725257],
+     [-0.218980923, 0.0524889305, -0.51095736],
+     [-0.394858539, -0.318909466, 0.465512991]
+    ],
+    "reference": [
+     [-0.236944169, 0.0201985575, -0.513847589],
+     [-0.188655898, -0.508205414, 0.288725197],
+     [-0.218980908, 0.0524889268, -0.51095742],
+     [-0.394858539, -0.318909496, 0.465512991]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 5.960464477539063e-08,
+    "makerAgainstReference": 5.960464477539063e-08,
+    "onnxruntimeAgainstReference": 5.960464477539063e-08
+   }
+  },
+  {
+   "name": "torch-double",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(model.double(), (zeros(1, 5, dtype=float64),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6gg0KwgQKBWlucHV0CggwLndlaWdodAoGMC5iaWFzEgZsaW5lYXIaC25vZGVfbGluZWFyIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnIKCW5hbWVzcGFjZRJlOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzA6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQsICVwXzBfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMCcsICdsaW5lYXInXRIKbWFpbl9ncmFwaCqKAQgDCAUQC0IIMC53ZWlnaHRKeAAAAIBGAcS/AAAAAMxzyj8AAADAZL3TPwAAAAAdp7S/AAAAAMlb1z8AAABgv7XPvwAAAAAwaYK/AAAAAPjanj8AAADAdIjGvwAAAADco5U/AAAAgBYt1L8AAACA9qTCPwAAAABzaKK/AAAAAOo/rz8AAACAXuy4vyomCAMQC0IGMC5iaWFzShgAAABAS/XVPwAAAADZfqS/AAAAAEzNjb9alQEKBWlucHV0Eg4KDAgLEggKAggBCgIIBSI9Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIKVVNFUl9JTlBVVCI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZWJZCgZsaW5lYXISDgoMCAsSCAoCCAEKAggDIj8KMHBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLk91dHB1dFNwZWMua2luZBILVVNFUl9PVVRQVVRqyAEKCDAud2VpZ2h0Eg4KDAgLEggKAggDCgIIBSI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi8KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIKcF8wX3dlaWdodGrAAQoGMC5iaWFzEgoKCAgLEgQKAggDIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLQohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEghwXzBfYmlhc4IBvAEKMHBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLmdyYXBoX3NpZ25hdHVyZRKHAQojIGlucHV0cwpwXzBfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PScwLndlaWdodCcKcF8wX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzAuYmlhcycKaW5wdXQ6IFVTRVJfSU5QVVQKCiMgb3V0cHV0cwpsaW5lYXI6IFVTRVJfT1VUUFVUCoIBOAoycGtnLnRvcmNoLmV4cG9ydC5FeHBvcnRlZFByb2dyYW0ucmFuZ2VfY29uc3RyYWludHMSAnt9QgQKABAU",
+   "bytes": 1698,
+   "sha256": "7f88195974944e291f71ec1071ba03eebe927c4658badc1ce184f3d7ce6945fd",
+   "edited": "removed 1 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 2025,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "0.weight", "0.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [3, 5],
+      "type": "DOUBLE",
+      "storage": "raw_data"
+     },
+     {
+      "name": "0.bias",
+      "dims": [3],
+      "type": "DOUBLE",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "DOUBLE",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear",
+      "type": "DOUBLE",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.156288922, 0.20665884, 0.308434665, -0.0806749463, 0.364977121, -0.247733995, -0.00898969173, 0.0301321745, -0.176039308, 0.0211328864, -0.315251946, 0.145659268, -0.0359531343, 0.0610345006, -0.0973567069],
+     "biases": [0.343096554, -0.0400302708, -0.014551729]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.3430965542793274, -0.04003027081489563, -0.014551728963851929],
+     [0.1924434950365006, -0.4204386352544973, -1.1973634932209416],
+     [0.4011616480704346, -0.0408162164554188, -0.00900936982390279],
+     [0.19480693889183698, -1.8244870369868806, -1.646290312000115]
+    ],
+    "onnxruntime": [
+     [0.3430965542793274, -0.04003027081489563, -0.014551728963851929],
+     [0.1924434950365006, -0.4204386352544973, -1.1973634932209416],
+     [0.4011616480704346, -0.0408162164554188, -0.00900936982390279],
+     [0.19480693889183698, -1.8244870369868806, -1.646290312000115]
+    ],
+    "reference": [
+     [0.3430965542793274, -0.04003027081489563, -0.014551728963851929],
+     [0.1924434950365006, -0.4204386352544973, -1.1973634932209416],
+     [0.4011616480704346, -0.0408162164554188, -0.00900936982390279],
+     [0.19480693889183698, -1.8244870369868806, -1.646290312000115]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 0.0,
+    "makerAgainstReference": 0.0,
+    "onnxruntimeAgainstReference": 0.0
+   }
+  },
+  {
+   "name": "torch-flatten",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(Sequential(Flatten(), ...), (zeros(1, 5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6zhoKwgQKBWlucHV0CggxLndlaWdodAoGMS5iaWFzEgZsaW5lYXIaC25vZGVfbGluZWFyIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnIKCW5hbWVzcGFjZRJlOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzE6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMV93ZWlnaHQsICVwXzFfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMScsICdsaW5lYXInXQrPAwoGbGluZWFyEgR0YW5oGglub2RlX3RhbmgiBFRhbmhKcAoJbmFtZXNwYWNlEmM6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMjogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaDogYXRlbi50YW5oLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oJywgJ2F0ZW4udGFuaC5kZWZhdWx0J11KgwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSaSV0YW5oIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLnRhbmguZGVmYXVsdF0oYXJncyA9ICglbGluZWFyLCksIGt3YXJncyA9IHt9KUovChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIRWycnLCAnMicsICd0YW5oJ10KygQKBHRhbmgKCDMud2VpZ2h0CgYzLmJpYXMSCGxpbmVhcl8xGg1ub2RlX2xpbmVhcl8xIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzM6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMTogYXRlbi5saW5lYXIuZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyJywgJ2F0ZW4ubGluZWFyLmRlZmF1bHQnXUqfAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRKEASVsaW5lYXJfMSA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICgldGFuaCwgJXBfM193ZWlnaHQsICVwXzNfYmlhcyksIGt3YXJncyA9IHt9KUozChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIVWycnLCAnMycsICdsaW5lYXJfMSddEgptYWluX2dyYXBoKp8BCAcIBRABQggxLndlaWdodEqMAcKKkj64p4o9dsfFPv5dvT4ApIS6UP3RvMB/rT2Ecz2+ICnMvVYSlz64PcC+YLnHPVhsd77QY30+iJDCPrwqzz40RtS+Be6Avs6Wc75cBOS+3NhCvuDCiry5/tm+gIYpvtQtnr3+VsG+kNWGPSnrgL5kY1w+lHcOvtJ53j7AJ9Q9aBG4vpog2D4oBcM9KioIBxABQgYxLmJpYXNKHGxZxL5Q0wu+SHX1vb7vnD4Misa9gNv8PBw4or4qZggDCAcQAUIIMy53ZWlnaHRKVLJFHD5wn7898sYKvoDfYL2ACzI9/hccPihVFj2LN54+ymV2PoWIqz5BSVm+fCgWvojI673Om16+NKuRPUaAmr5X1k6+SHw1PVj2pr2AKcC+Oso1PioaCAMQAUIGMy5iaWFzSgyg1Ey9Ui8XPry5o71alQEKBWlucHV0Eg4KDAgBEggKAggBCgIIBSI9Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIKVVNFUl9JTlBVVCI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZWJbCghsaW5lYXJfMRIOCgwIARIICgIIAQoCCAMiPwowcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuT3V0cHV0U3BlYy5raW5kEgtVU0VSX09VVFBVVGrIAQoIMS53ZWlnaHQSDgoMCAESCAoCCAcKAggFIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLwohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgpwXzFfd2VpZ2h0asABCgYxLmJpYXMSCgoICAESBAoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSItCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCHBfMV9iaWFzasgBCggzLndlaWdodBIOCgwIARIICgIIAwoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIvCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCnBfM193ZWlnaHRqwAEKBjMuYmlhcxIKCggIARIECgIIAyI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi0KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIIcF8zX2JpYXNqGAoGbGluZWFyEg4KDAgBEggKAggBCgIIB2oWCgR0YW5oEg4KDAgBEggKAggBCgIIB4IBigIKMHBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLmdyYXBoX3NpZ25hdHVyZRLVAQojIGlucHV0cwpwXzFfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PScxLndlaWdodCcKcF8xX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzEuYmlhcycKcF8zX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMy53ZWlnaHQnCnBfM19iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PSczLmJpYXMnCmlucHV0OiBVU0VSX0lOUFVUCgojIG91dHB1dHMKbGluZWFyXzE6IFVTRVJfT1VUUFVUCoIBOAoycGtnLnRvcmNoLmV4cG9ydC5FeHBvcnRlZFByb2dyYW0ucmFuZ2VfY29uc3RyYWludHMSAnt9QgQKABAU",
+   "bytes": 3438,
+   "sha256": "9a308c7b1fe7de1a3010ca4bcccbf93a35784808bae2c87f53674ff1ab354934",
+   "edited": "removed 3 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 4401,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "1.weight", "1.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_1",
+      "inputs": ["tanh", "3.weight", "3.bias"],
+      "outputs": ["linear_1"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "1.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "1.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "3.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "3.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear_1",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.286214888, 0.0677027106, 0.386287391, 0.369857728, -0.00101196766, -0.0256334841, 0.08471632, -0.18501097, -0.0996878147, 0.295061767, -0.375470877, 0.0975215435, -0.241624236, 0.247451067, 0.380008936, 0.404622912, -0.414598107, -0.251815945, -0.237879962, -0.445345759, -0.190280378, -0.0169386268, -0.425771505, -0.165552139, -0.0772358477, -0.377616823, 0.0658370256, -0.25179413, 0.215222895, -0.139128029, 0.434523165, 0.103591442, -0.359507799, 0.42212373, 0.0952246785],
+     "biases": [-0.383494735, -0.136548281, -0.119852602, 0.306516588, -0.096942991, 0.0308663845, -0.316834331]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.152609617, 0.0935658216, -0.135524541, -0.0549006462, 0.0434679985, 0.152435273, 0.0367023051, 0.309017509, 0.240622669, 0.335025936, -0.212193504, -0.146638811, -0.115128577, -0.217391223, 0.0711273253, -0.301759899, -0.201989517, 0.044307977, -0.0815245509, -0.37531662, 0.177529246],
+     "biases": [-0.0500074625, 0.14764145, -0.079944104]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.129426107, -0.0237923265, -0.0858828872],
+     [-0.144807756, -0.0177453607, 0.563425183],
+     [-0.12629348, 0.00499032438, -0.0897184312],
+     [-0.0150518231, 1.00805998, -0.0366581976]
+    ],
+    "onnxruntime": [
+     [-0.129426092, -0.0237923414, -0.0858828872],
+     [-0.144807756, -0.0177453756, 0.563425183],
+     [-0.12629348, 0.00499030948, -0.0897184312],
+     [-0.0150518231, 1.00806022, -0.0366581678]
+    ],
+    "reference": [
+     [-0.129426107, -0.0237923414, -0.0858828947],
+     [-0.144807756, -0.0177453607, 0.563425183],
+     [-0.12629348, 0.00499030948, -0.0897184387],
+     [-0.0150518343, 1.0080601, -0.0366581976]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 2.384185791015625e-07,
+    "makerAgainstReference": 1.1920928955078125e-07,
+    "onnxruntimeAgainstReference": 1.1920928955078125e-07
+   }
+  },
+  {
+   "name": "torch-heads",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(policy_and_value, (zeros(1, 5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6hTYK/AQKA29icwoLcGkuMC53ZWlnaHQKCXBpLjAuYmlhcxIGbGluZWFyGgtub2RlX2xpbmVhciIER2VtbSoNCgZ0cmFuc0EYAKABAioNCgZ0cmFuc0IYAaABAioPCgVhbHBoYRUAAIA/oAEBKg4KBGJldGEVAACAP6ABAUqIAQoJbmFtZXNwYWNlEns6IF9fbWFpbl9fLkhlYWRzL3BpOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsL3BpLjA6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKlgEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJ0WydfX21haW5fXy5IZWFkcycsICd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KogEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUShwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVvYnMsICVwX3BpXzBfd2VpZ2h0LCAlcF9waV8wX2JpYXMpLCBrd2FyZ3MgPSB7fSlKOgoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSHFsnJywgJ3BpJywgJ3BpLjAnLCAnbGluZWFyJ10KgQQKBmxpbmVhchIEdGFuaBoJbm9kZV90YW5oIgRUYW5oSoYBCgluYW1lc3BhY2USeTogX19tYWluX18uSGVhZHMvcGk6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvcGkuMTogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaDogYXRlbi50YW5oLmRlZmF1bHRKlgEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJ0WydfX21haW5fXy5IZWFkcycsICd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oJywgJ2F0ZW4udGFuaC5kZWZhdWx0J11KgwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSaSV0YW5oIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLnRhbmguZGVmYXVsdF0oYXJncyA9ICglbGluZWFyLCksIGt3YXJncyA9IHt9KUo4Chpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIaWycnLCAncGknLCAncGkuMScsICd0YW5oJ10KiAUKBHRhbmgKC3BpLjIud2VpZ2h0CglwaS4yLmJpYXMSCGxpbmVhcl8xGg1ub2RlX2xpbmVhcl8xIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSooBCgluYW1lc3BhY2USfTogX19tYWluX18uSGVhZHMvcGk6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvcGkuMjogdG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyL2xpbmVhcl8xOiBhdGVuLmxpbmVhci5kZWZhdWx0SpYBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSdFsnX19tYWluX18uSGVhZHMnLCAndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSqUBChZwa2cudG9yY2gub25ueC5meF9ub2RlEooBJWxpbmVhcl8xIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCV0YW5oLCAlcF9waV8yX3dlaWdodCwgJXBfcGlfMl9iaWFzKSwga3dhcmdzID0ge30pSjwKGnBrZy50b3JjaC5vbm54Lm5hbWVfc2NvcGVzEh5bJycsICdwaScsICdwaS4yJywgJ2xpbmVhcl8xJ10KhgUKA29icwoLdmYuMC53ZWlnaHQKCXZmLjAuYmlhcxIIbGluZWFyXzIaDW5vZGVfbGluZWFyXzIiBEdlbW0qDQoGdHJhbnNBGACgAQIqDQoGdHJhbnNCGAGgAQIqDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQFKigEKCW5hbWVzcGFjZRJ9OiBfX21haW5fXy5IZWFkcy92ZjogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC92Zi4wOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyXzI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKlgEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJ0WydfX21haW5fXy5IZWFkcycsICd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KpAEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSiQElbGluZWFyXzIgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4ubGluZWFyLmRlZmF1bHRdKGFyZ3MgPSAoJW9icywgJXBfdmZfMF93ZWlnaHQsICVwX3ZmXzBfYmlhcyksIGt3YXJncyA9IHt9KUo8Chpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIeWycnLCAndmYnLCAndmYuMCcsICdsaW5lYXJfMiddCo8ECghsaW5lYXJfMhIGdGFuaF8xGgtub2RlX3RhbmhfMSIEVGFuaEqIAQoJbmFtZXNwYWNlEns6IF9fbWFpbl9fLkhlYWRzL3ZmOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsL3ZmLjE6IHRvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oL3RhbmhfMTogYXRlbi50YW5oLmRlZmF1bHRKlgEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJ0WydfX21haW5fXy5IZWFkcycsICd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oJywgJ2F0ZW4udGFuaC5kZWZhdWx0J11KhwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSbSV0YW5oXzEgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4udGFuaC5kZWZhdWx0XShhcmdzID0gKCVsaW5lYXJfMiwpLCBrd2FyZ3MgPSB7fSlKOgoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSHFsnJywgJ3ZmJywgJ3ZmLjEnLCAndGFuaF8xJ10KjAUKBnRhbmhfMQoLdmYuMi53ZWlnaHQKCXZmLjIuYmlhcxIIbGluZWFyXzMaDW5vZGVfbGluZWFyXzMiBEdlbW0qDQoGdHJhbnNBGACgAQIqDQoGdHJhbnNCGAGgAQIqDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQFKigEKCW5hbWVzcGFjZRJ9OiBfX21haW5fXy5IZWFkcy92ZjogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC92Zi4yOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyXzM6IGF0ZW4ubGluZWFyLmRlZmF1bHRKlgEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJ0WydfX21haW5fXy5IZWFkcycsICd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KpwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSjAElbGluZWFyXzMgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4ubGluZWFyLmRlZmF1bHRdKGFyZ3MgPSAoJXRhbmhfMSwgJXBfdmZfMl93ZWlnaHQsICVwX3ZmXzJfYmlhcyksIGt3YXJncyA9IHt9KUo8Chpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIeWycnLCAndmYnLCAndmYuMicsICdsaW5lYXJfMyddEgptYWluX2dyYXBoKqIBCAcIBRABQgtwaS4wLndlaWdodEqMAeWQVb5wOfw9kEe9PjyfwD4Lssi+qDWmvQ63xz7SjuQ+45SYvsDeWT6aTH6+JVHQvpQDYj4WeEK+AMA3PhbiG75QDYM8aHugPZ2qmb74GKy9rGVSPhJjCL7Fkt6+53W7vh6Ruj6EGNm9ABZVuuMv2r4IcjK91mwkvv4Esz5AhAy9VgKevk+Dar6EJ8E+Ki0IBxABQglwaS4wLmJpYXNKHLo4wD68roC9YCx2PuCNIbzO5Yy+SPSfPkY42D4qaQgDCAcQAUILcGkuMi53ZWlnaHRKVJf5qr6A0oa8yV6xvuawDT7zfJA+WriBvixqor7A2BW9eEWFvnvcuD48yaE9hEjLPZYcOD50bb69OohGPnjV3D2LGbu+g1s6vmSQz739LYs+bcyBPiodCAMQAUIJcGkuMi5iaWFzSgwOLWc+Y8NsvgBxMr4qogEIBwgFEAFCC3ZmLjAud2VpZ2h0SowBDHlFPkA2lbsnKLC+UFe7PFycDj7MqjI+DGBJPvwrSb6slU8+JJYMvrwVrr3mfZS+9i7PvnY5uj7EuMw+7nLJvlcOTr6m92e+8D09PvGbb74g6BO+QnuCvvAywbxGybU+GJVaveDInj4fN9O+DEoVPrSdxr5AoWO88NR4PUIbpz7csbq9MN56PdqAhz4qLQgHEAFCCXZmLjAuYmlhc0ocTIE/vvS0fL4Kn8A+UFa8PSzhhT4FTV++5KOOvioxCAEIBxABQgt2Zi4yLndlaWdodEocBcGavsVPHL44GH09mdSoPoyt6b05BqA+S229PioVCAEQAUIJdmYuMi5iaWFzSgSTUbG+WpMBCgNvYnMSDgoMCAESCAoCCAEKAggFIj0KL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEgpVU0VSX0lOUFVUIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lYlsKCGxpbmVhcl8xEg4KDAgBEggKAggBCgIIAyI/CjBwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5PdXRwdXRTcGVjLmtpbmQSC1VTRVJfT1VUUFVUYlsKCGxpbmVhcl8zEg4KDAgBEggKAggBCgIIASI/CjBwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5PdXRwdXRTcGVjLmtpbmQSC1VTRVJfT1VUUFVUas4BCgtwaS4wLndlaWdodBIOCgwIARIICgIIBwoCCAUiPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIyCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSDXBfcGlfMF93ZWlnaHRqxgEKCXBpLjAuYmlhcxIKCggIARIECgIIByI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIjAKIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRILcF9waV8wX2JpYXNqzgEKC3BpLjIud2VpZ2h0Eg4KDAgBEggKAggDCgIIByI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIjIKIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRINcF9waV8yX3dlaWdodGrGAQoJcGkuMi5iaWFzEgoKCAgBEgQKAggDIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiMAohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgtwX3BpXzJfYmlhc2rOAQoLdmYuMC53ZWlnaHQSDgoMCAESCAoCCAcKAggFIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiMgohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEg1wX3ZmXzBfd2VpZ2h0asYBCgl2Zi4wLmJpYXMSCgoICAESBAoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIwCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSC3BfdmZfMF9iaWFzas4BCgt2Zi4yLndlaWdodBIOCgwIARIICgIIAQoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIyCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSDXBfdmZfMl93ZWlnaHRqxgEKCXZmLjIuYmlhcxIKCggIARIECgIIASI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIjAKIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRILcF92Zl8yX2JpYXNqGAoGbGluZWFyEg4KDAgBEggKAggBCgIIB2oWCgR0YW5oEg4KDAgBEggKAggBCgIIB2oaCghsaW5lYXJfMhIOCgwIARIICgIIAQoCCAdqGAoGdGFuaF8xEg4KDAgBEggKAggBCgIIB4IB5gMKMHBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLmdyYXBoX3NpZ25hdHVyZRKxAwojIGlucHV0cwpwX3BpXzBfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PSdwaS4wLndlaWdodCcKcF9waV8wX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9J3BpLjAuYmlhcycKcF9waV8yX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0ncGkuMi53ZWlnaHQnCnBfcGlfMl9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PSdwaS4yLmJpYXMnCnBfdmZfMF93ZWlnaHQ6IFBBUkFNRVRFUiB0YXJnZXQ9J3ZmLjAud2VpZ2h0JwpwX3ZmXzBfYmlhczogUEFSQU1FVEVSIHRhcmdldD0ndmYuMC5iaWFzJwpwX3ZmXzJfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PSd2Zi4yLndlaWdodCcKcF92Zl8yX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9J3ZmLjIuYmlhcycKb2JzOiBVU0VSX0lOUFVUCgojIG91dHB1dHMKbGluZWFyXzE6IFVTRVJfT1VUUFVUCmxpbmVhcl8zOiBVU0VSX09VVFBVVAqCATgKMnBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLnJhbmdlX2NvbnN0cmFpbnRzEgJ7fUIECgAQFA==",
+   "bytes": 6949,
+   "sha256": "65e3d5c1fd5fa90626aada2f9cd4a1b00fc76607a89c0b9c25d6c38d02bd2d58",
+   "edited": "removed 6 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 9613,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["obs", "pi.0.weight", "pi.0.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_1",
+      "inputs": ["tanh", "pi.2.weight", "pi.2.bias"],
+      "outputs": ["linear_1"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_2",
+      "inputs": ["obs", "vf.0.weight", "vf.0.bias"],
+      "outputs": ["linear_2"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh_1",
+      "inputs": ["linear_2"],
+      "outputs": ["tanh_1"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_linear_3",
+      "inputs": ["tanh_1", "vf.2.weight", "vf.2.bias"],
+      "outputs": ["linear_3"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "pi.0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "pi.0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "pi.2.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "pi.2.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "vf.0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "vf.0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "vf.2.weight",
+      "dims": [1, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "vf.2.bias",
+      "dims": [1],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear_1",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     },
+     {
+      "name": "linear_3",
+      "type": "FLOAT",
+      "dims": [1, 1]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.208560541, 0.123156428, 0.369686604, 0.376214862, -0.39198336, -0.0811570287, 0.390068471, 0.446402133, -0.298010916, 0.212763786, -0.248339087, -0.406869084, 0.220716774, -0.189911216, 0.179443359, -0.152229637, 0.0159975588, 0.0783603787, -0.300129801, -0.0840319991, 0.205465972, -0.133190423, -0.434713513, -0.366133898, 0.364388406, -0.106003791, -0.000812858343, -0.426146597, -0.0435657799, -0.160571426, 0.349647462, -0.0343058109, -0.308611572, -0.229016528, 0.377254605],
+     "biases": [0.375432789, -0.0628332794, 0.240403652, -0.00986048579, -0.275190771, 0.312410593, 0.422304332]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.333935469, -0.0164577961, -0.346426278, 0.138370126, 0.282203287, -0.253359616, -0.317216277, -0.036583662, -0.26029563, 0.361057132, 0.0789971054, 0.0992594063, 0.179796547, -0.0929822028, 0.193879038, 0.107829034, -0.365429252, -0.181989715, -0.101349622, 0.271835238, 0.25351277],
+     "biases": [0.225757807, -0.231214091, -0.174259186]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.255040795, -0.152940273, 0.0147145092],
+     [0.0129230618, 0.127983883, -0.549555779],
+     [-0.228554159, -0.201625526, 0.0444053262],
+     [0.429752916, -0.0728745162, -0.219913751]
+    ],
+    "onnxruntime": [
+     [-0.255040765, -0.152940303, 0.0147145092],
+     [0.0129230767, 0.127983883, -0.549555779],
+     [-0.228554159, -0.201625541, 0.0444053262],
+     [0.429752946, -0.0728744268, -0.219913825]
+    ],
+    "reference": [
+     [-0.255040824, -0.152940273, 0.0147145092],
+     [0.0129230917, 0.127983943, -0.549555898],
+     [-0.228554159, -0.201625526, 0.0444053113],
+     [0.429752886, -0.0728744566, -0.21991381]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 8.940696716308594e-08,
+    "makerAgainstReference": 1.1920928955078125e-07,
+    "onnxruntimeAgainstReference": 1.1920928955078125e-07
+   }
+  },
+  {
+   "name": "torch-nobias",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(model, (zeros(1, 5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6oQoKrgQKBWlucHV0CggwLndlaWdodBIGbGluZWFyGgtub2RlX2xpbmVhciIER2VtbSoNCgZ0cmFuc0EYAKABAioNCgZ0cmFuc0IYAaABAioPCgVhbHBoYRUAAIA/oAEBKg4KBGJldGEVAACAP6ABAUpyCgluYW1lc3BhY2USZTogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8wOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyOiBhdGVuLmxpbmVhci5kZWZhdWx0SoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSpIBChZwa2cudG9yY2gub25ueC5meF9ub2RlEnglbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQpLCBrd2FyZ3MgPSB7fSlKMQoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSE1snJywgJzAnLCAnbGluZWFyJ10SCm1haW5fZ3JhcGgqTggDCAUQAUIIMC53ZWlnaHRKPHSSDb4AFHe7DsPWvoBkvLvhGt2++N5wPjIg1L6xlsO+aMD6PfiGib1ye5k+pg2MPkiJQz2caPu9Jh6gPlqVAQoFaW5wdXQSDgoMCAESCAoCCAEKAggFIj0KL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEgpVU0VSX0lOUFVUIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lYlkKBmxpbmVhchIOCgwIARIICgIIAQoCCAMiPwowcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuT3V0cHV0U3BlYy5raW5kEgtVU0VSX09VVFBVVGrIAQoIMC53ZWlnaHQSDgoMCAESCAoCCAMKAggFIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLwohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgpwXzBfd2VpZ2h0ggGXAQowcGtnLnRvcmNoLmV4cG9ydC5FeHBvcnRlZFByb2dyYW0uZ3JhcGhfc2lnbmF0dXJlEmMKIyBpbnB1dHMKcF8wX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMC53ZWlnaHQnCmlucHV0OiBVU0VSX0lOUFVUCgojIG91dHB1dHMKbGluZWFyOiBVU0VSX09VVFBVVAqCATgKMnBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLnJhbmdlX2NvbnN0cmFpbnRzEgJ7fUIECgAQFA==",
+   "bytes": 1345,
+   "sha256": "34f7c1308978a78bfbffc804340e1239214b3d505d5d9ae92ced368ed4512a02",
+   "edited": "removed 1 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 1672,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "0.weight"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [3, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.138253987, -0.00377011299, -0.419456899, -0.00574928522, -0.431845695, 0.235225558, -0.414308131, -0.382009059, 0.122437298, -0.0671519637, 0.299769938, 0.273541629, 0.0477383435, -0.12275812, 0.312730014],
+     "biases": [0.0, 0.0, 0.0]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.0, 0.0, 0.0],
+     [-1.21249819, 1.25909185, 0.154998958],
+     [-0.0321230851, -0.0780651122, 0.0861853138],
+     [-2.10363173, 3.07797217, 1.21647942]
+    ],
+    "onnxruntime": [
+     [0.0, 0.0, 0.0],
+     [-1.21249819, 1.25909185, 0.154998988],
+     [-0.0321230851, -0.0780651122, 0.0861853138],
+     [-2.10363173, 3.07797194, 1.21647942]
+    ],
+    "reference": [
+     [0.0, 0.0, 0.0],
+     [-1.21249819, 1.25909197, 0.154998988],
+     [-0.0321230851, -0.0780651122, 0.0861853138],
+     [-2.10363173, 3.07797217, 1.2164793]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 2.384185791015625e-07,
+    "makerAgainstReference": 1.1920928955078125e-07,
+    "onnxruntimeAgainstReference": 2.384185791015625e-07
+   }
+  },
+  {
+   "name": "torch-outside",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(Linear(13, 5), (zeros(1, 13),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6vgwKwgQKBWlucHV0CggwLndlaWdodAoGMC5iaWFzEgZsaW5lYXIaC25vZGVfbGluZWFyIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnIKCW5hbWVzcGFjZRJlOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzA6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXI6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQsICVwXzBfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMCcsICdsaW5lYXInXRIKbWFpbl9ncmFwaCpLCAUIDRABQggwLndlaWdodGobCghsb2NhdGlvbhIPbW9kZWwub25ueC5kYXRhagsKBm9mZnNldBIBMGoNCgZsZW5ndGgSAzI2MHABKiIIBRABQgYwLmJpYXNKFDKzbD4o1zG+9AuKvoDPkL2dpUa+WpUBCgVpbnB1dBIOCgwIARIICgIIAQoCCA0iPQovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSClVTRVJfSU5QVVQiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmViWQoGbGluZWFyEg4KDAgBEggKAggBCgIIBSI/CjBwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5PdXRwdXRTcGVjLmtpbmQSC1VTRVJfT1VUUFVUasgBCggwLndlaWdodBIOCgwIARIICgIIBQoCCA0iPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIvCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCnBfMF93ZWlnaHRqwAEKBjAuYmlhcxIKCggIARIECgIIBSI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi0KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIIcF8wX2JpYXOCAbwBCjBwa2cudG9yY2guZXhwb3J0LkV4cG9ydGVkUHJvZ3JhbS5ncmFwaF9zaWduYXR1cmUShwEKIyBpbnB1dHMKcF8wX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMC53ZWlnaHQnCnBfMF9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PScwLmJpYXMnCmlucHV0OiBVU0VSX0lOUFVUCgojIG91dHB1dHMKbGluZWFyOiBVU0VSX09VVFBVVAqCATgKMnBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLnJhbmdlX2NvbnN0cmFpbnRzEgJ7fUIECgAQFA==",
+   "bytes": 1630,
+   "sha256": "4eb2b60e7fae52d434b1705ea0e16b7b4aba83ab42b4d225b8f6fb4ddc684d1d",
+   "edited": "removed 1 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 1957,
+    "model.onnx.data": 260
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_linear",
+      "inputs": ["input", "0.weight", "0.bias"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [5, 13],
+      "type": "FLOAT",
+      "storage": "outside the file",
+      "external": {
+       "location": "model.onnx.data",
+       "offset": "0",
+       "length": "260"
+      }
+     },
+     {
+      "name": "0.bias",
+      "dims": [5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [1, 13]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "refused: Data of TensorProto ( tensor name: 0.weight) should be stored in model.onnx.data, but it is not regular file.",
+   "network": [
+    {
+     "input": 13,
+     "output": 5,
+     "activation": "identity",
+     "weights": [-0.0430747569, 0.246412188, 0.0325910747, -0.163536131, -0.148254871, -0.149130702, -0.176855773, -0.0288420618, 0.0529549122, 0.23549667, 0.163590521, -0.185520351, 0.150274187, -0.218867853, -0.274969429, 0.0334037244, 0.0153894424, 0.0452733934, 0.0830617547, -0.159218699, 0.0934586823, 0.0486241579, 0.0932176411, -0.247288331, -0.261817247, 0.268562168, 0.0146994591, -0.161265552, -0.100585952, -0.264697462, 0.205168724, 0.183839083, -0.135532409, 0.156820089, -0.0763419867, -0.24140957, -0.240124404, 0.250013798, 0.130649775, 0.178389579, -0.0413990468, 0.0993132591, 0.272634774, -0.175983071, 0.135087401, -0.106453419, 0.144392729, -0.0028808713, 0.0327470005, -0.117054775, -0.164824307, 0.238438934, -0.0298530161, -0.150917009, 0.171359152, 0.199454218, -0.197223946, -0.0594910532, 0.05579561, 0.152448595, 0.0570103228, -0.0798561275, 0.234097272, -0.106149644, -0.0200259686],
+     "biases": [0.231152326, -0.173672318, -0.269622445, -0.0707082748, -0.19399114]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.35877341, 1.51067734, -1.7863313, 1.68661356, -0.0473172106, -0.799978614, -0.8029567, -1.08281648, -0.223645359, 0.83388418, 0.584063709, 0.638285995, -1.69480836],
+    [-0.157096207, 0.155380324, 0.0968885347, 0.218321398, 0.120981582, -0.102439135, 0.128527239, 0.0628394261, 0.0214824919, -0.0819873288, 0.000278022169, -0.0146998698, 0.0892535076],
+    [0.995975554, 12.6779671, -6.19588614, 3.76882052, 3.99073911, -6.91470814, -9.45012856, 8.1086359, 4.13952398, -1.30004144, 3.15493917, -5.4027524, 1.90678561]
+   ],
+   "outputs": {
+    "maker": [
+     [0.231152326, -0.173672318, -0.269622445, -0.0707082748, -0.19399114],
+     [0.4604415, -1.44309294, -1.37881553, -0.507166922, -0.531768978],
+     [0.214473546, -0.171888202, -0.340028197, -0.0548332855, -0.146008223],
+     [6.08900833, -0.931353867, -2.43529892, 1.45607758, -0.500201762]
+    ]
+   },
+   "judges": {
+    "skipped": "weights are in model.onnx.data, which is not kept: the file alone cannot be run"
+   }
+  },
+  {
+   "name": "torch-shared",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(a 5-7-7-7-3 tanh network with zero biases and two equal 7x7 weight matrices, (zeros(1, 5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU6qC4K+wQKBWlucHV0CggwLndlaWdodBIGbGluZWFyGgtub2RlX0dlbW1fMCIER2VtbSoNCgZ0cmFuc0EYAKABAioNCgZ0cmFuc0IYAaABAioPCgVhbHBoYRUAAIA/oAEBKg4KBGJldGEVAACAP6ABAUpyCgluYW1lc3BhY2USZTogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8wOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyOiBhdGVuLmxpbmVhci5kZWZhdWx0Sj8KIXBrZy5vbm54c2NyaXB0LnJld3JpdGVyLnJ1bGVfbmFtZRIaUmVtb3ZlT3B0aW9uYWxCaWFzRnJvbUdlbW1KhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KngEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSgwElbGluZWFyIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCVpbnB1dCwgJXBfMF93ZWlnaHQsICVwXzBfYmlhcyksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMCcsICdsaW5lYXInXQrPAwoGbGluZWFyEgR0YW5oGglub2RlX3RhbmgiBFRhbmhKcAoJbmFtZXNwYWNlEmM6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMTogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaDogYXRlbi50YW5oLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oJywgJ2F0ZW4udGFuaC5kZWZhdWx0J11KgwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUSaSV0YW5oIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLnRhbmguZGVmYXVsdF0oYXJncyA9ICglbGluZWFyLCksIGt3YXJncyA9IHt9KUovChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxIRWycnLCAnMScsICd0YW5oJ10KgQUKBHRhbmgKCDIud2VpZ2h0EghsaW5lYXJfMRoLbm9kZV9HZW1tXzEiBEdlbW0qDQoGdHJhbnNBGACgAQIqDQoGdHJhbnNCGAGgAQIqDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQFKdAoJbmFtZXNwYWNlEmc6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMjogdG9yY2gubm4ubW9kdWxlcy5saW5lYXIuTGluZWFyL2xpbmVhcl8xOiBhdGVuLmxpbmVhci5kZWZhdWx0Sj8KIXBrZy5vbm54c2NyaXB0LnJld3JpdGVyLnJ1bGVfbmFtZRIaUmVtb3ZlT3B0aW9uYWxCaWFzRnJvbUdlbW1KhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KnwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUShAElbGluZWFyXzEgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4ubGluZWFyLmRlZmF1bHRdKGFyZ3MgPSAoJXRhbmgsICVwXzJfd2VpZ2h0LCAlcF8yX2JpYXMpLCBrd2FyZ3MgPSB7fSlKMwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSFVsnJywgJzInLCAnbGluZWFyXzEnXQrdAwoIbGluZWFyXzESBnRhbmhfMRoLbm9kZV90YW5oXzEiBFRhbmhKcgoJbmFtZXNwYWNlEmU6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvMzogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaF8xOiBhdGVuLnRhbmguZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgnLCAnYXRlbi50YW5oLmRlZmF1bHQnXUqHAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRJtJXRhbmhfMSA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi50YW5oLmRlZmF1bHRdKGFyZ3MgPSAoJWxpbmVhcl8xLCksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnMycsICd0YW5oXzEnXQqFBQoGdGFuaF8xCggyLndlaWdodBIIbGluZWFyXzIaC25vZGVfR2VtbV8yIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzQ6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMjogYXRlbi5saW5lYXIuZGVmYXVsdEo/CiFwa2cub25ueHNjcmlwdC5yZXdyaXRlci5ydWxlX25hbWUSGlJlbW92ZU9wdGlvbmFsQmlhc0Zyb21HZW1tSoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSqEBChZwa2cudG9yY2gub25ueC5meF9ub2RlEoYBJWxpbmVhcl8yIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCV0YW5oXzEsICVwXzRfd2VpZ2h0LCAlcF80X2JpYXMpLCBrd2FyZ3MgPSB7fSlKMwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSFVsnJywgJzQnLCAnbGluZWFyXzInXQrdAwoIbGluZWFyXzISBnRhbmhfMhoLbm9kZV90YW5oXzIiBFRhbmhKcgoJbmFtZXNwYWNlEmU6IHRvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwvNTogdG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgvdGFuaF8yOiBhdGVuLnRhbmguZGVmYXVsdEqEAQoecGtnLnRvcmNoLm9ubnguY2xhc3NfaGllcmFyY2h5EmJbJ3RvcmNoLm5uLm1vZHVsZXMuY29udGFpbmVyLlNlcXVlbnRpYWwnLCAndG9yY2gubm4ubW9kdWxlcy5hY3RpdmF0aW9uLlRhbmgnLCAnYXRlbi50YW5oLmRlZmF1bHQnXUqHAQoWcGtnLnRvcmNoLm9ubnguZnhfbm9kZRJtJXRhbmhfMiA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi50YW5oLmRlZmF1bHRdKGFyZ3MgPSAoJWxpbmVhcl8yLCksIGt3YXJncyA9IHt9KUoxChpwa2cudG9yY2gub25ueC5uYW1lX3Njb3BlcxITWycnLCAnNScsICd0YW5oXzInXQqFBQoGdGFuaF8yCgg2LndlaWdodBIIbGluZWFyXzMaC25vZGVfR2VtbV8zIgRHZW1tKg0KBnRyYW5zQRgAoAECKg0KBnRyYW5zQhgBoAECKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBSnQKCW5hbWVzcGFjZRJnOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzY6IHRvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhci9saW5lYXJfMzogYXRlbi5saW5lYXIuZGVmYXVsdEo/CiFwa2cub25ueHNjcmlwdC5yZXdyaXRlci5ydWxlX25hbWUSGlJlbW92ZU9wdGlvbmFsQmlhc0Zyb21HZW1tSoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSqEBChZwa2cudG9yY2gub25ueC5meF9ub2RlEoYBJWxpbmVhcl8zIDogW251bV91c2Vycz0xXSA9IGNhbGxfZnVuY3Rpb25bdGFyZ2V0PXRvcmNoLm9wcy5hdGVuLmxpbmVhci5kZWZhdWx0XShhcmdzID0gKCV0YW5oXzIsICVwXzZfd2VpZ2h0LCAlcF82X2JpYXMpLCBrd2FyZ3MgPSB7fSlKMwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSFVsnJywgJzYnLCAnbGluZWFyXzMnXRIKbWFpbl9ncmFwaCqfAQgHCAUQAUIIMC53ZWlnaHRKjAEYwba+cBiJPhtdVr6DCXK+QveNvnC3ZL5Zili+usq1PhBFCj0QI2w+XHjbvYKToT54hDM+cKIvvnwXAT7wZ7I9MLZ6PqCjiT38LT4+3IksPg7cNr66gdk+ABv0O4LORL6CWqK+lpyZvrBKoT3qEtc+gD8qPoCsejzarEG+iGPGPcZ8rj5gSQq91jDDvirXAQgHCAcQAUIIMi53ZWlnaHRKxAFMopG9lG2FvqG9hb4vAL++evFcPlB33r06Rhk+4IwLvUvWoD4w2A+9ZbsWvvQrs70LTps+eDo+vRbDkL5Yxpu9GiRtPlooUz6gWsk8s2a1vnKOaL4HpJa+X1K7viETg76ortM9fqZePi8Ba773d5W+msMgPuwHqr0AuY+96laEvgDwzDou0hu+ZD6PvgumGb7AOoE8PpQZPoJBd77BDYQ+gI/bO/V7pD7D4qE+/4m2vnBEKz1AdE69rFi5PbhzPr0z+jW+KmYIAwgHEAFCCDYud2VpZ2h0SlTmrmA+NdWpPoDZYLzjCrA+UCXKvb7TrL6c+609rpcLvvDw9D09lIM+6TY1vtlvlT4A0fY8fS2pvlJxY770AaA9gi0yPt6wkL67Ebg+pQIrvo8BTL5alQEKBWlucHV0Eg4KDAgBEggKAggBCgIIBSI9Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIKVVNFUl9JTlBVVCI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZWIaCghsaW5lYXJfMxIOCgwIARIICgIIAQoCCANqyAEKCDAud2VpZ2h0Eg4KDAgBEggKAggHCgIIBSI8Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIJUEFSQU1FVEVSIj0KNXBrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5wZXJzaXN0ZW50EgROb25lIi8KIXBrZy50b3JjaC5vbm54Lm9yaWdpbmFsX25vZGVfbmFtZRIKcF8wX3dlaWdodGrIAQoIMi53ZWlnaHQSDgoMCAESCAoCCAcKAggHIjwKL3BrZy50b3JjaC5leHBvcnQuZ3JhcGhfc2lnbmF0dXJlLklucHV0U3BlYy5raW5kEglQQVJBTUVURVIiPQo1cGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLnBlcnNpc3RlbnQSBE5vbmUiLwohcGtnLnRvcmNoLm9ubngub3JpZ2luYWxfbm9kZV9uYW1lEgpwXzJfd2VpZ2h0asgBCgg2LndlaWdodBIOCgwIARIICgIIAwoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSIvCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCnBfNl93ZWlnaHRqGAoGbGluZWFyEg4KDAgBEggKAggBCgIIB2oWCgR0YW5oEg4KDAgBEggKAggBCgIIB2oaCghsaW5lYXJfMRIOCgwIARIICgIIAQoCCAdqGAoGdGFuaF8xEg4KDAgBEggKAggBCgIIB2oaCghsaW5lYXJfMhIOCgwIARIICgIIAQoCCAdqGAoGdGFuaF8yEg4KDAgBEggKAggBCgIIB4IBogMKMHBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLmdyYXBoX3NpZ25hdHVyZRLtAgojIGlucHV0cwpwXzBfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PScwLndlaWdodCcKcF8wX2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzAuYmlhcycKcF8yX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMi53ZWlnaHQnCnBfMl9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PScyLmJpYXMnCnBfNF93ZWlnaHQ6IFBBUkFNRVRFUiB0YXJnZXQ9JzQud2VpZ2h0JwpwXzRfYmlhczogUEFSQU1FVEVSIHRhcmdldD0nNC5iaWFzJwpwXzZfd2VpZ2h0OiBQQVJBTUVURVIgdGFyZ2V0PSc2LndlaWdodCcKcF82X2JpYXM6IFBBUkFNRVRFUiB0YXJnZXQ9JzYuYmlhcycKaW5wdXQ6IFVTRVJfSU5QVVQKCiMgb3V0cHV0cwpsaW5lYXJfMzogVVNFUl9PVVRQVVQKggE4CjJwa2cudG9yY2guZXhwb3J0LkV4cG9ydGVkUHJvZ3JhbS5yYW5nZV9jb25zdHJhaW50cxICe31CBAoAEBQ=",
+   "bytes": 5960,
+   "sha256": "5f34d5db7d7be90529f9d34009673e904aec28577950d33ced8ee942cff47af6",
+   "edited": "removed 7 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 8195,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "node_Gemm_0",
+      "inputs": ["input", "0.weight"],
+      "outputs": ["linear"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_Gemm_1",
+      "inputs": ["tanh", "2.weight"],
+      "outputs": ["linear_1"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh_1",
+      "inputs": ["linear_1"],
+      "outputs": ["tanh_1"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_Gemm_2",
+      "inputs": ["tanh_1", "2.weight"],
+      "outputs": ["linear_2"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh_2",
+      "inputs": ["linear_2"],
+      "outputs": ["tanh_2"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "node_Gemm_3",
+      "inputs": ["tanh_2", "6.weight"],
+      "outputs": ["linear_3"],
+      "attributes": {
+       "transA": 0,
+       "transB": 1,
+       "alpha": 1.0,
+       "beta": 1.0
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.weight",
+      "dims": [7, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "6.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear_3",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.onnxscript.rewriter.rule_name", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.356941938, 0.267764568, -0.209339544, -0.236364409, -0.277277052, -0.223356009, -0.211465254, 0.355062306, 0.0337572694, 0.230602503, -0.107163161, 0.31557852, 0.175310016, -0.171518087, 0.126066148, 0.0871123075, 0.244835615, 0.0672066212, 0.185722291, 0.168494642, -0.178573817, 0.42481786, 0.00744950771, -0.192194015, -0.31709677, -0.300022781, 0.0787557364, 0.420066178, 0.166257858, 0.0152999163, -0.189135939, 0.0968695283, 0.340795696, -0.0337613821, -0.381231964],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.071110338, -0.26060164, -0.261212379, -0.373048276, 0.21576491, -0.108626008, 0.149681956, -0.0340698957, 0.314134926, -0.0351182818, -0.147199228, -0.0874861777, 0.303329796, -0.0464424789, -0.282738388, -0.0760619044, 0.231583029, 0.206208616, 0.0245793462, -0.354299158, -0.227105886, -0.294220179, -0.365862817, -0.256005317, 0.103360474, 0.217431992, -0.229496703, -0.291930884, 0.156996161, -0.0830229223, -0.0701770782, -0.258475602, 0.00156354904, -0.152168959, -0.279772878, -0.150047466, 0.0157750845, 0.149979562, -0.24146083, 0.257917434, 0.00670045614, 0.321258217, 0.31618318, -0.356521577, 0.041813314, -0.0504038334, 0.0905011594, -0.0464970767, -0.177712247],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.071110338, -0.26060164, -0.261212379, -0.373048276, 0.21576491, -0.108626008, 0.149681956, -0.0340698957, 0.314134926, -0.0351182818, -0.147199228, -0.0874861777, 0.303329796, -0.0464424789, -0.282738388, -0.0760619044, 0.231583029, 0.206208616, 0.0245793462, -0.354299158, -0.227105886, -0.294220179, -0.365862817, -0.256005317, 0.103360474, 0.217431992, -0.229496703, -0.291930884, 0.156996161, -0.0830229223, -0.0701770782, -0.258475602, 0.00156354904, -0.152168959, -0.279772878, -0.150047466, 0.0157750845, 0.149979562, -0.24146083, 0.257917434, 0.00670045614, 0.321258217, 0.31618318, -0.356521577, 0.041813314, -0.0504038334, 0.0905011594, -0.0464970767, -0.177712247],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.219417185, 0.331704766, -0.013723731, 0.343833059, -0.0987039804, -0.337552965, 0.084952563, -0.1363208, 0.119600177, 0.256990343, -0.176967278, 0.291868955, 0.0301289558, -0.330425173, -0.22211197, 0.0781287253, 0.174001724, -0.28259939, 0.359510273, -0.167002276, -0.199224696],
+     "biases": [0.0, 0.0, 0.0]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.0, 0.0, 0.0],
+     [0.00756990258, 0.117080159, 0.120639138],
+     [-0.00625994243, -0.00277613662, -0.00612086942],
+     [-0.0179699417, 0.109442487, 0.0853228793]
+    ],
+    "onnxruntime": [
+     [0.0, 0.0, 0.0],
+     [0.00756990304, 0.117080152, 0.120639123],
+     [-0.00625993963, -0.00277613592, -0.00612086849],
+     [-0.0179699305, 0.10944251, 0.0853229165]
+    ],
+    "reference": [
+     [0.0, 0.0, 0.0],
+     [0.00756988488, 0.117080182, 0.120639145],
+     [-0.00625994103, -0.00277613662, -0.00612087036],
+     [-0.0179699399, 0.109442502, 0.0853229091]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 3.725290298461914e-08,
+    "makerAgainstReference": 2.9802322387695312e-08,
+    "onnxruntimeAgainstReference": 2.9802322387695312e-08
+   }
+  },
+  {
+   "name": "torch-vector",
+   "exporter": "PyTorch 2.14.1+cpu, default exporter",
+   "call": "torch.onnx.export(model, (zeros(5),), path)",
+   "onnx": "CAoSB3B5dG9yY2gaCjIuMTQuMStjcHU61x8K+wMKBWlucHV0CgV2YWxfMBIFdmFsXzEaDW5vZGVfTWF0TXVsXzEiBk1hdE11bEpyCgluYW1lc3BhY2USZTogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8wOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyOiBhdGVuLmxpbmVhci5kZWZhdWx0SoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSp4BChZwa2cudG9yY2gub25ueC5meF9ub2RlEoMBJWxpbmVhciA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICglaW5wdXQsICVwXzBfd2VpZ2h0LCAlcF8wX2JpYXMpLCBrd2FyZ3MgPSB7fSlKMQoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSE1snJywgJzAnLCAnbGluZWFyJ10K+AMKBXZhbF8xCgYwLmJpYXMSBmxpbmVhchoLbm9kZV9saW5lYXIiA0FkZEpyCgluYW1lc3BhY2USZTogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8wOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyOiBhdGVuLmxpbmVhci5kZWZhdWx0SoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXInLCAnYXRlbi5saW5lYXIuZGVmYXVsdCddSp4BChZwa2cudG9yY2gub25ueC5meF9ub2RlEoMBJWxpbmVhciA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi5saW5lYXIuZGVmYXVsdF0oYXJncyA9ICglaW5wdXQsICVwXzBfd2VpZ2h0LCAlcF8wX2JpYXMpLCBrd2FyZ3MgPSB7fSlKMQoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSE1snJywgJzAnLCAnbGluZWFyJ10KzwMKBmxpbmVhchIEdGFuaBoJbm9kZV90YW5oIgRUYW5oSnAKCW5hbWVzcGFjZRJjOiB0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsLzE6IHRvcmNoLm5uLm1vZHVsZXMuYWN0aXZhdGlvbi5UYW5oL3Rhbmg6IGF0ZW4udGFuaC5kZWZhdWx0SoQBCh5wa2cudG9yY2gub25ueC5jbGFzc19oaWVyYXJjaHkSYlsndG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbCcsICd0b3JjaC5ubi5tb2R1bGVzLmFjdGl2YXRpb24uVGFuaCcsICdhdGVuLnRhbmguZGVmYXVsdCddSoMBChZwa2cudG9yY2gub25ueC5meF9ub2RlEmkldGFuaCA6IFtudW1fdXNlcnM9MV0gPSBjYWxsX2Z1bmN0aW9uW3RhcmdldD10b3JjaC5vcHMuYXRlbi50YW5oLmRlZmF1bHRdKGFyZ3MgPSAoJWxpbmVhciwpLCBrd2FyZ3MgPSB7fSlKLwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSEVsnJywgJzEnLCAndGFuaCddCv8DCgR0YW5oCgV2YWxfMhIFdmFsXzMaDW5vZGVfTWF0TXVsXzMiBk1hdE11bEp0CgluYW1lc3BhY2USZzogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8yOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyXzE6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KnwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUShAElbGluZWFyXzEgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4ubGluZWFyLmRlZmF1bHRdKGFyZ3MgPSAoJXRhbmgsICVwXzJfd2VpZ2h0LCAlcF8yX2JpYXMpLCBrd2FyZ3MgPSB7fSlKMwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSFVsnJywgJzInLCAnbGluZWFyXzEnXQqBBAoFdmFsXzMKBjIuYmlhcxIIbGluZWFyXzEaDW5vZGVfbGluZWFyXzEiA0FkZEp0CgluYW1lc3BhY2USZzogdG9yY2gubm4ubW9kdWxlcy5jb250YWluZXIuU2VxdWVudGlhbC8yOiB0b3JjaC5ubi5tb2R1bGVzLmxpbmVhci5MaW5lYXIvbGluZWFyXzE6IGF0ZW4ubGluZWFyLmRlZmF1bHRKhAEKHnBrZy50b3JjaC5vbm54LmNsYXNzX2hpZXJhcmNoeRJiWyd0b3JjaC5ubi5tb2R1bGVzLmNvbnRhaW5lci5TZXF1ZW50aWFsJywgJ3RvcmNoLm5uLm1vZHVsZXMubGluZWFyLkxpbmVhcicsICdhdGVuLmxpbmVhci5kZWZhdWx0J11KnwEKFnBrZy50b3JjaC5vbm54LmZ4X25vZGUShAElbGluZWFyXzEgOiBbbnVtX3VzZXJzPTFdID0gY2FsbF9mdW5jdGlvblt0YXJnZXQ9dG9yY2gub3BzLmF0ZW4ubGluZWFyLmRlZmF1bHRdKGFyZ3MgPSAoJXRhbmgsICVwXzJfd2VpZ2h0LCAlcF8yX2JpYXMpLCBrd2FyZ3MgPSB7fSlKMwoacGtnLnRvcmNoLm9ubngubmFtZV9zY29wZXMSFVsnJywgJzInLCAnbGluZWFyXzEnXRIKbWFpbl9ncmFwaCoqCAcQAUIGMC5iaWFzShygKXe+P3eovtA/9b2YJqM9XAC0PmO/v74Y1Ta9KhoIAxABQgYyLmJpYXNKDIoacj4Terg+4+C3PiqcAQgFCAcQAUIFdmFsXzBKjAHQdG49ZAUXPhTHbz74x649sFA+vUjrbD7QFek8bkzKPiiEab1+6IU+AKl6vZLFiz7Q1qq+QNZQvRwaBz4yCsI+WB0JPnIgoz78qYa9DBZ0Ps6iWb4bPL2+kLmPvkd+cr4Abqs6YO61PmTKrD5JVWm+Gmq4vggtQz4klMs+aGh3vVxAFD6Q2OE8fsa9PipjCAcIAxABQgV2YWxfMkpUGJUZvc31kT6xn2++0Pk4PSAIbbzIdug9Lb6Fvqn1ij5wWoC+fFepvrl2hb4QiIi+BjqFvp6VAz4aIwQ+WXi/PsBE0r0Fkg6+qBopvuCLwr0IMKQ9WpEBCgVpbnB1dBIKCggIARIECgIIBSI9Ci9wa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMua2luZBIKVVNFUl9JTlBVVCI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZWJXCghsaW5lYXJfMRIKCggIARIECgIIAyI/CjBwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5PdXRwdXRTcGVjLmtpbmQSC1VTRVJfT1VUUFVUasABCgYwLmJpYXMSCgoICAESBAoCCAciPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSItCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCHBfMF9iaWFzasABCgYyLmJpYXMSCgoICAESBAoCCAMiPAovcGtnLnRvcmNoLmV4cG9ydC5ncmFwaF9zaWduYXR1cmUuSW5wdXRTcGVjLmtpbmQSCVBBUkFNRVRFUiI9CjVwa2cudG9yY2guZXhwb3J0LmdyYXBoX3NpZ25hdHVyZS5JbnB1dFNwZWMucGVyc2lzdGVudBIETm9uZSItCiFwa2cudG9yY2gub25ueC5vcmlnaW5hbF9ub2RlX25hbWUSCHBfMl9iaWFzak0KBXZhbF8wEg4KDAgBEggKAggFCgIIByI0CiRwa2cub25ueHNjcmlwdC5vcHRpbWl6ZXIuZm9sZGVkX2Zyb20SDFsnMC53ZWlnaHQnXWpNCgV2YWxfMhIOCgwIARIICgIIBwoCCAMiNAokcGtnLm9ubnhzY3JpcHQub3B0aW1pemVyLmZvbGRlZF9mcm9tEgxbJzIud2VpZ2h0J11qEwoFdmFsXzESCgoICAESBAoCCAdqFAoGbGluZWFyEgoKCAgBEgQKAggHahIKBHRhbmgSCgoICAESBAoCCAdqEwoFdmFsXzMSCgoICAESBAoCCAOCAYoCCjBwa2cudG9yY2guZXhwb3J0LkV4cG9ydGVkUHJvZ3JhbS5ncmFwaF9zaWduYXR1cmUS1QEKIyBpbnB1dHMKcF8wX3dlaWdodDogUEFSQU1FVEVSIHRhcmdldD0nMC53ZWlnaHQnCnBfMF9iaWFzOiBQQVJBTUVURVIgdGFyZ2V0PScwLmJpYXMnCnBfMl93ZWlnaHQ6IFBBUkFNRVRFUiB0YXJnZXQ9JzIud2VpZ2h0JwpwXzJfYmlhczogUEFSQU1FVEVSIHRhcmdldD0nMi5iaWFzJwppbnB1dDogVVNFUl9JTlBVVAoKIyBvdXRwdXRzCmxpbmVhcl8xOiBVU0VSX09VVFBVVAqCATgKMnBrZy50b3JjaC5leHBvcnQuRXhwb3J0ZWRQcm9ncmFtLnJhbmdlX2NvbnN0cmFpbnRzEgJ7fUIECgAQFA==",
+   "bytes": 4087,
+   "sha256": "aca0c26ae2f50cbaff6c81b433428240f46b9fd81f854d153ee8494026ac04de",
+   "edited": "removed 5 node metadata entries that held this machine's file paths (stack traces)",
+   "filesWritten": {
+    "model.onnx": 5704,
+    "model.onnx.data": 0
+   },
+   "holds": {
+    "irVersion": 10,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1+cpu",
+    "nodes": [
+     {
+      "op": "MatMul",
+      "name": "node_MatMul_1",
+      "inputs": ["input", "val_0"],
+      "outputs": ["val_1"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "node_linear",
+      "inputs": ["val_1", "0.bias"],
+      "outputs": ["linear"],
+      "attributes": {}
+     },
+     {
+      "op": "Tanh",
+      "name": "node_tanh",
+      "inputs": ["linear"],
+      "outputs": ["tanh"],
+      "attributes": {}
+     },
+     {
+      "op": "MatMul",
+      "name": "node_MatMul_3",
+      "inputs": ["tanh", "val_2"],
+      "outputs": ["val_3"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "node_linear_1",
+      "inputs": ["val_3", "2.bias"],
+      "outputs": ["linear_1"],
+      "attributes": {}
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "val_0",
+      "dims": [5, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "val_2",
+      "dims": [7, 3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "input",
+      "type": "FLOAT",
+      "dims": [5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "linear_1",
+      "type": "FLOAT",
+      "dims": [3]
+     }
+    ],
+    "nodeMetadataKeys": ["namespace", "pkg.torch.onnx.class_hierarchy", "pkg.torch.onnx.fx_node", "pkg.torch.onnx.name_scopes"],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.0582168698, 0.395114362, 0.131935537, -0.369599193, -0.360184491, 0.147481501, -0.0570107996, 0.378984034, -0.280712605, 0.190601468, 0.23415786, 0.2615394, 0.133901, -0.236809835, 0.397614598, 0.0853423476, -0.0611963272, 0.318606913, 0.00130790472, -0.0604023039, -0.0464636683, 0.272991717, -0.065753907, 0.355334282, 0.144776762, 0.231366277, -0.333670139, 0.238365352, 0.337481618, 0.0275690854, 0.0284527838, -0.0509855747, -0.212535113, -0.2278644, 0.370655],
+     "biases": [-0.241369724, -0.329034775, -0.119750619, 0.0796634555, 0.351565242, -0.37450704, -0.0446368158]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.0374957025, 0.0451601148, -0.261216551, -0.330745578, -0.260208309, 0.373965055, -0.165140748, 0.285078436, -0.0144672692, 0.271405488, -0.260671407, 0.128500432, -0.102670193, -0.0949933529, -0.234007612, 0.113507807, -0.250689983, -0.266663074, 0.129040152, -0.139228895, 0.0801697373],
+     "biases": [0.236429363, 0.360306352, 0.359137625]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.0214274079, 0.328718364, 0.477013797],
+     [0.438336015, -0.207558841, 0.320410758],
+     [-0.0348805189, 0.38387543, 0.456780344],
+     [0.208326608, 0.265208602, 0.546518803]
+    ],
+    "onnxruntime": [
+     [0.0214274228, 0.328718364, 0.477013767],
+     [0.438336015, -0.207558781, 0.320410788],
+     [-0.0348804891, 0.38387543, 0.456780314],
+     [0.208326653, 0.265208602, 0.546518803]
+    ],
+    "reference": [
+     [0.0214274079, 0.328718364, 0.477013797],
+     [0.438336015, -0.207558781, 0.320410788],
+     [-0.0348805189, 0.38387543, 0.456780344],
+     [0.208326638, 0.265208602, 0.546518803]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 5.960464477539063e-08,
+    "makerAgainstReference": 5.960464477539063e-08,
+    "onnxruntimeAgainstReference": 2.9802322387695312e-08
+   }
+  },
+  {
+   "name": "torchscript-chain",
+   "exporter": "PyTorch 2.14.1+cpu, TorchScript exporter",
+   "call": "torch.onnx.export(model, (zeros(1, 5),), path, dynamo=False, input_names=[\"obs\"], output_names=[\"act\"], dynamic_axes={\"obs\": {0: \"batch\"}})",
+   "onnx": "CAkSB3B5dG9yY2gaBjIuMTQuMTqfBQpoCgNvYnMKCDAud2VpZ2h0CgYwLmJpYXMSEC8wL0dlbW1fb3V0cHV0XzAaBy8wL0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQIKMwoQLzAvR2VtbV9vdXRwdXRfMBIQLzEvVGFuaF9vdXRwdXRfMBoHLzEvVGFuaCIEVGFuaApoChAvMS9UYW5oX291dHB1dF8wCggyLndlaWdodAoGMi5iaWFzEgNhY3QaBy8yL0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQISCm1haW5fZ3JhcGgqnwEIBwgFEAFCCDAud2VpZ2h0SowB+o66PrBiAj7SFMm+AQ59vuCnQTzapi++VDDAvlDf9jw6+Is+UBbZva5OLr4Q5Y48eHTgvQCNTDuqR8M+RhpVvgAPVz7g+Nk9NMULPqgd+L0c5s+9mGlDvrqb1b5EG14+KGk9Prnvlr7Irpe+s3dtvlAoZT2IbpY+qvLdPtaonT7iyeI+wIDXPshZcj4qKggHEAFCBjAuYmlhc0ocruzJPrTEhD7aVmK+CuqiPvhAjD6FrNa+IO5ZPipmCAMIBxABQggyLndlaWdodEpU6ByqvcF4uL4+7CE++nMqPl4ckb7aS28+YV9+vuMfkj5kIHm+0y2IPiE7mD50xL89+yQmvggEvz24Sle+D9OxPr70t7407ZC+9TJnvryw3T2Wg24+KhoIAxABQgYyLmJpYXNKDHqaXj6HlJk+6F8SPVoaCgNvYnMSEwoRCAESDQoHEgViYXRjaAoCCAViGgoDYWN0EhMKEQgBEg0KBxIFYmF0Y2gKAggDQgIQFA==",
+   "bytes": 697,
+   "sha256": "e3f74942d6e0485f248faa17a0a4eadb2a0dac2801e3f9349f7c05d0332fa34a",
+   "filesWritten": {
+    "model.onnx": 697
+   },
+   "holds": {
+    "irVersion": 9,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1",
+    "nodes": [
+     {
+      "op": "Gemm",
+      "name": "/0/Gemm",
+      "inputs": ["obs", "0.weight", "0.bias"],
+      "outputs": ["/0/Gemm_output_0"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "/1/Tanh",
+      "inputs": ["/0/Gemm_output_0"],
+      "outputs": ["/1/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/2/Gemm",
+      "inputs": ["/1/Tanh_output_0", "2.weight", "2.bias"],
+      "outputs": ["act"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": ["batch", 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "act",
+      "type": "FLOAT",
+      "dims": ["batch", 3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.364372075, 0.127329588, -0.392736971, -0.247123733, 0.0118198097, -0.171534926, -0.375368714, 0.0301357806, 0.273378193, -0.105999589, -0.170222014, 0.0174432099, -0.109597147, 0.00312119722, 0.381406128, -0.208108038, 0.210018158, 0.106431723, 0.136494458, -0.121150315, -0.101513118, -0.190832496, -0.417203724, 0.216900885, 0.184971452, -0.294797689, -0.29625535, -0.231901929, 0.0559466481, 0.293812037, 0.433492005, 0.307928741, 0.442946494, 0.42090416, 0.236670613],
+     "biases": [0.394383848, 0.259313226, -0.221034437, 0.318191826, 0.273933172, -0.41928497, 0.212822437]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.0830629468, -0.360296279, 0.158127755, 0.16645804, -0.283419549, 0.233687788, -0.248410717, 0.285399526, -0.243287623, 0.265974611, 0.297326118, 0.0936364233, -0.162250444, 0.0932694077, -0.210245967, 0.347313374, -0.35928911, -0.283059716, -0.225780323, 0.10824725, 0.232923836],
+     "biases": [0.217386156, 0.299961299, 0.0357359946]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.108762562, 0.487888217, -0.0184481815],
+     [-0.495698482, 0.0439030528, 0.550203919],
+     [-0.0889149904, 0.540308714, -0.050888367],
+     [-0.467068821, 0.283766627, 0.240763769]
+    ],
+    "onnxruntime": [
+     [-0.108762532, 0.487888217, -0.0184481665],
+     [-0.495698541, 0.043903023, 0.550204039],
+     [-0.0889149606, 0.540308714, -0.0508883595],
+     [-0.467068821, 0.283766627, 0.240763769]
+    ],
+    "reference": [
+     [-0.108762532, 0.487888217, -0.0184481777],
+     [-0.495698482, 0.0439030826, 0.550204039],
+     [-0.0889149606, 0.540308714, -0.0508883372],
+     [-0.467068821, 0.283766627, 0.240763783]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 1.1920928955078125e-07,
+    "makerAgainstReference": 1.1920928955078125e-07,
+    "onnxruntimeAgainstReference": 5.960464477539063e-08
+   }
+  },
+  {
+   "name": "torchscript-flatten",
+   "exporter": "PyTorch 2.14.1+cpu, TorchScript exporter",
+   "call": "torch.onnx.export(Sequential(Flatten(), ...), (zeros(1, 5),), path, dynamo=False, input_names=[\"obs\"], output_names=[\"act\"], dynamic_axes={\"obs\": {0: \"batch\"}})",
+   "onnx": "CAkSB3B5dG9yY2gaBjIuMTQuMTrtBQo8CgNvYnMSEy8wL0ZsYXR0ZW5fb3V0cHV0XzAaCi8wL0ZsYXR0ZW4iB0ZsYXR0ZW4qCwoEYXhpcxgBoAECCngKEy8wL0ZsYXR0ZW5fb3V0cHV0XzAKCDEud2VpZ2h0CgYxLmJpYXMSEC8xL0dlbW1fb3V0cHV0XzAaBy8xL0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQIKMwoQLzEvR2VtbV9vdXRwdXRfMBIQLzIvVGFuaF9vdXRwdXRfMBoHLzIvVGFuaCIEVGFuaApoChAvMi9UYW5oX291dHB1dF8wCggzLndlaWdodAoGMy5iaWFzEgNhY3QaBy8zL0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQISCm1haW5fZ3JhcGgqnwEIBwgFEAFCCDEud2VpZ2h0SowBQAbUPnh7uz0WPDO+kJ1FPgAAWLvAsHU8YHuHvl4JrT7glzc8nKt+PjIq474t282+DJvBPkxHi77CW8G+PsgBviz0/r1GxeS+8viavhSUbT5w3J8+alIZvpDHFb5OXh++ILJPPRCmyT0I/j0+YCbzvRx1Qr4A0D+73F3ePvAmGT7aDKG+BN2yPkhpuD0qKggHEAFCBjEuYmlhc0ocvkhGvtzjib3Yaru++NL/Pf7dxT743Wg+xBZnPipmCAMIBxABQggzLndlaWdodEpUPNKePaQT7j24mq49JqtpPsD/jz36rpa+XPnjvf1xhr7nBqS+Z2qXPqQEzD3PRL4+sFbzvLxZiD1A7Ek8JpF/PoKTVD4XUrE+qmQLvigvUL1YI3Y9KhoIAxABQgYzLmJpYXNKDAB8y7lZgrG+3r1hPloaCgNvYnMSEwoRCAESDQoHEgViYXRjaAoCCAViGgoDYWN0EhMKEQgBEg0KBxIFYmF0Y2gKAggDQgIQFA==",
+   "bytes": 775,
+   "sha256": "fe8bb0efb087131c7e42bd5a7fc2b093a5e6e83148126b5e5f03f12230a04fcc",
+   "filesWritten": {
+    "model.onnx": 775
+   },
+   "holds": {
+    "irVersion": 9,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1",
+    "nodes": [
+     {
+      "op": "Flatten",
+      "name": "/0/Flatten",
+      "inputs": ["obs"],
+      "outputs": ["/0/Flatten_output_0"],
+      "attributes": {
+       "axis": 1
+      }
+     },
+     {
+      "op": "Gemm",
+      "name": "/1/Gemm",
+      "inputs": ["/0/Flatten_output_0", "1.weight", "1.bias"],
+      "outputs": ["/1/Gemm_output_0"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "/2/Tanh",
+      "inputs": ["/1/Gemm_output_0"],
+      "outputs": ["/2/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/3/Gemm",
+      "inputs": ["/2/Tanh_output_0", "3.weight", "3.bias"],
+      "outputs": ["act"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "1.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "1.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "3.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "3.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": ["batch", 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "act",
+      "type": "FLOAT",
+      "dims": ["batch", 3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [0.414110184, 0.0915440917, -0.175033897, 0.192983866, -0.00329589844, 0.0149957538, -0.264613152, 0.337962091, 0.0112056434, 0.248701513, -0.4436813, -0.402062804, 0.378136039, -0.272028327, -0.377653182, -0.126740426, -0.124489158, -0.446817577, -0.302680552, 0.232010186, 0.31222868, -0.149728447, -0.146269083, -0.155633181, 0.0507069826, 0.0984612703, 0.185539365, -0.118725538, -0.189899862, -0.00292682648, 0.43430984, 0.149562597, -0.314551175, 0.349342465, 0.090044558],
+     "biases": [-0.193636864, -0.0673291385, -0.366049528, 0.12491411, 0.386459291, 0.227409244, 0.225672781]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.0775494277, 0.116248399, 0.0852560401, 0.228191942, 0.0703120232, -0.294303715, -0.111315459, -0.262588412, -0.320365161, 0.29573366, 0.0996182263, 0.371618718, -0.0297044218, 0.0665774047, 0.0123243928, 0.249577135, 0.207593948, 0.346329421, -0.13612619, -0.0508262217, 0.0600923002],
+     "biases": [-0.000388115644, -0.346697599, 0.220450848]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.0891663879, -0.221221745, 0.12342155],
+     [0.238108486, -0.321306318, 0.38986823],
+     [-0.114767373, -0.241631582, 0.0985271186],
+     [0.355055302, -0.719729543, 0.380150795]
+    ],
+    "onnxruntime": [
+     [-0.0891663879, -0.221221745, 0.123421572],
+     [0.238108486, -0.321306318, 0.3898682],
+     [-0.114767373, -0.241631567, 0.098527126],
+     [0.355055362, -0.719729543, 0.380150765]
+    ],
+    "reference": [
+     [-0.0891663954, -0.22122173, 0.123421565],
+     [0.238108486, -0.321306318, 0.3898682],
+     [-0.114767373, -0.241631567, 0.098527126],
+     [0.355055332, -0.719729543, 0.380150795]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 5.960464477539063e-08,
+    "makerAgainstReference": 2.9802322387695312e-08,
+    "onnxruntimeAgainstReference": 2.9802322387695312e-08
+   }
+  },
+  {
+   "name": "torchscript-nobias",
+   "exporter": "PyTorch 2.14.1+cpu, TorchScript exporter",
+   "call": "torch.onnx.export(model, (zeros(1, 5),), path, dynamo=False, input_names=[\"obs\"], output_names=[\"act\"])",
+   "onnx": "CAkSB3B5dG9yY2gaBjIuMTQuMTq/AQotCgNvYnMKDm9ubng6Ok1hdE11bF80EgNhY3QaCS8wL01hdE11bCIGTWF0TXVsEgptYWluX2dyYXBoKlQIBQgDEAFCDm9ubng6Ok1hdE11bF80SjyY9m+9NG7OPhCptb5CxKY+ULr9PZQEnL4ucgq+YPXTvbw33z5E71o+2HXePlRAnL7uMIq+MNTLPNTUcT5aFQoDb2JzEg4KDAgBEggKAggBCgIIBWIVCgNhY3QSDgoMCAESCAoCCAEKAggDQgIQFA==",
+   "bytes": 217,
+   "sha256": "4ff7841910583145a9d8675856af80508485af8997a54f4d64b9fb3bee75b1ae",
+   "filesWritten": {
+    "model.onnx": 217
+   },
+   "holds": {
+    "irVersion": 9,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1",
+    "nodes": [
+     {
+      "op": "MatMul",
+      "name": "/0/MatMul",
+      "inputs": ["obs", "onnx::MatMul_4"],
+      "outputs": ["act"],
+      "attributes": {}
+     }
+    ],
+    "initializers": [
+     {
+      "name": "onnx::MatMul_4",
+      "dims": [5, 3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "act",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.0585847795, 0.325716078, -0.135201186, 0.213803351, -0.269904554, 0.403184533, 0.123890519, -0.103495359, 0.434492826, 0.0248814523, -0.35480547, -0.304722428, 0.435972095, -0.305178285, 0.236163437],
+     "biases": [0.0, 0.0, 0.0]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.0, 0.0, 0.0],
+     [-1.58012676, 0.319045514, 0.997653365],
+     [0.0301236566, 0.0168719739, -0.0385159366],
+     [-1.15509367, 3.88576651, -1.64494765]
+    ],
+    "onnxruntime": [
+     [0.0, 0.0, 0.0],
+     [-1.58012676, 0.319045514, 0.997653365],
+     [0.0301236603, 0.0168719739, -0.0385159366],
+     [-1.15509355, 3.88576651, -1.64494789]
+    ],
+    "reference": [
+     [0.0, 0.0, 0.0],
+     [-1.58012676, 0.319045544, 0.997653365],
+     [0.0301236566, 0.0168719739, -0.0385159329],
+     [-1.15509367, 3.88576651, -1.64494765]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 2.384185791015625e-07,
+    "makerAgainstReference": 2.9802322387695312e-08,
+    "onnxruntimeAgainstReference": 2.384185791015625e-07
+   }
+  },
+  {
+   "name": "torchscript-shared",
+   "exporter": "PyTorch 2.14.1+cpu, TorchScript exporter",
+   "call": "torch.onnx.export(a 5-7-7-7-3 tanh network with zero biases and two equal 7x7 weight matrices, (zeros(1, 5),), path, dynamo=False, input_names=[\"obs\"], output_names=[\"act\"])",
+   "onnx": "CAkSB3B5dG9yY2gaBjIuMTQuMTrDCgomCgYwLmJpYXMSBjQuYmlhcxoKSWRlbnRpdHlfMCIISWRlbnRpdHkKKgoIMi53ZWlnaHQSCDQud2VpZ2h0GgpJZGVudGl0eV8xIghJZGVudGl0eQomCgYwLmJpYXMSBjIuYmlhcxoKSWRlbnRpdHlfMiIISWRlbnRpdHkKaAoDb2JzCggwLndlaWdodAoGMC5iaWFzEhAvMC9HZW1tX291dHB1dF8wGgcvMC9HZW1tIgRHZW1tKg8KBWFscGhhFQAAgD+gAQEqDgoEYmV0YRUAAIA/oAEBKg0KBnRyYW5zQhgBoAECCjMKEC8wL0dlbW1fb3V0cHV0XzASEC8xL1Rhbmhfb3V0cHV0XzAaBy8xL1RhbmgiBFRhbmgKdQoQLzEvVGFuaF9vdXRwdXRfMAoIMi53ZWlnaHQKBjIuYmlhcxIQLzIvR2VtbV9vdXRwdXRfMBoHLzIvR2VtbSIER2VtbSoPCgVhbHBoYRUAAIA/oAEBKg4KBGJldGEVAACAP6ABASoNCgZ0cmFuc0IYAaABAgozChAvMi9HZW1tX291dHB1dF8wEhAvMy9UYW5oX291dHB1dF8wGgcvMy9UYW5oIgRUYW5oCnUKEC8zL1Rhbmhfb3V0cHV0XzAKCDQud2VpZ2h0CgY0LmJpYXMSEC80L0dlbW1fb3V0cHV0XzAaBy80L0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQIKMwoQLzQvR2VtbV9vdXRwdXRfMBIQLzUvVGFuaF9vdXRwdXRfMBoHLzUvVGFuaCIEVGFuaApoChAvNS9UYW5oX291dHB1dF8wCgg2LndlaWdodAoGNi5iaWFzEgNhY3QaBy82L0dlbW0iBEdlbW0qDwoFYWxwaGEVAACAP6ABASoOCgRiZXRhFQAAgD+gAQEqDQoGdHJhbnNCGAGgAQISCm1haW5fZ3JhcGgqnwEIBwgFEAFCCDAud2VpZ2h0SowBkCLbvEjnmr5Ml+E+luKpPmSITT6gDeQ++CLUPhisAj7QQ8g83FUbPowi0z4g5sW8YMxJPU6sxj74qoi90LbcPsVze77oWzy9cPFFvvyGLz7QNJo9AFvtu9h5Lj2Iskc+WPbZvug7IT4svqi9YGTVPjQJLT6Y1hm+xMnIPnzHKD4qqOM+wCa2PODSrTwqKggHEAFCBjAuYmlhc0ocAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACrXAQgHCAcQAUIIMi53ZWlnaHRKxAEaaiy+JIeSvlhGAb08YY89nFS/viraKj7ehHQ+Y5mKPnUnwb77zYe+8/OJvpYGST66C5e+6rZpPhflgb4Il1s9f0Rsvuk8V74uIkA+Y4tKvgFcsz4xB4A+rDHrvRfscb6XGpA+0SKlPtrcdD4tWr8+ogUxPr4OaT56JiQ+yOWKPRHPsj6ktbm9ydupvnQMe77vvLo+YHmqvDzkvj1XCo8+khQqPrz6b75i6DI+DRKuPkCzMD0QtoE9VFyNPVr4Zz6melG+KmYIAwgHEAFCCDYud2VpZ2h0SlQ2sjy+hkVivsctpb4AyO09bAK0PWzuOr4uEB4+VFtyvvV4iD48HcU9d9esPg3xgz5ew1M+xoiwvp7MAz5LpLw+jHTSvY4lBD6ACy09grwtvj9os74qGggDEAFCBjYuYmlhc0oMAAAAAAAAAAAAAAAAWhUKA29icxIOCgwIARIICgIIAQoCCAViFQoDYWN0Eg4KDAgBEggKAggBCgIIA0ICEBQ=",
+   "bytes": 1373,
+   "sha256": "dd4d4c07106223d26ba5122cc80f347a9394cac2ddc9d3b2ba4df55c1a044670",
+   "filesWritten": {
+    "model.onnx": 1373
+   },
+   "holds": {
+    "irVersion": 9,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1",
+    "nodes": [
+     {
+      "op": "Identity",
+      "name": "Identity_0",
+      "inputs": ["0.bias"],
+      "outputs": ["4.bias"],
+      "attributes": {}
+     },
+     {
+      "op": "Identity",
+      "name": "Identity_1",
+      "inputs": ["2.weight"],
+      "outputs": ["4.weight"],
+      "attributes": {}
+     },
+     {
+      "op": "Identity",
+      "name": "Identity_2",
+      "inputs": ["0.bias"],
+      "outputs": ["2.bias"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/0/Gemm",
+      "inputs": ["obs", "0.weight", "0.bias"],
+      "outputs": ["/0/Gemm_output_0"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "/1/Tanh",
+      "inputs": ["/0/Gemm_output_0"],
+      "outputs": ["/1/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/2/Gemm",
+      "inputs": ["/1/Tanh_output_0", "2.weight", "2.bias"],
+      "outputs": ["/2/Gemm_output_0"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "/3/Tanh",
+      "inputs": ["/2/Gemm_output_0"],
+      "outputs": ["/3/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/4/Gemm",
+      "inputs": ["/3/Tanh_output_0", "4.weight", "4.bias"],
+      "outputs": ["/4/Gemm_output_0"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     },
+     {
+      "op": "Tanh",
+      "name": "/5/Tanh",
+      "inputs": ["/4/Gemm_output_0"],
+      "outputs": ["/5/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Gemm",
+      "name": "/6/Gemm",
+      "inputs": ["/5/Tanh_output_0", "6.weight", "6.bias"],
+      "outputs": ["act"],
+      "attributes": {
+       "alpha": 1.0,
+       "beta": 1.0,
+       "transB": 1
+      }
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.weight",
+      "dims": [7, 5],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.weight",
+      "dims": [7, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "6.weight",
+      "dims": [3, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "6.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": [1, 5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "act",
+      "type": "FLOAT",
+      "dims": [1, 3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.0267498791, -0.302545786, 0.440607429, 0.331806839, 0.200715601, 0.445416451, 0.41432929, 0.127609611, 0.024446398, 0.151694715, 0.412372947, -0.0241575837, 0.0492671728, 0.38803333, -0.066732347, 0.431082249, -0.245558813, -0.0459860861, -0.193303823, 0.171413362, 0.0752960443, -0.00724351406, 0.042596668, 0.19501698, -0.425707579, 0.157455087, -0.0823939741, 0.416781425, 0.16898042, -0.150232673, 0.39216435, 0.164823472, 0.444642365, 0.0222352743, 0.0212187171],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.168373495, -0.286187291, -0.0315612257, 0.0700096786, -0.373692393, 0.166847855, 0.238788098, 0.270701498, -0.377254158, -0.265243381, -0.26943931, 0.196314186, -0.295011342, 0.228236824, -0.253700942, 0.0536108315, -0.230730042, -0.210193291, 0.187630385, -0.197797343, 0.350311309, 0.250054866, -0.114840835, -0.236252174, 0.281452864, 0.322531253, 0.239123732, 0.373734862, 0.17287305, 0.227595299, 0.160303026, 0.0678210855, 0.349236041, -0.0906784832, -0.331754953, -0.245164692, 0.364722699, -0.0208098292, 0.09320876, 0.279375762, 0.166094095, -0.234354913, 0.174714595, 0.339981467, 0.0431396961, 0.0633355379, 0.0690237582, 0.226533324, -0.204569429],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.168373495, -0.286187291, -0.0315612257, 0.0700096786, -0.373692393, 0.166847855, 0.238788098, 0.270701498, -0.377254158, -0.265243381, -0.26943931, 0.196314186, -0.295011342, 0.228236824, -0.253700942, 0.0536108315, -0.230730042, -0.210193291, 0.187630385, -0.197797343, 0.350311309, 0.250054866, -0.114840835, -0.236252174, 0.281452864, 0.322531253, 0.239123732, 0.373734862, 0.17287305, 0.227595299, 0.160303026, 0.0678210855, 0.349236041, -0.0906784832, -0.331754953, -0.245164692, 0.364722699, -0.0208098292, 0.09320876, 0.279375762, 0.166094095, -0.234354913, 0.174714595, 0.339981467, 0.0431396961, 0.0633355379, 0.0690237582, 0.226533324, -0.204569429],
+     "biases": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [-0.184273571, -0.220968336, -0.322614878, 0.116104126, 0.0878952444, -0.182550132, 0.154358596, -0.236676514, 0.266547829, 0.0962471664, 0.337581366, 0.257698447, 0.206799954, -0.344793499, 0.12871024, 0.368440956, -0.102761358, 0.12904951, 0.0422472954, -0.169664413, -0.35040471],
+     "biases": [0.0, 0.0, 0.0]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [0.0, 0.0, 0.0],
+     [-0.0448111445, 0.144440621, 0.235390246],
+     [0.000201754388, -0.0125091914, 0.00820148177],
+     [-0.225699514, 0.239861548, 0.376144797]
+    ],
+    "onnxruntime": [
+     [0.0, 0.0, 0.0],
+     [-0.0448111184, 0.144440562, 0.235390201],
+     [0.000201755276, -0.0125091886, 0.00820147619],
+     [-0.225699484, 0.239861518, 0.376144797]
+    ],
+    "reference": [
+     [0.0, 0.0, 0.0],
+     [-0.0448111109, 0.144440591, 0.235390231],
+     [0.000201753923, -0.0125091895, 0.00820147991],
+     [-0.225699514, 0.239861578, 0.376144826]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 5.960464477539063e-08,
+    "makerAgainstReference": 3.3527612686157227e-08,
+    "onnxruntimeAgainstReference": 5.960464477539063e-08
+   }
+  },
+  {
+   "name": "torchscript-vector",
+   "exporter": "PyTorch 2.14.1+cpu, TorchScript exporter",
+   "call": "torch.onnx.export(model, (zeros(5),), path, dynamo=False, input_names=[\"obs\"], output_names=[\"act\"])",
+   "onnx": "CAkSB3B5dG9yY2gaBjIuMTQuMTq9BQo9CgNvYnMKD29ubng6Ok1hdE11bF8xMhISLzAvTWF0TXVsX291dHB1dF8wGgkvMC9NYXRNdWwiBk1hdE11bAo6CgYwLmJpYXMKEi8wL01hdE11bF9vdXRwdXRfMBIPLzAvQWRkX291dHB1dF8wGgYvMC9BZGQiA0FkZAoyCg8vMC9BZGRfb3V0cHV0XzASEC8xL1Rhbmhfb3V0cHV0XzAaBy8xL1RhbmgiBFRhbmgKSgoQLzEvVGFuaF9vdXRwdXRfMAoPb25ueDo6TWF0TXVsXzEzEhIvMi9NYXRNdWxfb3V0cHV0XzAaCS8yL01hdE11bCIGTWF0TXVsCi4KBjIuYmlhcwoSLzIvTWF0TXVsX291dHB1dF8wEgNhY3QaBi8yL0FkZCIDQWRkEgptYWluX2dyYXBoKioIBxABQgYwLmJpYXNKHJyPxr6GGk2+UmKnPjC7DL142dw+jAvLPgZmsL4qGggDEAFCBjIuYmlhc0oM4IfqvXuEwb7Y8nm9KqYBCAUIBxABQg9vbm54OjpNYXRNdWxfMTJKjAHruEu++ILFPYQTOr5e89g+nHGhPmRRq75gC5w8YNDePkjJv70w0mS+yNq1PQzRhT5+eti+BPmtvn314r7kiDQ+nM9kPoRVwT7QrTa+1Km5PhhCZ7243ua9yLmoPdT7ZD4o4x0+vrGuPnqugr4KhAm+0Lz2PD5C4z6GX5u+L+jMvjYkzz7oumA+jqCvviptCAcIAxABQg9vbm54OjpNYXRNdWxfMTNKVDCeMj1qLxI+AGl6PTITAT7W+TY+iv8fPpC7O76xq3i+8LE/vvzB9j3sH5C+9s1gPpDbpT3XGZQ+iaqnvkh5kb68f/w9Kncsvn64Iz72QMC+kHj4PVoRCgNvYnMSCgoICAESBAoCCAViEQoDYWN0EgoKCAgBEgQKAggDQgIQFA==",
+   "bytes": 727,
+   "sha256": "423d32a24d49f493566c9630748d8cc0c10dd9990b737877fee1109f9a406648",
+   "filesWritten": {
+    "model.onnx": 727
+   },
+   "holds": {
+    "irVersion": 9,
+    "opsets": {
+     "": 20
+    },
+    "producer": "pytorch 2.14.1",
+    "nodes": [
+     {
+      "op": "MatMul",
+      "name": "/0/MatMul",
+      "inputs": ["obs", "onnx::MatMul_12"],
+      "outputs": ["/0/MatMul_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "/0/Add",
+      "inputs": ["0.bias", "/0/MatMul_output_0"],
+      "outputs": ["/0/Add_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Tanh",
+      "name": "/1/Tanh",
+      "inputs": ["/0/Add_output_0"],
+      "outputs": ["/1/Tanh_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "MatMul",
+      "name": "/2/MatMul",
+      "inputs": ["/1/Tanh_output_0", "onnx::MatMul_13"],
+      "outputs": ["/2/MatMul_output_0"],
+      "attributes": {}
+     },
+     {
+      "op": "Add",
+      "name": "/2/Add",
+      "inputs": ["2.bias", "/2/MatMul_output_0"],
+      "outputs": ["act"],
+      "attributes": {}
+     }
+    ],
+    "initializers": [
+     {
+      "name": "0.bias",
+      "dims": [7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "2.bias",
+      "dims": [3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "onnx::MatMul_12",
+      "dims": [5, 7],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     },
+     {
+      "name": "onnx::MatMul_13",
+      "dims": [7, 3],
+      "type": "FLOAT",
+      "storage": "raw_data"
+     }
+    ],
+    "inputs": [
+     {
+      "name": "obs",
+      "type": "FLOAT",
+      "dims": [5]
+     }
+    ],
+    "outputs": [
+     {
+      "name": "act",
+      "type": "FLOAT",
+      "dims": [3]
+     }
+    ],
+    "nodeMetadataKeys": [],
+    "modelMetadata": {}
+   },
+   "checker": "accepted",
+   "network": [
+    {
+     "input": 5,
+     "output": 7,
+     "activation": "tanh",
+     "weights": [-0.198947594, 0.435183525, -0.443279177, -0.11272949, 0.0301193297, 0.0964412093, -0.0936456323, 0.176303446, 0.0823855996, 0.443864763, -0.181715071, -0.223458052, 0.223448217, 0.223616898, -0.303463161, 0.423731744, 0.0887961984, 0.377605557, 0.154186845, -0.40020892, 0.315319896, 0.261360526, -0.178397417, 0.341199815, 0.404573143, -0.334605336, -0.422809541, 0.362623811, -0.255237401, 0.219462991, 0.0190483928, -0.339790463, -0.0564595163, -0.134292752, -0.34302181],
+     "biases": [-0.387814403, -0.200296491, 0.326921999, -0.0343582034, 0.431346655, 0.396572471, -0.344528377]
+    },
+    {
+     "input": 7,
+     "output": 3,
+     "activation": "identity",
+     "weights": [0.0436078906, 0.126049787, -0.183332682, 0.120487183, 0.0809851885, -0.284128428, 0.159883469, 0.142758995, 0.178687423, -0.242842451, -0.281493545, 0.289259642, 0.123290509, -0.375495613, 0.0611352921, 0.156248242, -0.187202215, 0.219535679, -0.327472955, -0.168423325, 0.121323705],
+     "biases": [-0.114516973, -0.377963871, -0.0610226095]
+    }
+   ],
+   "inputs": [
+    [0.0, 0.0, 0.0, 0.0, 0.0],
+    [1.8267566, -3.07833195, 0.95806396, 0.0696372241, 1.31825006],
+    [0.0385629237, 0.182725862, 0.00317437598, -0.0516229458, 0.0580484904],
+    [3.45685482, -2.85471487, -1.97843063, 5.75552559, 5.63452816]
+   ],
+   "outputs": {
+    "maker": [
+     [-0.344777286, -0.244506747, -0.417962343],
+     [-0.298862785, -0.393430471, -0.327505022],
+     [-0.317826957, -0.184044674, -0.414570779],
+     [0.0294790268, 0.578473449, -0.399904519]
+    ],
+    "onnxruntime": [
+     [-0.344777286, -0.244506732, -0.417962343],
+     [-0.298862815, -0.393430471, -0.327504963],
+     [-0.317826927, -0.184044674, -0.414570749],
+     [0.029478997, 0.578473449, -0.399904579]
+    ],
+    "reference": [
+     [-0.344777286, -0.244506732, -0.417962372],
+     [-0.298862755, -0.393430531, -0.327504992],
+     [-0.317826957, -0.184044674, -0.414570779],
+     [0.0294790566, 0.578473449, -0.399904519]
+    ]
+   },
+   "judges": {
+    "onnxruntime": "1.23.2",
+    "makerAgainstOnnxruntime": 5.960464477539063e-08,
+    "makerAgainstReference": 5.960464477539063e-08,
+    "onnxruntimeAgainstReference": 5.960464477539063e-08
+   }
+  }
+ ],
+ "measuredOnly": [
+  {
+   "name": "torch-big",
+   "exporter": "PyTorch 2.14.1+cpu",
+   "network": "24->64->64->64->2 tanh",
+   "call": "torch.onnx.export(model, (zeros(1, 24),), path)",
+   "filesWritten": {
+    "model.onnx": 10518,
+    "model.onnx.data": 39424
+   },
+   "ops": "Gemm Tanh Gemm Tanh Gemm Tanh Gemm Tanh",
+   "initializers": "0.weight [64, 24] outside the file, 0.bias [64] raw_data, 2.weight [64, 64] outside the file, 2.bias [64] raw_data, 4.weight [64, 64] outside the file, 4.bias [64] raw_data, 6.weight [2, 64] outside the file, 6.bias [2] raw_data"
+  },
+  {
+   "name": "torch-big, external_data=False",
+   "exporter": "PyTorch 2.14.1+cpu",
+   "network": "24->64->64->64->2 tanh",
+   "call": "torch.onnx.export(model, (zeros(1, 24),), path, external_data=False)",
+   "filesWritten": {
+    "model.onnx": 49713
+   },
+   "ops": "Gemm Tanh Gemm Tanh Gemm Tanh Gemm Tanh",
+   "initializers": "0.weight [64, 24] raw_data, 0.bias [64] raw_data, 2.weight [64, 64] raw_data, 2.bias [64] raw_data, 4.weight [64, 64] raw_data, 4.bias [64] raw_data, 6.weight [2, 64] raw_data, 6.bias [2] raw_data"
+  },
+  {
+   "name": "torch-big, dynamo=False",
+   "exporter": "PyTorch 2.14.1+cpu",
+   "network": "24->64->64->64->2 tanh",
+   "call": "torch.onnx.export(model, (zeros(1, 24),), path, dynamo=False)",
+   "filesWritten": {
+    "model.onnx": 41125
+   },
+   "ops": "Gemm Tanh Gemm Tanh Gemm Tanh Gemm Tanh",
+   "initializers": "0.weight [64, 24] raw_data, 0.bias [64] raw_data, 2.weight [64, 64] raw_data, 2.bias [64] raw_data, 4.weight [64, 64] raw_data, 4.bias [64] raw_data, 6.weight [2, 64] raw_data, 6.bias [2] raw_data"
+  },
+  {
+   "name": "torch-big, program.save",
+   "exporter": "PyTorch 2.14.1+cpu",
+   "network": "24->64->64->64->2 tanh",
+   "call": "torch.onnx.export(model, (zeros(1, 24),)).save(path)",
+   "filesWritten": {
+    "model.onnx": 49713
+   },
+   "ops": "Gemm Tanh Gemm Tanh Gemm Tanh Gemm Tanh",
+   "initializers": "0.weight [64, 24] raw_data, 0.bias [64] raw_data, 2.weight [64, 64] raw_data, 2.bias [64] raw_data, 4.weight [64, 64] raw_data, 4.bias [64] raw_data, 6.weight [2, 64] raw_data, 6.bias [2] raw_data"
+  },
+  {
+   "name": "where the default call puts a weight tensor",
+   "exporter": "PyTorch 2.14.1+cpu",
+   "call": "torch.onnx.export(Linear(n, 1), (zeros(1, n),), path)",
+   "storage": {
+    "63 floats (252 B)": "raw_data",
+    "64 floats (256 B)": "raw_data",
+    "65 floats (260 B)": "outside the file",
+    "66 floats (264 B)": "outside the file"
+   }
+  }
+ ]
+}
