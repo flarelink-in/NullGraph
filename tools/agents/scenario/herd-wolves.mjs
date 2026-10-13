@@ -244,6 +244,8 @@ export function createHerd(engine, options = {}) {
             speciesOf: i => (i < wolves ? wolf : prey),
             /** What the label pass runs: the rule without what a network cannot see. */
             label: { wgsl: herdRule(LABEL), buffers: [settings] },
+            /** A rule brain to drive with: 'teacher', or 'label' for the rule without wander and coin-flips. */
+            rule: kind => ruleBrain(kind === 'label' ? LABEL_DRIVING : DRIVER, settings),
             destroy() {
                 agents.destroy();
                 for (const b of owned) b.destroy();
@@ -267,6 +269,20 @@ export const herdWolves = Object.freeze({
         const count = options.count ?? HERD_DEFAULTS.count;
         return { driver: herdRule(DRIVER), label: herdRule(LABEL), catches: HERD_CATCHES,
             respawn: herdRespawnWGSL(Math.max(1, count / HERD_DEFAULTS.count)) };
+    },
+    /**
+     * What evaluate.mjs reports beside catches. Each is read from one live agent's observation row
+     * (`obs` at `row`), and is null where it does not apply.
+     */
+    measures(definition) {
+        const at = name => definition.obsNames.indexOf(name), prey = definition.speciesIndex('prey');
+        const speed = at('self.speed'), side = at('prey[0].side'), forward = at('prey[0].forward'), present = at('prey[0].present');
+        return [
+            { name: 'speed', unit: 'm/s', of: (obs, row, species) => obs[row + speed] * definition.species[species].maxSpeed },
+            { name: 'nearest prey', unit: 'm', of: (obs, row, species) => (species === prey && obs[row + present] > 0
+                ? Math.hypot(obs[row + side], obs[row + forward]) * definition.species[species].senseRadius : null) },
+            { name: 'no prey in sight', unit: 'share', of: (obs, row, species) => (species === prey ? (obs[row + present] > 0 ? 0 : 1) : null) },
+        ];
     },
     /** The settings a recording is valid for, beside its definition. */
     settings(options = {}) {

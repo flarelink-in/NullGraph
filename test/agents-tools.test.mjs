@@ -10,6 +10,8 @@ import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js
 import { DRIVER, LABEL, LABEL_DRIVING, TAG, HERD_DEFAULTS, herdDefinition, herdRule, herdWolves } from '../tools/agents/scenario/herd-wolves.mjs';
 import { ROW, ROW_WORDS, Rows, flagsReason, keepRow, readDataset, rowFlags, rowFloats, splitRows, trainingSet, writeDataset } from '../tools/agents/dataset.mjs';
 import { isFresh, recordEpisodes } from '../tools/agents/recorder.mjs';
+import { RUNS, addDecision, addTally, describeCatches, describeTally, evaluateRun, newTally } from '../tools/agents/evaluator.mjs';
+import { networkFromModel } from '../tools/agents/model.mjs';
 import { flatParams, initNetwork, lossAndGradient, meanAbsoluteError, quantile, trainNetwork } from '../tools/agents/mlp-train.mjs';
 
 const words = values => new Uint32Array(new Float32Array(values).buffer);
@@ -275,4 +277,87 @@ test('U11: the best pass wins, errors split by group, and a species with nothing
     assert.throws(() => trainNetwork([{ input: 4, output: 2, activation: 'tanh' }], train), /train: the shape maps 4 → 2; the set has 3 → 2\./);
     assert.throws(() => initNetwork([{ input: 3, output: 65, activation: 'tanh' }, { input: 65, output: 2, activation: 'tanh' }]),
         /MlpBrain: layer 0 output must be 1–64\./);
+});
+
+test('U28: an evaluation counts each decision once, compares live agents only, and pools its seeds', async () => {
+    const actNames = ['turn', 'throttle'], reasons = herdWolves.reasons, measures = [{ name: 'speed' }, { name: 'nearest prey' }];
+    const act = Float32Array.of(0.5, 1, -0.25, 0.5, 9, 9), label = Float32Array.of(0.25, 1, 0.25, 0, 0, 0);
+    const a = newTally(2, reasons.length, 2);
+    assert.equal(addDecision(a, act, label, 0, false, 2), true);
+    assert.equal(addDecision(a, act, label, 2, false, 4), true);
+    assert.equal(addDecision(a, act, label, 4, true, 3), false);      // frozen: counted, compared with nothing
+    a.measures[0].rows = 2;
+    a.measures[0].sum = 5;
+    const one = describeTally(a, actNames, reasons, measures);
+    assert.deepEqual(one, {
+        decisions: 3, frozen: 1, mae: { turn: 0.375, throttle: 0.25 },
+        byReason: { flee: { rows: 1, mae: { turn: 0.25, throttle: 0 } }, wall: { rows: 1, mae: { turn: 0.5, throttle: 0.5 } } },
+        measures: { speed: 2.5, 'nearest prey': null },
+    });
+
+    // Pooled seeds weigh every decision alike: a seed with more rows counts for more.
+    const b = newTally(2, reasons.length, 2);
+    for (let k = 0; k < 6; k++) addDecision(b, Float32Array.of(1, 0), Float32Array.of(0, 0), 0, false, 2);
+    b.measures[1].rows = 4;
+    b.measures[1].sum = 2;
+    const pooled = describeTally(addTally(addTally(newTally(2, reasons.length, 2), a), b), actNames, reasons, measures);
+    assert.equal(pooled.decisions, 9);
+    assert.equal(pooled.frozen, 1);
+    assert.equal(pooled.mae.turn, (0.25 + 0.5 + 6) / 8);
+    assert.deepEqual(pooled.byReason.flee, { rows: 7, mae: { turn: 6.25 / 7, throttle: 0 } });
+    assert.deepEqual(pooled.measures, { speed: 2.5, 'nearest prey': 0.5 });
+    assert.deepEqual(describeTally(newTally(2, reasons.length, 2), actNames, reasons, measures).mae, { turn: null, throttle: null });
+
+    assert.deepEqual(describeCatches([90, 100, 110]), { values: [90, 100, 110], mean: 100, low: 90 / 100 - 1, high: 110 / 100 - 1 });
+    assert.deepEqual(Object.keys(RUNS), ['T', 'C', 'S', 'Sp', 'Sw']);
+    assert.deepEqual(RUNS.Sp, { prey: 'student', wolf: 'teacher' });
+
+    // The scenario's measures read one observation row.
+    const definition = herdDefinition(), [speed, nearest, alone] = herdWolves.measures(definition);
+    const obs = new Float32Array(2 * definition.obsDim), row = definition.obsDim, at = name => row + definition.obsNames.indexOf(name);
+    const prey = definition.speciesIndex('prey'), wolf = definition.speciesIndex('wolf');
+    obs[at('self.speed')] = 0.5;
+    assert.equal(speed.of(obs, row, prey), 0.5 * HERD_DEFAULTS.preySpeed);
+    assert.equal(speed.of(obs, row, wolf), 0.5 * HERD_DEFAULTS.wolfSpeed);
+    assert.equal(nearest.of(obs, row, prey), null);
+    assert.equal(alone.of(obs, row, prey), 1);
+    obs[at('prey[0].side')] = 0.375;
+    obs[at('prey[0].forward')] = -0.5;
+    obs[at('prey[0].present')] = 1;
+    assert.equal(nearest.of(obs, row, prey), 0.625 * 8);
+    assert.equal(alone.of(obs, row, prey), 0);
+    assert.equal(nearest.of(obs, row, wolf), null);
+    assert.equal(alone.of(obs, row, wolf), null);
+
+    // Refused before anything is built.
+    await assert.rejects(evaluateRun(null, herdWolves, RUNS.T, { stride: 2 }),
+        /evaluate: stride 2 must be a whole number of steps, at least thinkEvery \(3\)\./);
+    await assert.rejects(evaluateRun(null, herdWolves, RUNS.T, { seeds: [] }), /evaluate: needs at least one seed/);
+    await assert.rejects(evaluateRun(null, herdWolves, { prey: 'teacher', wolf: 'rule' }),
+        /evaluate: the driver of "wolf" must be teacher, label or student; got "rule"\./);
+    await assert.rejects(evaluateRun(null, herdWolves, RUNS.Sw, { students: { prey: {} } }), /evaluate: no student network for species "wolf"\./);
+});
+
+test('U26 (the reader): a network file\'s layers come back as f32, and names that are not the definition\'s are refused', () => {
+    const definition = herdDefinition();
+    const model = { format: 'null-graph/mlp', version: 1, species: 'prey', obsNames: [...definition.obsNames], actNames: [...definition.actNames],
+        layers: [{ input: 24, output: 2, activation: 'tanh', weights: Array.from({ length: 48 }, (_, k) => Math.fround(A.rand01(k, 0, 4) - 0.5)), biases: [0.125, -0.5] }] };
+    const network = networkFromModel(model, definition, 'prey.mlp.json');
+    assert.equal(network.length, 1);
+    assert.deepEqual({ ...network[0], weights: null, biases: null }, { input: 24, output: 2, activation: 'tanh', weights: null, biases: null });
+    assert.ok(network[0].weights instanceof Float32Array && network[0].biases instanceof Float32Array);
+    assert.deepEqual([...network[0].weights], model.layers[0].weights);
+    assert.deepEqual([...network[0].biases], [0.125, -0.5]);
+    assert.equal(A.mlpForward(network, new Float32Array(24)).length, 2);
+
+    const swapped = [...definition.obsNames];
+    [swapped[2], swapped[3]] = [swapped[3], swapped[2]];
+    assert.throws(() => networkFromModel({ ...model, obsNames: swapped }, definition, 'prey.mlp.json'),
+        /model: prey\.mlp\.json obsNames\[2\] is "wolf\[0\]\.forward"; the definition has "wolf\[0\]\.side"\./);
+    assert.throws(() => networkFromModel({ ...model, obsNames: definition.obsNames.slice(0, 23) }, definition, 'prey.mlp.json'),
+        /obsNames\[23\] is nothing; the definition has "bounds\.forward"\./);
+    assert.throws(() => networkFromModel({ ...model, actNames: ['turn', 'speed'] }, definition, 'prey.mlp.json'),
+        /actNames\[1\] is "speed"; the definition has "throttle"\./);
+    assert.throws(() => networkFromModel({ ...model, version: 2 }, definition, 'prey.mlp.json'),
+        /model: prey\.mlp\.json is "null-graph\/mlp" version 2; this reader takes "null-graph\/mlp" version 1\./);
 });

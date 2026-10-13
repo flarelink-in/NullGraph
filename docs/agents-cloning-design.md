@@ -19,9 +19,13 @@ neighbour lookups were completed for it.
    user.
 6. **The scene is the demo's defaults only.**
 
-**Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`). ✅ 7.7 built
-and measured 2026-10-13, not committed: **both species meet the 0.05 bar at round 0** (results at
-the end). Next: 7.8, the copy in the running simulation.
+**Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`). ✅ 7.7 committed
+(`0d3fb9f`). ✅ 7.8 built and measured 2026-10-13 (results at the end):
+- **7.7:** both species meet the 0.05 bar at round 0;
+- **7.8:** the students' catches are within 1% of the rule without wander (the bar is 10%), and
+  they do not drift, so no round of correction was needed.
+
+Next: 7.9, the committed files, their tests and the guide.
 
 **Target:** `tools/agents/` (new, in the repository, not in the package), tests, one guide
 section. **`src/` unchanged; no bundle bytes.**
@@ -374,6 +378,21 @@ aggregation:
 The recorder needs nothing new for this: only the driver changes. **Whether any round is needed
 is not known;** 7.8 measures it, and stops at 3 rounds.
 
+**As built in 7.8:**
+- **Two files, like the recorder.** `evaluator.mjs` has no Node import; `evaluate.mjs` is its
+  command line, `npm run agents:evaluate`.
+- **The seeds are 21–25.** No recording used them: training saw 11–14, and 15 chose the best pass.
+- **Every decision is counted,** not one prey row in 16 as in a recording.
+- **The measures come from the scenario** (`herdWolves.measures`): mean speed, the distance to the
+  nearest prey, and the share of prey with no prey in sight, each over live agents.
+- **Run C checks the tool itself.** It drives with the label's decisions, so a live agent's action
+  must equal its label exactly. The command line exits 1 if it does not.
+- **A missed bar is reported, and is not an error exit.**
+- **`model.mjs` reads a `.mlp.json`** and checks its names (§9). It came forward from 7.9, because
+  the evaluation loads the students.
+- **No round of correction was built:** the students did not drift (results below), so the
+  recorder still takes the teacher as its only driver.
+
 ## 9. Export and loading
 
 - **`<species>.mlp.json`** (§4.2) is the working format, written by `train.mjs`. It loads into
@@ -399,6 +418,7 @@ is not known;** 7.8 measures it, and stops at 3 rounds.
 | U25 | The scenario's two rule texts parse inside the think wrapper. They differ in the four functions and nowhere else. A tag packs and unpacks tick, frozen and reason |
 | U26 | A `.mlp.json` written and read back gives bit-identical f32 weights. A file whose `obsNames` differ from the definition is refused, naming the first difference |
 | U27 | The row sampler is the same on every run, keeps the asked share within 1% over 100,000 rows, and never puts a held-out episode's row into training |
+| U28 | An evaluation's counts (added in 7.8): a frozen agent is counted and compared with nothing; errors split by reason and pool over seeds by decision; the scenario's measures read one observation row; an unknown driver, or a student without its network, is refused by name |
 
 **GPU** (a suite of its own, `agent-tools`, in `test/agent-tools-gpu/`; Node + Dawn and Chrome):
 
@@ -445,8 +465,8 @@ Phases continue from part 1's 7.5.
 | Phase | Builds | Exit |
 |---|---|---|
 | **7.6** ✅ | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
-| **7.7** ✅ | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time. Built 2026-10-13, not committed: both species within 0.05 at round 0; results below |
-| **7.8** | `evaluate.mjs`; rounds of correction if needed | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. **Within §8's bars, or the numbers go back to the user** with the options: a larger shape, more rounds, the wander value as an observation, or a bar they accept |
+| **7.7** ✅ | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time. Built 2026-10-13 (`0d3fb9f`): both species within 0.05 at round 0; results below |
+| **7.8** ✅ | `evaluator.mjs`, `evaluate.mjs`, `model.mjs`; U28, and U26's reader half | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. Built 2026-10-13: within §8's bars at round 0, so no round of correction; results below |
 | **7.9** | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated |
 | **7.10** | `<species>.onnx` writer; U12; A27 | ONNX Runtime's output equals `mlpForward`'s. Stays in this part (§14, decision 4) |
 
@@ -557,7 +577,7 @@ wolf row and one prey row in 16.
 
 ## Phase 7.7 results — 2026-10-13: the trainer, and round-0 students
 
-**Built** (not committed; no `src/` change):
+**Built** (`0d3fb9f`; no `src/` change):
 - `tools/agents/mlp-train.mjs`: the trainer (§7, "As built").
 - `tools/agents/train.mjs`: its command line, `npm run agents:train`.
 - `tools/agents/cli.mjs`: the checks and option readers both command lines share.
@@ -672,3 +692,79 @@ with 64-wide layers):
 
 **Next: 7.8.** `evaluate.mjs` will run T, C, S and the mixed runs, comparing catches and the
 students' error on their own runs. Rounds of correction come only if the students drift.
+
+## Phase 7.8 results — 2026-10-13: the copy in the running simulation
+
+**Built** (no `src/` change):
+- `tools/agents/evaluator.mjs`: one run under a driver per species, and its counts.
+- `tools/agents/evaluate.mjs`: its command line, `npm run agents:evaluate`.
+- `tools/agents/model.mjs`: a `.mlp.json` read back, with its names checked.
+- In the scenario: `rule(kind)` on a built simulation, and `measures`.
+
+**Tests** (the agents suite is now reference + 70):
+- **U28** and **U26's reader half** pass. U26's other half, a written file read back bit for bit,
+  stays with 7.9.
+- **Watched failing:** 14 mutations, each seen failing U28 or U26 and restored byte for byte.
+- **The GPU suite is unchanged:** `agent-tools` 10/10, zero GPU errors, on Node/Dawn AMD, Node/Dawn
+  NVIDIA and Chrome AMD. A8, the GPU check of these bars, comes with the committed files in 7.9.
+
+**The runs:** the round-0 students of 7.7 (24→64→64→64→2), seeds 21–25, 1,800 steps each, at the
+demo's defaults.
+
+**Catches in 30 s:**
+
+| Run | Prey / wolves | AMD iGPU: by seed | AMD: mean | Against C | NVIDIA: mean | Against C |
+|---|---|---|---:|---:|---:|---:|
+| T | teacher / teacher | 1013, 1013, 998, 1040, 1015 | 1015.8 | −0.6% | 1018.8 | −0.2% |
+| C | the rule without wander | 1022, 1019, 1024, 1012, 1031 | 1021.6 | — | 1021.0 | — |
+| **S** | student / student | 1061, 1015, 1016, 1016, 1010 | **1023.6** | **+0.2%** | **1015.0** | **−0.6%** |
+| Sp | student / teacher | 1043, 1017, 1009, 982, 1023 | 1014.8 | −0.7% | 1011.4 | −0.9% |
+| Sw | teacher / student | 1035, 1013, 1005, 1011, 1050 | 1022.8 | +0.1% | 1019.0 | −0.2% |
+
+- **The bar is met: S is within 10% of C,** at +0.2% on the AMD iGPU and −0.6% on the NVIDIA GPU.
+- **Every run is inside the spread of seeds.** One run's seeds differ by −3.2% to +3.7% around
+  their mean, and the five runs' means differ by under 1%.
+- **C against T (reported, not gated): the teacher is 0.6% below C on the AMD iGPU and 0.2% below
+  on the NVIDIA GPU, so no difference is seen.** The rule without wander and coin-flips catches as
+  many prey as the rule.
+
+**The driver against the label, on the driver's own run** (mean absolute difference; AMD iGPU,
+with the NVIDIA GPU within 0.001 of each):
+
+| Run | Prey turn | Prey throttle | Wolf turn | Wolf throttle |
+|---|---:|---:|---:|---:|
+| T (what no network could learn) | 0.084 | 0 | 0.009 | 0 |
+| C (must be zero) | 0 | 0 | 0 | 0 |
+| **S** | **0.034** | 0.0003 | **0.011** | 0.0002 |
+| Held out, from 7.7 | 0.033 | 0.0002 | 0.011 | 0.0002 |
+
+- **The students do not drift.** Their error on their own runs equals their held-out error, so
+  they meet no situations their data lacks. **No round of correction is needed,** and none was
+  built.
+- **By reason, in run S** (turn): prey flock 0.030, flee 0.030, wall 0.105; wolves chase 0.007,
+  wander 0.021, wall 0.070. The wall branch is still the weak one, at 5% of decisions, and it does
+  not show in the catches.
+- **The student's turn is closer to the label than the teacher's own turn is,** for prey: 0.034
+  against 0.084.
+
+**The other measures, on the AMD iGPU:**
+
+| Run | Prey speed | Wolf speed (live) | Nearest prey | Prey with none in sight | Wolves frozen |
+|---|---:|---:|---:|---:|---:|
+| T | 2.65 m/s | 3.53 m/s | 0.78 m | 0.1% | 61.2% |
+| C | 2.67 m/s | 3.52 m/s | 0.77 m | 0.0% | 61.4% |
+| S | 2.65 m/s | 3.54 m/s | 0.77 m | 0.1% | 61.4% |
+
+Speeds and herd tightness are the same in all three, within 1%.
+
+**Repeatable:** runs S and C, run again on the AMD iGPU, gave the same report, number for number.
+
+**Time:** 116 s for the 25 episodes on the AMD iGPU (22 s for a run of rules, 25 s with both
+students). On the NVIDIA GPU a run takes 13 to 18 s.
+
+**Decision 1 holds.** A copy that does not wander was the cost of copying the label (§14). In
+catches, speed and herd tightness the cost is not measurable here. The fallback, the wander value
+as an observation, is not needed. What the eye sees in the demo is for step 10's live switch.
+
+**Next: 7.9.** Commit the two `.mlp.json` files and their report; U26's writer half, A26 and A8;
+the guide's "A trained network"; `tools/agents/README.md`; closure.
