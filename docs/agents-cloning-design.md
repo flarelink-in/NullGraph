@@ -19,7 +19,8 @@ neighbour lookups were completed for it.
    user.
 6. **The scene is the demo's defaults only.**
 
-**Status:** ✅ design decided 2026-10-13. No code yet; phase 7.6 is next.
+**Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`; results at the
+end). 7.7, the trainer, is next.
 
 **Target:** `tools/agents/` (new, in the repository, not in the package), tests, one guide
 section. **`src/` unchanged; no bundle bytes.**
@@ -374,7 +375,7 @@ is not known;** 7.8 measures it, and stops at 3 rounds.
 | U26 | A `.mlp.json` written and read back gives bit-identical f32 weights. A file whose `obsNames` differ from the definition is refused, naming the first difference |
 | U27 | The row sampler is the same on every run, keeps the asked share within 1% over 100,000 rows, and never puts a held-out episode's row into training |
 
-**GPU** (`test/agents-gpu`, Node + Dawn and Chrome where the check does not need files):
+**GPU** (a suite of its own, `agent-tools`, in `test/agent-tools-gpu/`; Node + Dawn and Chrome):
 
 | # | Asserts |
 |---|---|
@@ -418,7 +419,7 @@ Phases continue from part 1's 7.5.
 
 | Phase | Builds | Exit |
 |---|---|---|
-| **7.6** | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
+| **7.6** ✅ | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
 | **7.7** | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time |
 | **7.8** | `evaluate.mjs`; rounds of correction if needed | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. **Within §8's bars, or the numbers go back to the user** with the options: a larger shape, more rounds, the wander value as an observation, or a bar they accept |
 | **7.9** | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated |
@@ -459,3 +460,72 @@ The user accepted the six recommendations of the draft, and kept the `.onnx` pha
    misses them after 3 rounds and the largest allowed shape, the numbers go back to the user.
 6. **The scene:** the demo's defaults only (4,096 agents, `thinkEvery` 3, budget 64, speeds 3.2 and
    4.2, rest 5 s, flocking and fleeing on). Other settings are deferred.
+
+## Phase 7.6 results — 2026-10-13: the scenario, the label pass, the recorder
+
+**Built.** No `src/` change; committed as `c2608d7`.
+- `tools/agents/scenario/herd-wolves.mjs`: the demo's definition, rule, app stages, spawn and
+  settings. The rule's hidden inputs go through `wander`, `coin`, `resting` and `tag` (§5).
+- `tools/agents/label-pass.mjs`: the label pass, `lockstep()`, and a read-back of several buffers
+  in one submission.
+- `tools/agents/dataset.mjs`: rows, the sampler, the split, and the files with their sizes and
+  hashes.
+- `tools/agents/recorder.mjs`: what a recording run does. `tools/agents/record.mjs`: its command
+  line, `npm run agents:record`.
+- Tests: `test/agents-tools.test.mjs`, in `npm run test:agents`; a new GPU suite, `agent-tools`.
+
+**Three things differ from the draft:**
+- **The GPU checks have a suite of their own,** `agent-tools`. The library's suite keeps its 137
+  checks, and the guides' counts stay true.
+- **A tag stores its tick plus one.** A row no pass has written is the word 0; it now reads as
+  tick −1 and is never taken for a decision made at tick 0.
+- **The recorder is two files.** `recorder.mjs` has no Node import, so A24 runs it in Chrome too.
+
+**The scenario is the demo's.** Checked once against the site's `HerdWolvesGPU/brain.ts` (SHA-256
+`d294809f7a364d27…`), under Node/Dawn on the AMD iGPU:
+- the two app stages are equal as text;
+- with the site's `HERD_BRAIN` run as a label pass beside this repository's driver, **0 rows
+  differed** in actions or reason words over 600 steps, for seeds 11 and 12 (440 and 427 catches).
+
+The site is another repository, so this is a scratch script and not a suite test. It must be run
+again when either side's rule changes.
+
+**Tests:**
+- **Headless:** U24, U25 and U27 pass; the agents suite is reference + 66.
+- **GPU:** 10/10 checks, zero GPU errors, on Node/Dawn AMD, Node/Dawn NVIDIA and Chrome AMD.
+  - **A25:** given the driver's text, the label pass differs in 0 rows over 300 steps, with 272
+    catches and 62,187 frozen agent-steps on the way. Spliced after act, 4,132 rows differ in 30
+    of 60 steps.
+  - **A24:** two recordings of the same seeds are byte-identical; a recording of other seeds is not.
+- **Watched failing:** 27 mutations of the tools, each seen failing a named check.
+  - **One was not seen at first:** with a row's label stored in its action's columns, the dataset
+    still read back as written. U24 now pins a row's layout, not only its round trip.
+
+**The first recording,** with §6's defaults: 5 episodes of 1,800 steps, a copy every 6 steps, every
+wolf row and one prey row in 16.
+
+| | Node/Dawn, AMD iGPU | Node/Dawn, NVIDIA |
+|---|---:|---:|
+| Time to record | 21.7 s | 12.7 s |
+| Prey rows | 360,453 | 360,465 |
+| Wolf rows (of which frozen) | 384,000 (61.8%) | 384,000 (61.4%) |
+| Driver against label, prey's turn | 0.082 | 0.082 |
+| Driver against label, wolf's turn | 0.008 | 0.010 |
+| Driver against label, throttle | 0 | 0 |
+| Catches in 30 s, by seed | 1033, 1013, 1044, 1026, 1033 | 1011, 1023, 1018, 1004, 1045 |
+| Catches, spread around the mean | −1.6% to +1.4% | −1.6% to +2.4% |
+
+- **Reproducible:** two recordings on the AMD iGPU gave five identical files, `header.json`
+  included. The AMD and NVIDIA files differ, as expected: no equality across devices is claimed.
+- **What no network could learn:** 0.082 of the prey's turn is hidden input. A copy of the driver's
+  raw actions could not reach the 0.05 bar. A copy of the label can, and the wolves' hidden part is
+  small either way.
+- **Why the label acted:** prey flee in 54% of their rows, flock in 41%, and turn from a wall in
+  5%. Wolves that are not frozen chase in 92%, turn from a wall in 6%, and have nothing in sight
+  in 2%.
+- **Wolves rest most of the time:** 62% of the wolf rows are frozen, which leaves about 147,000
+  usable wolf rows beside 360,000 prey rows. 7.7 shows whether that is enough.
+- **The 10% bar means something:** seeds alone move the catches by about 2%.
+- **Size:** 95 MB in all.
+
+**Left for later phases:** `tools/agents/README.md` (7.9).

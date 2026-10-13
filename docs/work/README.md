@@ -49,6 +49,7 @@ Detail belongs in the design doc, not in `now.md` or the log.
 | `npm run render -- <scene.mjs> --out shot.png` | Render a scene to a PNG headless; exit 1 on a WebGPU error or a blank frame. Contract in `test/gpu/render.mjs`. |
 | `npm run drive -- <url> [--wait-for re] [--actions steps.json \| --interactive] [--out dir]` | Drive a page in headless Chrome: input, screenshots, eval; captures page and worker consoles and GPU errors. Exit 1 on any error. See `test/gpu/drive-page.mjs`, `../agent/validation.md`. |
 | `npm run spike:s3` | Spike S3: think-kernel cost on every adapter Dawn offers. A measurement, not a suite. |
+| `npm run agents:record` | Step 7, part 2: record what Herd & Wolves' rule decides, headless, into `tools/agents/out/` (ignored). `-- --episodes 2 --steps 360` for a short one. |
 
 To refresh the test-engine site after library changes: `npm run yalc:push` here (it leaves a
 **production** `dist/`; run `npm run build:lib` before committing), then restart the site with
