@@ -12,6 +12,7 @@ import { ROW, ROW_WORDS, Rows, flagsReason, hashText, keepRow, readDataset, rowF
 import { isFresh, recordEpisodes } from '../tools/agents/recorder.mjs';
 import { RUNS, addDecision, addTally, describeCatches, describeTally, evaluateRun, newTally } from '../tools/agents/evaluator.mjs';
 import { modelText, networkFromModel } from '../tools/agents/model.mjs';
+import { ONNX_OPSET, onnxFromNetwork } from '../tools/agents/onnx.mjs';
 import { flatParams, initNetwork, lossAndGradient, meanAbsoluteError, quantile, trainNetwork } from '../tools/agents/mlp-train.mjs';
 
 const words = values => new Uint32Array(new Float32Array(values).buffer);
@@ -413,4 +414,88 @@ test('U26 (the committed files): the Herd & Wolves networks fit the scenario and
         const action = A.mlpForward(network, new Float32Array(definition.obsDim));
         assert.ok(action.every(v => Math.abs(v) <= 1));
     }
+});
+
+// A protobuf message as its fields, in order: { field, value }, with a BigInt for a varint and the
+// bytes for a length-delimited field. Enough to read back what onnx.mjs writes.
+function protoFields(bytes) {
+    const fields = [];
+    let at = 0;
+    const varint = () => {
+        let value = 0n, shift = 0n;
+        for (;;) {
+            const b = bytes[at++];
+            value |= BigInt(b & 0x7f) << shift;
+            if (!(b & 0x80)) return value;
+            shift += 7n;
+        }
+    };
+    while (at < bytes.length) {
+        const tag = Number(varint()), field = tag >> 3, wire = tag & 7;
+        if (wire === 0) fields.push({ field, value: varint() });
+        else if (wire === 2) {
+            const length = Number(varint());
+            fields.push({ field, value: bytes.subarray(at, at + length) });
+            at += length;
+        } else throw new Error(`wire type ${wire} at byte ${at}`);
+    }
+    return fields;
+}
+
+test('U12: the ONNX writer\'s bytes decode to the layers that were written, weights bit for bit', () => {
+    const text = bytes => new TextDecoder().decode(bytes);
+    const all = (fields, n) => fields.filter(f => f.field === n).map(f => f.value), one = (fields, n) => all(fields, n)[0];
+    const layer = (input, output, activation, stream) => ({ input, output, activation,
+        weights: Float32Array.from({ length: input * output }, (_, k) => A.rand01(k, stream, 6) * 4 - 2),
+        biases: Float32Array.from({ length: output }, (_, k) => A.rand01(k, stream, 7) - 0.5) });
+    const network = [layer(5, 7, 'tanh', 0), layer(7, 4, 'relu', 1), layer(4, 4, 'identity', 2), layer(4, 3, 'sigmoid', 3), layer(3, 2, 'identity', 4)];
+    network[0].weights.set([1e-45, 3.4028234663852886e38, -0, -1 / 3]);     // raw bytes keep even a -0
+    const bytes = onnxFromNetwork(network, { name: 'five', metadata: { species: 'prey', obsNames: '["a","b"]' } });
+    assert.deepEqual([...bytes], [...onnxFromNetwork(network, { name: 'five', metadata: { species: 'prey', obsNames: '["a","b"]' } })]);
+
+    const model = protoFields(bytes), graph = protoFields(one(model, 7));
+    assert.equal(one(model, 1), 8n);
+    assert.deepEqual(all(model, 8).map(o => one(protoFields(o), 2)), [BigInt(ONNX_OPSET)]);
+    assert.equal(ONNX_OPSET, 13);
+    assert.deepEqual(all(model, 14).map(e => protoFields(e).map(f => text(f.value))), [['species', 'prey'], ['obsNames', '["a","b"]']]);
+    assert.equal(text(one(graph, 2)), 'five');
+
+    // The nodes, in order: a Gemm per layer, then its activation unless it is the identity.
+    const nodes = all(graph, 1).map(n => {
+        const f = protoFields(n);
+        return { op: text(one(f, 4)), inputs: all(f, 1).map(text), outputs: all(f, 2).map(text),
+            attributes: all(f, 5).map(a => { const x = protoFields(a); return [text(one(x, 1)), one(x, 3), one(x, 20)]; }) };
+    });
+    assert.deepEqual(nodes.map(n => n.op), ['Gemm', 'Tanh', 'Gemm', 'Relu', 'Gemm', 'Gemm', 'Sigmoid', 'Gemm']);
+    assert.deepEqual(nodes.map(n => [n.inputs.join(), n.outputs.join()]), [
+        ['obs,w0,b0', 'z0'], ['z0', 'h0'], ['h0,w1,b1', 'z1'], ['z1', 'h1'], ['h1,w2,b2', 'h2'],
+        ['h2,w3,b3', 'z3'], ['z3', 'h3'], ['h3,w4,b4', 'act']]);
+    for (const node of nodes) assert.deepEqual(node.attributes, node.op === 'Gemm' ? [['transB', 1n, 2n]] : []);
+
+    // The initializers: each layer's weights as [output, input] and its biases, as raw f32.
+    const tensors = Object.fromEntries(all(graph, 5).map(t => {
+        const f = protoFields(t), raw = one(f, 9);
+        return [text(one(f, 8)), { dims: all(f, 1).map(Number), type: one(f, 2), words: [...new Uint32Array(raw.slice().buffer)] }];
+    }));
+    assert.deepEqual(Object.keys(tensors), ['w0', 'b0', 'w1', 'b1', 'w2', 'b2', 'w3', 'b3', 'w4', 'b4']);
+    const bits = array => [...new Uint32Array(array.buffer, array.byteOffset, array.length)];
+    network.forEach((l, k) => {
+        assert.deepEqual(tensors[`w${k}`], { dims: [l.output, l.input], type: 1n, words: bits(l.weights) });
+        assert.deepEqual(tensors[`b${k}`], { dims: [l.output], type: 1n, words: bits(l.biases) });
+    });
+    assert.equal(tensors.w0.words[2], 0x80000000);
+
+    // "obs" is float32 [batch, 5] and "act" float32 [batch, 2], with a free first dimension.
+    const info = value => {
+        const f = protoFields(value), tensor = protoFields(one(protoFields(one(f, 2)), 1));
+        return [text(one(f, 1)), one(tensor, 1), all(protoFields(one(tensor, 2)), 1).map(d => protoFields(d)[0]).map(d => (d.field === 2 ? text(d.value) : Number(d.value)))];
+    };
+    assert.deepEqual(all(graph, 11).map(info), [['obs', 1n, ['batch', 5]]]);
+    assert.deepEqual(all(graph, 12).map(info), [['act', 1n, ['batch', 2]]]);
+
+    assert.throws(() => onnxFromNetwork([]), /onnx: a network needs at least one layer\./);
+    assert.throws(() => onnxFromNetwork([{ ...network[0], activation: 'gelu' }]),
+        /onnx: layer 0 has activation "gelu"; the writer takes identity, relu, tanh, sigmoid\./);
+    assert.throws(() => onnxFromNetwork([{ ...network[0], weights: new Float32Array(34) }]), /onnx: layer 0 is 5→7 but holds 34 weights and 7 biases\./);
+    assert.throws(() => onnxFromNetwork([network[0], network[2]]), /onnx: layer 1 reads 4 values; layer 0 writes 7\./);
 });

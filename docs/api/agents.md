@@ -417,6 +417,8 @@ the system, or give the species another brain, before destroying the returned br
   measured.
 - **Game rules stay in the app.** A resting wolf is frozen by the demo's app stage, and a frozen
   agent's action is not applied, so the network was never trained to rest.
+- **As ONNX:** `npm run agents:export` writes each network as a 41 KB `.onnx` file. This API
+  does not read ONNX yet; ONNX Runtime runs the files and agrees with `mlpForward` within 4.5e-6.
 - **To train your own:** `npm run agents:record`, `agents:train` and `agents:evaluate`, described
   in [`tools/agents/README.md`](../../tools/agents/README.md). They run under Node, and training
   the two networks takes about an hour of CPU.
