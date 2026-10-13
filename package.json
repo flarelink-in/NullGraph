@@ -89,6 +89,7 @@
     "test:gpu:browser": "node test/gpu/browser-run.mjs",
     "drive": "node test/gpu/drive-page.mjs",
     "agents:record": "node tools/agents/record.mjs",
+    "agents:train": "node tools/agents/train.mjs",
     "spike:s3": "node test/gpu/run-harness.mjs test/spikes/s3-think-kernel/run.js __S3_RESULTS__",
     "spike:mlp-think": "node test/gpu/run-harness.mjs test/spikes/mlp-think-cost/run.js __MLP_THINK_RESULTS__",
     "render": "node test/gpu/render.mjs",

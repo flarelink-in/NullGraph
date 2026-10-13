@@ -82,6 +82,20 @@ export function splitRows(header, u32, { dropFrozen = true } = {}) {
     return { train: Uint32Array.from(train), heldOut: Uint32Array.from(test) };
 }
 
+/**
+ * One species' rows as mlp-train.mjs reads them: the observation in, the label out, in place.
+ * `train` is the live rows outside the held-out episode; `heldOut` the held-out episode's live
+ * rows; `reason(row)` the teacher's reason code for a row.
+ */
+export function trainingSet({ header, species }, name) {
+    const data = species[name];
+    if (!data) throw new Error(`train: the dataset has no species "${name}"; it has ${Object.keys(species).join(', ')}.`);
+    const { obsDim, actDim } = header.definition, split = splitRows(header, data.u32);
+    if (!split.train.length) throw new Error(`train: no rows for species "${name}" after dropping frozen rows and the held-out episode.`);
+    const set = rows => ({ data: data.f32, stride: obsDim + 2 * actDim, x: 0, y: obsDim, inputs: obsDim, outputs: actDim, rows });
+    return { train: set(split.train), heldOut: set(split.heldOut), reason: row => flagsReason(data.u32[row * ROW_WORDS + ROW.FLAGS]) };
+}
+
 /** What header.json records about a definition: enough to check a layout and to rebuild the scene. */
 export function describeDefinition(definition, thinkEvery) {
     const w = definition.world;

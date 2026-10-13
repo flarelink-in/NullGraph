@@ -56,3 +56,11 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   mid-adapter with no error output, no report and no process left; the agent session that started
   it had been restarted. Only the harness's last line (`… done`) and its JSON report prove a run
   completed.
+- **A long CPU run started from an agent's shell can be cut off, or orphaned.**
+  - An agent's background shell command still carries the tool's time limit, at most 10 minutes,
+    and a training run of 150 passes takes 20–40 minutes.
+  - Stopping that shell can leave its `node` child running, with nothing appending its exit line.
+  - **What to do:** start long runs detached (PowerShell
+    `Start-Process node -ArgumentList … -RedirectStandardOutput …`) and note their process IDs.
+    Find a stray one by its command line (`Get-CimInstance Win32_Process`), and stop only the ones
+    you started.

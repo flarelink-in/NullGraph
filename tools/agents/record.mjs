@@ -9,31 +9,12 @@
 //
 // Exit 0 when the dataset is written and the device reported no error; 1 otherwise.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { installNodeGPU, describeDevice } from '../../test/gpu/node-gpu.mjs';
+import { assertDistCurrent, options, root } from './cli.mjs';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
-const args = process.argv.slice(2);
-const option = (name, fallback) => {
-    const at = args.indexOf(`--${name}`);
-    return at < 0 ? fallback : args[at + 1];
-};
-const whole = (name, fallback) => {
-    const value = Number(option(name, fallback));
-    if (!(Number.isInteger(value) && value > 0)) throw new Error(`record: --${name} must be a whole number above zero.`);
-    return value;
-};
-
-// The tools run the BUILT library. A dist older than src would record old code under a new commit.
-const newest = dir => readdirSync(join(root, dir), { recursive: true })
-    .map(f => join(root, dir, String(f))).filter(f => statSync(f).isFile())
-    .reduce((t, f) => Math.max(t, statSync(f).mtimeMs), 0);
-if (newest('src') > statSync(join(root, 'dist/agents.js')).mtimeMs) {
-    console.error('agents-tools: dist/ is older than src/. Run npm run build:lib first.');
-    process.exit(1);
-}
+const { option, whole } = options(process.argv.slice(2), 'record');
+assertDistCurrent();
 
 const host = installNodeGPU();
 const { NullGraph } = await import('../../dist/index.js');
