@@ -34,7 +34,9 @@ phase's commit.
 - **Phase 8.0 ran on 2026-10-14:** sixteen files from four makers.
 - **Phase 8.1 was built on 2026-10-14:** the entry and the reader, 2,525 B min+gzip; every
   fixture behaves as listed; 34 of 34 mutations were caught.
-- **Next: phase 8.2,** the comparison with ONNX Runtime on the GPU (A28).
+- **Phase 8.2 was built on 2026-10-14:** on three host and GPU pairs, the reader's `MlpBrain` and
+  ONNX Runtime give the same actions from the same bytes, within 4.5e-6, for 17 files.
+- **Next: phase 8.3,** the guide and the README row.
 
 **Target:** a new entry `src/extras/inference/` with one file, tests, fixtures, one guide. Core
 and the agents entry unchanged. No new dependency.
@@ -388,7 +390,7 @@ is the test's to state (U31), so the fixtures record only what their makers did.
 
 | # | Asserts |
 |---|---|
-| A28 | For each of: the two Herd & Wolves files, a `MatMul` + `Add` rewrite of them, and each fixture that is read: the bytes read by `mlpFromOnnx` into an `MlpBrain` give, on 256 observations, the actions ONNX Runtime gives from **the same bytes**, within 1e-4 (A27's bound). **Watched failing** with a square layer's weights read the other way round, which no shape check can see. If ONNX Runtime 1.29 cannot load a fixture's IR version, that file is reported as not judged, not as passed |
+| A28 | For each of: the two Herd & Wolves files, a `MatMul` + `Add` rewrite of them, and each fixture that is read: the bytes read by `mlpFromOnnx` into an `MlpBrain` give, on 256 observations, the actions ONNX Runtime gives from **the same bytes**, within 1e-4 (A27's bound). **Watched failing** with a square layer's weights read the other way round, which no shape check can see. As built (phase 8.2): a file with a fixed batch of one, or with no batch dimension, is run row by row on 32 observations; a file ONNX Runtime cannot load or run fails its check; a first check states that the reader refuses exactly the three files it must |
 
 The parent's A5 (`OrtBrain` against `MlpBrain`) stays with step 9. A28 is the same comparison
 without `OrtBrain`.
@@ -486,7 +488,7 @@ must not carry the adapter. `size.mjs` checks it from step 9 on.
 |---|---|---|
 | **8.0** ✅ | `test/onnx-fixtures/make.py`, `requirements.txt`, `fixtures.json` (§9). No library code | **Measured:** per exporter, what the file holds; whether the prototype takes it; the judges' agreement. §5 is confirmed or amended, with the user's word if the subset grows. Run 2026-10-14, not committed; results at the end. The subset grows by three end nodes: §14, item 4 |
 | **8.1** ✅ | The entry (§12) and `mlpOnnx.ts`; U12's reader half, U29, U30, U31, U14; the size lines | The Herd & Wolves files read back bit for bit; every fixture behaves as recorded; the reader is within its line and the agents entry is unchanged to the byte; the suite is green headless. Built 2026-10-14, not committed; results at the end. The README row and the guide are phase 8.3's |
-| **8.2** | A28 in the `onnx` suite | ONNX Runtime agrees within 1e-4 on Node/NVIDIA, Node/AMD and Chrome/AMD |
+| **8.2** ✅ | A28 in the `onnx` suite | ONNX Runtime agrees within 1e-4 on Node/NVIDIA, Node/AMD and Chrome/AMD. Built 2026-10-14: 23 of 23 checks on all three, worst difference 4.5e-6; results at the end |
 | **8.3** | `docs/api/inference.md` with a checked example and "exporting a policy from PyTorch"; the agents guide's "As ONNX" line; the README row; `tools/agents/README.md`; the parent's §9.3, §11 and §12.5 brought in line; closure | Docs match what was measured; `docs/work` updated |
 
 Every test is watched failing before it passes. One phase per commit.
@@ -820,3 +822,66 @@ core headless, and the `onnx` GPU suite on Node/NVIDIA (5 of 5). The library typ
 - **Not run:** the GPU suites in Chrome and on the AMD GPU; they are untouched by this phase.
 
 **Next:** phase 8.2.
+
+## Phase 8.2 results — 2026-10-14: the reader, judged by ONNX Runtime
+
+**Built:** A28, in `test/onnx-gpu/run.js` (the `onnx` suite, now 23 checks). No library change.
+
+**What A28 does.** One file's bytes go two ways:
+- `mlpFromOnnx` reads them into an `MlpBrain`, which runs as the think stage of a small
+  `AgentSystem` (256 agents) on the suite's device;
+- ONNX Runtime's WebGPU provider runs the same bytes as they are, on the observations that
+  system's own sense stage wrote: signed values from a hash, as the agents suite's A4 senses them.
+
+The two must give the same actions within 1e-4.
+
+**The 17 files:**
+- the two Herd & Wolves networks as `tools/agents/onnx.mjs` writes them (24→64→64→64→2);
+- each rewritten with `MatMul` and `Add`: one as `Add(result, bias)`, one as `Add(bias, result)`
+  on float lists;
+- the 13 fixtures the reader takes: PyTorch's two exporters, scikit-learn, `onnx.helper`.
+
+A first check states the coverage: the reader refuses exactly `torch-double`, `torch-heads` and
+`torch-outside`, and nothing else.
+
+**Results:**
+
+| | Node/Dawn NVIDIA | Node/Dawn AMD | Chrome AMD |
+|---|---:|---:|---:|
+| Checks, the whole suite | 23 of 23 | 23 of 23 | 23 of 23 |
+| GPU errors | 0 | 0 | 0 |
+| Worst difference between `MlpBrain` and ONNX Runtime, any file | 4.5e-6 | 3.0e-6 | 3.0e-6 |
+| The same, among the 13 fixtures | 7.2e-7 | 6.0e-7 | 6.0e-7 |
+| The suite's time | 5.8 s | 4.5 s | about 6 s |
+
+- **The largest differences are the Herd & Wolves networks',** whose trained weights reach 178;
+  7.9 measured 4.4e-5 between the GPU and `mlpForward` for them. The fixtures' weights are of
+  unit scale.
+- **On the AMD GPU the two files without a bias agree to the last bit.**
+
+**Watched failing** (Node/NVIDIA; the reader mutated, `dist/inference.js` rebuilt, the suite run):
+
+| The reader is broken so that | A28 checks that fail, of 18 |
+|---|---|
+| a square layer is read the other way round, every other layer as before | 6: exactly the files with a square layer (the four Herd & Wolves files, `torch-shared`, `torchscript-shared`) |
+| no weight matrix is transposed | 7: every file in a form that needs it |
+| the activation is dropped | 15 |
+| the bias is dropped | 13: every file that has one |
+| `Add`'s second operand is always the bias | 1: the coverage check, since two files are then refused |
+
+- **The first row is what a round trip cannot see:** every shape is right, and the writer's own
+  files fail only because a judge that shares nothing with the reader ran them.
+
+**Differs from the design:**
+- **One system and one brain per network shape** (five shapes), with `setWeights` between files:
+  one pipeline compile per shape, not per file.
+- **A file with a fixed batch of one, or with no batch dimension, is run row by row on 32
+  observations,** not 256: eight files. The others take 256 at once.
+- **A file that ONNX Runtime cannot load or run fails its check.** The design said "reported as
+  not judged"; no file needed it.
+- **The observations are hashed values in [−1, 1),** not the simulation's, so that every file is
+  judged the same way. A27 keeps the simulation's observations for the two trained networks.
+
+**Not run:** the other GPU suites; this phase changes one test file.
+
+**Next:** phase 8.3.

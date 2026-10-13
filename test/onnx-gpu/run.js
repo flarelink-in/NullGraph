@@ -6,6 +6,9 @@
 //       stage, and the numbers that come out are the model's numbers transformed by that stage
 //   A27 the trained Herd & Wolves networks, written as .onnx by tools/agents/onnx.mjs, give in
 //       ONNX Runtime the actions mlpForward gives (docs/agents-cloning-design.md, phase 7.10)
+//   A28 the reader, judged by ONNX Runtime: the same bytes read by mlpFromOnnx into an MlpBrain,
+//       and run by ONNX Runtime as they are, give the same actions
+//       (docs/agents-onnx-reader-design.md, phase 8.2)
 //
 // The direction matters (ORT owns, NullGraph adopts): ORT requests the features and limits its
 // kernels need when it creates the device, and its maintainers warn a device created with other
@@ -22,11 +25,13 @@
 import { NullGraph } from '../../dist/index.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 import { addModel } from './tiny-model.mjs';
-import { mlpForward } from '../../dist/agents.js';
+import { Actions, AgentSystem, MlpBrain, Sensors, defineAgents, mlpForward } from '../../dist/agents.js';
+import { mlpFromOnnx } from '../../dist/inference.js';
 import { createHerd, herdDefinition } from '../../tools/agents/scenario/herd-wolves.mjs';
 import { lockstep, readBuffers } from '../../tools/agents/label-pass.mjs';
 import { networkFromModel } from '../../tools/agents/model.mjs';
 import { onnxFromNetwork } from '../../tools/agents/onnx.mjs';
+import { chain } from '../onnx-fixtures/build.mjs';
 
 const { log, check, fatal, finish, inBrowser } = harnessEnv('__ONNX_RESULTS__');
 
@@ -131,12 +136,12 @@ check('O3: the model output, bound with zero copies, drives a NullGraph compute 
 // Each committed network becomes an .onnx file in memory, and ONNX Runtime runs it on 256
 // observations per species that the simulation itself produced: 120 steps of Herd & Wolves under
 // the rule, on this same device. Its actions must equal mlpForward's within 1e-4 (the parent's A5).
+const readJson = async path => {
+    const url = new URL(path, import.meta.url);
+    return inBrowser ? (await fetch(url)).json() : JSON.parse((await import('node:fs')).readFileSync(url, 'utf8'));
+};
 {
     const TOL = 1e-4, ROWS = 256;
-    const readJson = async path => {
-        const url = new URL(path, import.meta.url);
-        return inBrowser ? (await fetch(url)).json() : JSON.parse((await import('node:fs')).readFileSync(url, 'utf8'));
-    };
     const herd = createHerd(engine), { capacity, obsDim, actDim } = herd.definition;
     const step = lockstep(engine, herd.agents);
     for (let s = 0; s < 120; s++) await step();
@@ -176,6 +181,107 @@ check('O3: the model output, bound with zero copies, drives a NullGraph compute 
         check(`A27: ONNX Runtime runs ${species}.onnx on ${ROWS} observations and its actions equal mlpForward's within ${TOL}`,
             bad === 0 && moved > ROWS / 4, `${note}${bad} of ${ROWS * actDim} actions out of tolerance; worst difference ${worst.toExponential(1)}; ` +
             `${moved} rows turn by more than 0.01; ${bytes.length.toLocaleString('en-US')} B`);
+    }
+}
+
+// A28 (step 8, phase 8.2): the reader, judged by ONNX Runtime. The same bytes go two ways.
+// mlpFromOnnx reads them into an MlpBrain, which thinks for 256 agents of a small AgentSystem on
+// this device; ONNX Runtime runs them as they are, on the observations that system's sense stage
+// wrote. The two must give the same actions within 1e-4 (A27's bound).
+// The writer and the reader are both this repository's, so only a judge that shares nothing with
+// them can see a mistake they share: a weight matrix read the other way round keeps every shape.
+// The cases: the two Herd & Wolves files; each rewritten with MatMul and Add; and every file of
+// test/onnx-fixtures (PyTorch's two exporters, scikit-learn, onnx.helper) that the reader takes.
+// Like A27, this runs before the suite's first session is released.
+{
+    const TOL = 1e-4, ROWS = 256, SINGLE = 32;         // a file with a fixed batch of one is run row by row, on fewer rows
+    const REFUSED = ['torch-double', 'torch-heads', 'torch-outside'];        // U31 says why
+    // Signed inputs in [-1, 1) from a hash of (agent, field, tick), as the agents suite's A4 senses them.
+    const probe = width => Sensors.custom({ name: 'probe', width, wgsl: `fn probe(i: u32, a: Agent) -> array<f32, ${width}> {
+    var v: array<f32, ${width}>;
+    for (var k = 0u; k < ${width}u; k++) {
+        var h = (i * 0x9e3779b9u) ^ (k * 0x85ebca6bu) ^ (state.tick * 0xc2b2ae35u) ^ 0x27d4eb2fu;
+        h = (h ^ (h >> 16u)) * 0x7feb352du;
+        h = (h ^ (h >> 15u)) * 0x846ca68bu;
+        h = h ^ (h >> 16u);
+        v[k] = f32(h >> 8u) * (2.0 / 16777216.0) - 1.0;
+    }
+    return v;
+}` });
+    const cases = [], refused = [];
+    for (const [species, form] of [['prey', { form: 'matmul' }], ['wolf', { form: 'matmulBiasFirst', tensors: { as: 'list' } }]]) {
+        const file = `../../tools/agents/models/herd-wolves/${species}.mlp.json`;
+        const network = networkFromModel(await readJson(file), herdDefinition(), file);
+        cases.push({ name: `${species}.onnx`, bytes: onnxFromNetwork(network, { name: `${species}-mlp` }), feed: 'batch' });
+        cases.push({ name: `${species}.onnx rewritten with ${form.form === 'matmul' ? 'MatMul and Add(result, bias)' : 'MatMul and Add(bias, result), on float lists'}`,
+            bytes: chain(network, form), feed: 'batch' });
+    }
+    for (const fixture of (await readJson('../onnx-fixtures/fixtures.json')).cases) {
+        const dims = fixture.holds.inputs.find(input => !input.initializer).dims;
+        cases.push({ name: `${fixture.name} (${fixture.exporter})`, fixture: fixture.name, bytes: Uint8Array.from(atob(fixture.onnx), c => c.charCodeAt(0)),
+            feed: dims.length === 1 ? 'vector' : dims[0] === 1 ? 'row' : 'batch' });
+    }
+    // One system and one brain per shape: setWeights then swaps networks without a compile.
+    const shapes = new Map();
+    for (const c of cases) {
+        try {
+            c.network = mlpFromOnnx(c.bytes).network;
+        } catch (e) {
+            refused.push(c.fixture ?? c.name);
+            continue;
+        }
+        const shape = c.network.map(l => `${l.input}→${l.output} ${l.activation}`).join(', ');
+        if (!shapes.has(shape)) shapes.set(shape, []);
+        shapes.get(shape).push(c);
+    }
+    check(`A28: the reader takes every case but the ${REFUSED.length} files it must refuse`, refused.sort().join() === REFUSED.join(),
+        `refused: ${refused.join(', ') || 'none'}; read: ${cases.length - refused.length} in ${shapes.size} shapes`);
+    for (const [shape, group] of shapes) {
+        const first = group[0].network, obsDim = first[0].input, actDim = first[first.length - 1].output;
+        const definition = defineAgents({ capacity: ROWS, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: [{ name: 'probe', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+            sensors: [probe(obsDim)],
+            actions: actDim === 2 ? Actions.steering() : Actions.custom({ name: 'hold', width: actDim, wgsl: 'fn hold(i: u32) {}' }) });
+        const agents = new AgentSystem(engine, definition), brain = new MlpBrain(engine, first);
+        agents.setBrain(brain);
+        for (let i = 0; i < ROWS; i++) agents.spawn(i, { species: 0, position: [(i % 16) - 7.5, 0, Math.floor(i / 16) - 7.5] });
+        for (const c of group) {
+            const rows = c.feed === 'batch' ? ROWS : SINGLE;
+            let worst = 0, bad = 0, largest = 0, note = '';
+            try {
+                brain.setWeights(c.network);
+                await agents.step();                                   // senses new observations, thinks with this network
+                const [obsWords, actWords] = await readBuffers(ortDevice, [agents.obs, agents.act]);
+                const obs = new Float32Array(obsWords.buffer, obsWords.byteOffset, obsWords.length);
+                const gpu = new Float32Array(actWords.buffer, actWords.byteOffset, actWords.length);
+                const run = await ort.InferenceSession.create(c.bytes, { executionProviders: ['webgpu'] });
+                const ask = async (from, count) => {
+                    const dims = c.feed === 'vector' ? [obsDim] : [count, obsDim];
+                    const result = await run.run({ [run.inputNames[0]]: new ort.Tensor('float32', obs.slice(from * obsDim, (from + count) * obsDim), dims) });
+                    const data = Float32Array.from(await result[run.outputNames[0]].getData());
+                    result[run.outputNames[0]].dispose();
+                    return data;                                       // whatever its shape, the values are in order
+                };
+                const theirs = new Float32Array(rows * actDim);
+                if (c.feed === 'batch') theirs.set(await ask(0, rows));
+                else for (let r = 0; r < rows; r++) theirs.set(await ask(r, 1), r * actDim);
+                await run.release();
+                for (let k = 0; k < rows * actDim; k++) {
+                    const d = Math.abs(theirs[k] - gpu[k]);
+                    worst = Math.max(worst, d);
+                    largest = Math.max(largest, Math.abs(gpu[k]));
+                    if (!(d <= TOL)) bad++;
+                }
+            } catch (e) {
+                bad = -1;
+                note = `failed: ${String(e.message ?? e).split('\n')[0]}; `;
+            }
+            check(`A28: ${c.name}: read by mlpFromOnnx into an MlpBrain, its actions equal ONNX Runtime's from the same bytes within ${TOL}`,
+                bad === 0 && largest > 0.05, `${note}${shape}; ${rows} observations${c.feed === 'batch' ? '' : `, one run each (${c.feed === 'vector' ? 'no batch dimension' : 'a batch of one'})`}; ` +
+                `${bad} of ${rows * actDim} actions out of tolerance; worst difference ${worst.toExponential(1)}; largest action ${largest.toFixed(2)}; ${c.bytes.length.toLocaleString('en-US')} B`);
+        }
+        agents.destroy();
+        brain.destroy();
     }
 }
 
