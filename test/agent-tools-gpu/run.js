@@ -3,11 +3,16 @@
 //
 //   A25  the label pass sees exactly what the system's own think sees
 //   A24  a recording repeats, byte for byte
+//   A26  the committed Herd & Wolves networks run as MlpBrains and compute what mlpForward computes
+//   A8   cloning quality: the networks in the running simulation, against the label and its catches
 import { NullGraph } from '../../dist/index.js';
+import { MlpBrain, mlpForward } from '../../dist/agents.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
-import { DRIVER, LABEL, TAG, createHerd, herdRule, herdWolves } from '../../tools/agents/scenario/herd-wolves.mjs';
+import { DRIVER, LABEL, TAG, createHerd, herdDefinition, herdRule, herdWolves } from '../../tools/agents/scenario/herd-wolves.mjs';
 import { createLabelPass, lockstep, readBuffers } from '../../tools/agents/label-pass.mjs';
 import { recordEpisodes } from '../../tools/agents/recorder.mjs';
+import { RUNS, evaluateRun } from '../../tools/agents/evaluator.mjs';
+import { networkFromModel } from '../../tools/agents/model.mjs';
 
 const { check, fatal, finish } = harnessEnv('__AGENT_TOOLS_RESULTS__');
 const adapter = await navigator.gpu.requestAdapter();
@@ -116,6 +121,79 @@ check('A25: a step without the stage to splice at is refused by name',
         prey.hidden[0] > 0.01 && prey.hidden[1] === 0 && wolf.hidden[1] === 0,
         `prey turn ${prey.hidden[0].toFixed(4)}, wolf turn ${wolf.hidden[0].toFixed(4)}`);
 }
+
+// The committed networks, read as an app reads them: parse, check the names, one MlpBrain per species.
+const readJson = async path => {
+    const url = new URL(path, import.meta.url);
+    return typeof document !== 'undefined' ? (await fetch(url)).json() : JSON.parse((await import('node:fs')).readFileSync(url, 'utf8'));
+};
+const networks = {}, students = {};
+for (const species of ['prey', 'wolf']) {
+    const file = `../../tools/agents/models/herd-wolves/${species}.mlp.json`;
+    networks[species] = networkFromModel(await readJson(file), herdDefinition(), file);
+    students[species] = new MlpBrain(engine, networks[species]);
+}
+
+// A26. With a network on each species, every action written in a step is mlpForward of that agent's
+// observation in that step. The label pass's tags say who thought.
+// The bound is 1e-4, not A4's 1e-5 + 1e-5·|cpu|: trained weights are large (up to 178 here, against
+// A4's unit-scale ones), and f32 rounding grows with them. How many actions pass A4's bound is reported.
+{
+    const herd = createHerd(engine), { capacity, obsDim, actDim } = herd.definition, names = herd.definition.species.map(s => s.name);
+    for (const species of names) herd.agents.setBrain(students[species], { species });
+    const pass = createLabelPass(engine, herd.agents, herd.label);
+    const step = lockstep(engine, herd.agents, [pass.stage]);
+    const floats = words => new Float32Array(words.buffer, words.byteOffset, words.length), cpu = new Float32Array(actDim);
+    const compared = names.map(() => 0);
+    const TOL = 1e-4;
+    let bad = 0, beyondA4 = 0, worst = 0, swapped = 0;
+    for (let s = 0; s < 60; s++) {
+        await step();
+        const [obsWords, actWords, tags] = await readBuffers(device, [herd.agents.obs, herd.agents.act, pass.tags]);
+        const obs = floats(obsWords), act = floats(actWords);
+        for (let i = 0; i < capacity; i++) {
+            if (TAG.tick(tags[i]) !== s) continue;
+            const species = herd.speciesOf(i), row = obs.subarray(i * obsDim, (i + 1) * obsDim);
+            compared[species]++;
+            mlpForward(networks[names[species]], row, cpu);
+            for (let k = 0; k < actDim; k++) {
+                const d = Math.abs(act[i * actDim + k] - cpu[k]);
+                worst = Math.max(worst, d);
+                if (!(d <= TOL)) bad++;
+                if (!(d <= 1e-5 + 1e-5 * Math.abs(cpu[k]))) beyondA4++;
+            }
+            // The other species' network must not pass for this one's.
+            mlpForward(networks[names[1 - species]], row, cpu);
+            if (!(Math.abs(act[i * actDim] - cpu[0]) <= TOL)) swapped++;
+        }
+    }
+    pass.destroy();
+    herd.destroy();
+    const rows = compared[0] + compared[1];
+    check(`A26: the committed networks load into one MlpBrain per species, and each action equals mlpForward of its observation within ${TOL}`,
+        bad === 0 && compared.every(n => n > 0), `${bad} of ${fmt(rows * actDim)} actions out of tolerance; worst difference ${worst.toExponential(1)}; ` +
+        `${beyondA4} beyond A4's bound; ` +
+        names.map((name, k) => `${name} ${fmt(compared[k])} decisions`).join(', '));
+    check('A26 watched failing: judged by the other species\' network, the turns differ',
+        swapped > rows / 2, `${fmt(swapped)} of ${fmt(rows)} turns out of tolerance`);
+}
+
+// A8 (the parent's cloning check, with the bars of docs/agents-cloning-design.md §8): 30 s on 5 seeds
+// that no recording used. C drives with the label's own decisions; S with the networks.
+{
+    const BAR_ERROR = 0.05, BAR_CATCHES = 0.10;
+    const C = await evaluateRun(engine, herdWolves, RUNS.C), S = await evaluateRun(engine, herdWolves, RUNS.S, { students });
+    const errors = run => Object.entries(run.species).flatMap(([species, s]) => Object.entries(s.mae).map(([action, e]) => ({ species, action, e })));
+    check('A8: run C drives with the label\'s decisions, so it differs from its label by nothing',
+        errors(C).every(x => x.e === 0) && C.catches.mean > 0, `catches ${C.catches.values.join(', ')}`);
+    check(`A8: the networks' error against the label on their own runs is at most ${BAR_ERROR}, per species and action`,
+        errors(S).every(x => x.e <= BAR_ERROR), errors(S).map(x => `${x.species} ${x.action} ${x.e.toFixed(4)}`).join(', '));
+    const share = S.catches.mean / C.catches.mean - 1;
+    check(`A8: the networks' mean catches over 5 seeds are within ${100 * BAR_CATCHES}% of the label's`,
+        Math.abs(share) <= BAR_CATCHES, `${S.catches.mean.toFixed(1)} against ${C.catches.mean.toFixed(1)} (${(100 * share).toFixed(1)}%); ` +
+        `networks ${S.catches.values.join(', ')}; label ${C.catches.values.join(', ')}`);
+}
+for (const brain of Object.values(students)) brain.destroy();
 
 await finish('All agent-tools GPU checks passed.');
 device.destroy();

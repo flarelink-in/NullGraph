@@ -6,7 +6,8 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
-import { defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
+import { AgentSystem, defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
+import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -30,7 +31,7 @@ function standIn() {
 test('API guide: every example type-checks, bundles and generates a valid think module', async () => {
     const guide = readFileSync(join(root, 'docs/api/agents.md'), 'utf8');
     const examples = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map(match => match[1]);
-    assert.equal(examples.length, 3, 'validate every TypeScript example in the guide');
+    assert.equal(examples.length, 4, 'validate every TypeScript example in the guide');
     const dir = mkdtempSync(join(root, 'test/.agents-api-'));
     try {
         const files = examples.map((source, n) => {
@@ -55,15 +56,36 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             assert.ok(declaration, 'every example declares its definition');
             return Function('defineAgents', 'Sensors', `return defineAgents(${declaration[1]});`)(defineAgents, Sensors);
         };
-        let rules = 0, networks = 0, perSpecies = 0;
+        let rules = 0, networks = 0, perSpecies = 0, trained = 0;
         for (const [n, source] of examples.entries()) {
             const result = await build({ stdin: { contents: source, loader: 'ts', resolveDir: root },
                 bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
             assert.ok(result.outputFiles[0].contents.length > 0);
-            const definition = definitionOf(source);
+            const loads = /interface TrainedNetwork/.test(source);
+            const definition = loads ? herdDefinition() : definitionOf(source);
             const brain = source.match(/new RuleBrain\(`([\s\S]*?)`\)/);
             let wgsl;
-            if (/setBrain\(\w+, \{ species: /.test(source)) {
+            if (loads) {
+                // The trained-network example: load the two committed files as it says, on a stand-in engine.
+                trained++;
+                const module = join(dir, `example${n}.mjs`);
+                writeFileSync(module, result.outputFiles[0].text);
+                const { useTrainedNetwork } = await import(pathToFileURL(module).href);
+                const { engine, stages } = standIn(), agents = new AgentSystem(engine, definition, { thinkEvery: 3 });
+                const files = ['prey', 'wolf'].map(s => JSON.parse(readFileSync(join(root, `tools/agents/models/herd-wolves/${s}.mlp.json`), 'utf8')));
+                const brains = files.map(file => useTrainedNetwork(engine, agents, file));
+                agents.advance(definition.dt);
+                const thinks = agents.getComputeStages().filter(s => s.name === 'AgentSystem think');
+                assert.equal(thinks.length, 2, 'one think pass per species');
+                assert.deepEqual(brains.map(b => b.dims), [{ obs: 24, act: 2 }, { obs: 24, act: 2 }]);
+                const built = stages.length, renamed = { ...files[0], obsNames: [...files[0].obsNames].reverse() };
+                assert.throws(() => useTrainedNetwork(engine, agents, renamed), /prey\.mlp\.json was trained on other observations or actions\./);
+                assert.throws(() => useTrainedNetwork(engine, agents, { ...files[0], actNames: ['turn'] }), /trained on other observations or actions/);
+                assert.equal(stages.length, built, 'a refused file builds nothing');
+                wgsl = thinks[0].shaderCode;
+                agents.destroy();
+                for (const b of brains) b.destroy();
+            } else if (/setBrain\(\w+, \{ species: /.test(source)) {
                 // The per-species example: run its setup on a stand-in engine and check what its
                 // comments promise about passes and compiles. Its think modules are the stages it built.
                 perSpecies++;
@@ -106,9 +128,10 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             }
             assert.equal(new WgslReflect(wgsl).entry.compute[0].name, 'cs_main');
         }
-        assert.deepEqual([rules, networks, perSpecies], [1, 1, 1], 'one rule example, one network example, one per-species example');
-        console.log('API examples: TypeScript, browser bundles, the network example\'s numbers, the per-species example\'s passes ' +
-            'and generated WGSL passed.');
+        assert.deepEqual([rules, networks, perSpecies, trained], [1, 1, 1, 1],
+            'one rule example, one network example, one per-species example, one trained-network example');
+        console.log('API examples: TypeScript, browser bundles, the network example\'s numbers, the per-species example\'s passes, ' +
+            'the trained-network example\'s loading and generated WGSL passed.');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

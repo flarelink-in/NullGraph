@@ -23,7 +23,7 @@ import { SUITES } from './suites.mjs';
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback; };
 const only = argv.flatMap((a, i) => (a === '--only' ? [argv[i + 1]] : []));
-const TIMEOUT_MS = Number(arg('timeout', '120')) * 1000;
+const TIMEOUT_ARG = arg('timeout', '');        // empty: each suite's own limit, or 120 s
 const PORT = Number(arg('port', '9334'));
 
 const unknown = only.filter(n => !SUITES.some(s => s.name === n));
@@ -147,6 +147,7 @@ const rows = [];
 for (const suite of SUITES.filter(s => only.length === 0 || only.includes(s.name))) {
     const url = `${BASE}/${dirname(suite.file).replace(/\\/g, '/')}/`;
     console.log(`\n=== ${suite.name} (${url}) ===`);
+    const TIMEOUT_MS = Number(TIMEOUT_ARG || suite.timeout || 120) * 1000;
     const gpuWarnings = [];
     consoleSink = (type, text) => {
         if (!text) return;

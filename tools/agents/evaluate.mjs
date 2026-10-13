@@ -21,7 +21,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { installNodeGPU, describeDevice } from '../../test/gpu/node-gpu.mjs';
 import { assertDistCurrent, options, root } from './cli.mjs';
 
@@ -60,7 +60,7 @@ for (const species of new Set(runNames.flatMap(run => Object.keys(RUNS[run]).fil
     const path = join(students, `${species}.mlp.json`), text = readFileSync(path, 'utf8'), model = JSON.parse(text);
     if (model.species !== species) throw new Error(`model: ${path} was trained for species "${model.species}", not "${species}".`);
     brains[species] = new MlpBrain(engine, networkFromModel(model, definition, path));
-    models[species] = { path, sha256: createHash('sha256').update(text).digest('hex'), trainedOn: model.trainedOn,
+    models[species] = { path: relative(root, path).replaceAll('\\', '/'), sha256: createHash('sha256').update(text).digest('hex'), trainedOn: model.trainedOn,
         heldOutMae: model.measured?.heldOutMae };
 }
 

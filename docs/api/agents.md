@@ -2,8 +2,10 @@
 
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
 entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
-which runs a small dense network you supply, and per-species brains (C2 step 7). Training, ONNX
-import, ONNX Runtime brains, camera eyes and a replay/rewind UI are not implemented by this API.
+which runs a small dense network you supply, per-species brains, and loading a trained network
+(C2 step 7). Training, ONNX import, ONNX Runtime brains, camera eyes and a replay/rewind UI are not
+implemented by this API. Training is done by tools in the repository, outside the package
+([a trained network](#a-trained-network)).
 
 ## Minimal rule simulation
 
@@ -163,7 +165,7 @@ Do not write peer records concurrently and assume another invocation sees a cons
 `new MlpBrain(engine, network)` runs a small dense network as the think stage. The loop, the
 cadence and the act stage are the same as with a rule brain; only the observation-to-action
 calculation changes. It runs the weights you give it and does not learn. The example below uses
-hand-set weights; a network trained to imitate the rules is a later step.
+hand-set weights; [a trained network](#a-trained-network) comes from a file.
 
 ```ts
 import type { NullGraph } from 'null-graph';
@@ -234,6 +236,8 @@ Render it with the same frame function as the rule example: `advance`, `upload`,
   clamps steering and brakes on non-finite actions. `mlpForward(network, input, out?, scratch?)` is
   the CPU reference, with the same definitions and f32 rounding, allocation-free when given its
   output and scratch arrays. GPU results agree within `1e-5 + 1e-5·|cpu|`, not bit for bit.
+  That bound was measured with weights of unit scale. Rounding grows with the weights: the trained
+  Herd & Wolves networks, with weights up to 178, differ by up to 4.4e-5.
 - **Updates:** `brain.setWeights(network)` needs the same shape and activations. It validates the
   whole network, then uploads once into the same buffer: no new stage, no recompile, and work
   submitted afterwards uses it. A different shape needs a new brain and `setBrain`.
@@ -360,6 +364,63 @@ fn think(i: u32, species: u32, tick: u32) {
 - **Cost for one brain:** a system with one brain reads one more uniform per thinking agent than
   before.
 
+## A trained network
+
+A network trained outside the app arrives as a `<species>.mlp.json` file: the layers as plain
+arrays, with the observation and action names it was trained with. Loading one needs no new API.
+
+```ts
+import type { NullGraph } from 'null-graph';
+import { MlpBrain, type AgentSystem, type MlpActivation } from 'null-graph/agents';
+
+/** A parsed <species>.mlp.json. */
+export interface TrainedNetwork {
+    species: string;
+    obsNames: string[];
+    actNames: string[];
+    layers: { input: number; output: number; activation: MlpActivation;
+        weights: number[]; biases: number[] }[];
+}
+
+/** Puts a trained network on its species. The caller owns the returned brain. */
+export function useTrainedNetwork(engine: NullGraph, agents: AgentSystem, file: TrainedNetwork) {
+    const { obsNames, actNames } = agents.definition;
+    // Equal widths cannot show that an input means what the network expects; equal names do.
+    if (file.obsNames.join() !== obsNames.join() || file.actNames.join() !== actNames.join()) {
+        throw new Error(`${file.species}.mlp.json was trained on other observations or actions.`);
+    }
+    const brain = new MlpBrain(engine, file.layers.map(layer => ({ ...layer,
+        weights: new Float32Array(layer.weights), biases: new Float32Array(layer.biases) })));
+    agents.setBrain(brain, { species: file.species });   // this species only: one pass, one compile
+    return brain;
+}
+```
+
+Call it once per species, for example with `await (await fetch('prey.mlp.json')).json()`. Destroy
+the system, or give the species another brain, before destroying the returned brains.
+
+- **Two trained files are in the repository,** not in the package:
+  `tools/agents/models/herd-wolves/prey.mlp.json` and `wolf.mlp.json`, about 180 KB each. Each is
+  a 24→64→64→64→2 `tanh` network that copies the Herd & Wolves rule for its species.
+- **What they copy:** the rule's decision without its random wander and its coin-flips by agent
+  index, because a network sees observations only. The copies do not wander.
+- **How close they are,** on 5 runs of 30 s that training never saw:
+  - against the rule's decision, the mean absolute difference is 0.034 for the prey's turn, 0.011
+    for the wolves' turn and under 0.001 for each throttle;
+  - wolves driven by the networks catch as many prey as wolves driven by the rule: within 1%,
+    which is inside the spread between runs.
+- **The weak spot is turning away from a wall:** 0.105 for prey and 0.070 for wolves, on about 5%
+  of decisions.
+- **They are valid for one definition and one set of settings:** the demo's defaults (speeds 3.2
+  and 4.2, `thinkEvery` 3, flocking and fleeing on). The names are checked on load; the settings
+  are in the file's `trainedOn`, and nothing checks them. Behaviour at other speeds is not
+  measured.
+- **Game rules stay in the app.** A resting wolf is frozen by the demo's app stage, and a frozen
+  agent's action is not applied, so the network was never trained to rest.
+- **To train your own:** `npm run agents:record`, `agents:train` and `agents:evaluate`, described
+  in [`tools/agents/README.md`](../../tools/agents/README.md). They run under Node, and training
+  the two networks takes about an hour of CPU.
+
 ## Instances, highlights, labels and picking
 
 Set up visibility geometry and species meshes first. Select GPU-owned rows using
@@ -419,11 +480,18 @@ and on an NVIDIA GPU, and in Chrome. A4's networks, from one affine layer to the
 shape, agree with `mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found
 3.8e-7 on an NVIDIA GPU.
 
-`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's three TypeScript
+`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's four TypeScript
 examples:
 - each one type-checks and bundles, and its generated think WGSL parses;
 - the network example's numbers match its comment;
-- the per-species example runs on a stand-in engine that checks its passes and compiles.
+- the per-species example runs on a stand-in engine that checks its passes and compiles;
+- the trained-network example loads the two committed files on a stand-in engine, and refuses a
+  file with other names.
+
+The `agent-tools` GPU suite covers the training tools and the committed networks: the label pass
+(A25), repeatable recordings (A24), the networks as `MlpBrain`s against `mlpForward` (A26), and
+their error and catches in the running simulation (A8). It passes 15/15 checks with zero WebGPU
+errors on the same three host and GPU pairs.
 
 Integrated-demo CPU frame work averaged 0.57 ms at 4,096 agents and 0.60 ms at 16,384 agents on
 an AMD GCN-5/Chrome host: means of the host's roughly 250 ms reporting windows, not GPU time or a

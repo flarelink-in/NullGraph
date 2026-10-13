@@ -4,6 +4,8 @@
 //
 // A new GPU harness is one line here plus its folder: test/<name>-gpu/{run.js,index.html}, with
 // run.js publishing its summary on `key` through test/gpu/harness-env.mjs.
+// `timeout` (seconds) is for a suite that outlasts the browser runner's default of 120 s; an explicit
+// --timeout still wins.
 
 export const SUITES = [
     { name: 'shadows', file: 'test/shadows-gpu/run.js', key: '__SHADOW_RESULTS__' },
@@ -15,7 +17,8 @@ export const SUITES = [
     { name: 'text', file: 'test/text-gpu/run.js', key: '__TEXT_RESULTS__' },
     { name: 'probes', file: 'test/probes-gpu/run.js', key: '__PROBE_RESULTS__' },
     { name: 'agents', file: 'test/agents-gpu/run.js', key: '__AGENTS_RESULTS__' },
-    { name: 'agent-tools', file: 'test/agent-tools-gpu/run.js', key: '__AGENT_TOOLS_RESULTS__' },
+    // A8 runs ten 30-second episodes: about a minute under Node, and two in Chrome.
+    { name: 'agent-tools', file: 'test/agent-tools-gpu/run.js', key: '__AGENT_TOOLS_RESULTS__', timeout: 360 },
 ];
 
 /**

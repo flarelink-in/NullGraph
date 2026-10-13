@@ -19,13 +19,14 @@
 // actions lie in [-1, 1].
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { assertDistCurrent, options, root } from './cli.mjs';
 
 const { option, whole, positive } = options(process.argv.slice(2), 'train');
 assertDistCurrent();
 const { readDataset, trainingSet } = await import('./dataset.mjs');
 const { TRAIN_DEFAULTS, meanAbsoluteError, quantile, trainNetwork } = await import('./mlp-train.mjs');
+const { modelText } = await import('./model.mjs');
 
 const data = option('data', join(root, 'tools/agents/out/herd-wolves'));
 const out = option('out', `${data}-students`);
@@ -43,10 +44,8 @@ const names = option('species', Object.keys(dataset.species).join(',')).split(',
 const reasonName = code => header.reasons?.[code] ?? `reason ${code}`;
 const byAction = values => Object.fromEntries(actNames.map((name, j) => [name, values[j]]));
 const fixed = values => values.map(v => v.toFixed(4)).join(' / ');
-
-/** f32 weights as JSON numbers that read back to the same f32: 9 significant digits, and no −0. */
-const nine = value => (value === 0 ? 0 : Number(value.toPrecision(9)));
-const words = network => network.flatMap(l => [...new Uint32Array(l.weights.buffer), ...new Uint32Array(l.biases.buffer)]);
+/** Paths in a report are relative to the repository, so a report does not name the machine it was made on. */
+const local = path => relative(root, path).replaceAll('\\', '/');
 
 mkdirSync(out, { recursive: true });
 console.log(`Training on ${data} (${header.episodes.length} episodes; held out: ${header.episodes.filter(e => e.heldOut).map(e => e.seed).join(', ')}).`);
@@ -63,35 +62,33 @@ for (const name of names) {
         }
     } });
     const seconds = (performance.now() - started) / 1000;
+    // JSON has no -0: store +0, before anything is measured, so what is measured is what is written.
     for (const layer of run.network) for (const array of [layer.weights, layer.biases]) array.forEach((v, k) => { if (v === 0) array[k] = 0; });
     const best = meanAbsoluteError(run.network, set.heldOut, set.reason, { keep: true }), last = meanAbsoluteError(run.last, set.heldOut);
     const trained = meanAbsoluteError(run.network, set.train);
     const median = best.errors.map(e => quantile(e, 0.5)), p90 = best.errors.map(e => quantile(e, 0.9));
 
-    const file = {
-        format: 'null-graph/mlp', version: 1, species: name, obsNames, actNames,
-        layers: run.network.map(l => ({ input: l.input, output: l.output, activation: l.activation,
-            weights: Array.from(l.weights, nine), biases: Array.from(l.biases, nine) })),
+    // modelText refuses a network that would not read back bit for bit.
+    const text = modelText({
+        species: name, obsNames, actNames, network: run.network,
         trainedOn: { dataset: datasetHash, teacher: header.scenario.wgsl?.label ?? null, settings: header.scenario.settings,
             seed: settings.seed, rounds: 1 },
         // Nothing that varies from run to run (such as the time taken): the same dataset and seed write the same bytes.
         training: { ...settings, hidden, bestPass: run.best + 1, rows: set.train.rows.length },
         measured: { heldOutMae: byAction(best.mae), rows: best.rows },
-    };
-    const text = JSON.stringify(file, null, 1) + '\n', path = join(out, `${name}.mlp.json`);
-    const back = JSON.parse(text).layers.map(l => ({ ...l, weights: Float32Array.from(l.weights), biases: Float32Array.from(l.biases) }));
-    if (words(back).some((w, k) => w !== words(run.network)[k])) throw new Error(`train: ${path} does not read back bit for bit.`);
+    });
+    const path = join(out, `${name}.mlp.json`);
     writeFileSync(path, text);
 
     // One report per species, so species trained in separate runs into one folder keep both.
     writeFileSync(join(out, `${name}.report.json`), JSON.stringify({
-        species: name, dataset: datasetHash, data, settings, shape: widths,
+        species: name, dataset: datasetHash, data: local(data), settings, shape: widths,
         rows: { train: set.train.rows.length, heldOut: set.heldOut.rows.length }, seconds, bestPass: run.best + 1,
         heldOutMae: byAction(best.mae), heldOutMedian: byAction(median), heldOutP90: byAction(p90),
         lastPassMae: byAction(last.mae), trainMae: byAction(trained.mae),
         byReason: Object.fromEntries(Object.entries(best.groups).map(([code, g]) => [reasonName(Number(code)), { rows: g.rows, mae: byAction(g.mae) }])),
         passes: run.history.map(e => ({ rate: e.rate, loss: e.loss, heldOut: byAction(e.heldOut) })),
-        file: { path, bytes: Buffer.byteLength(text), sha256: createHash('sha256').update(text).digest('hex') },
+        file: { path: local(path), bytes: Buffer.byteLength(text), sha256: createHash('sha256').update(text).digest('hex') },
     }, null, 1) + '\n');
     console.log(`   ${seconds.toFixed(1)} s; best pass ${run.best + 1} of ${settings.epochs}`);
     console.log(`   held-out error (${actNames.join(' / ')}): ${fixed(best.mae)}; last pass ${fixed(last.mae)}; on training rows ${fixed(trained.mae)}`);

@@ -8,10 +8,10 @@ import { join } from 'node:path';
 import * as A from '../dist/agents.js';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 import { DRIVER, LABEL, LABEL_DRIVING, TAG, HERD_DEFAULTS, herdDefinition, herdRule, herdWolves } from '../tools/agents/scenario/herd-wolves.mjs';
-import { ROW, ROW_WORDS, Rows, flagsReason, keepRow, readDataset, rowFlags, rowFloats, splitRows, trainingSet, writeDataset } from '../tools/agents/dataset.mjs';
+import { ROW, ROW_WORDS, Rows, flagsReason, hashText, keepRow, readDataset, rowFlags, rowFloats, splitRows, trainingSet, writeDataset } from '../tools/agents/dataset.mjs';
 import { isFresh, recordEpisodes } from '../tools/agents/recorder.mjs';
 import { RUNS, addDecision, addTally, describeCatches, describeTally, evaluateRun, newTally } from '../tools/agents/evaluator.mjs';
-import { networkFromModel } from '../tools/agents/model.mjs';
+import { modelText, networkFromModel } from '../tools/agents/model.mjs';
 import { flatParams, initNetwork, lossAndGradient, meanAbsoluteError, quantile, trainNetwork } from '../tools/agents/mlp-train.mjs';
 
 const words = values => new Uint32Array(new Float32Array(values).buffer);
@@ -360,4 +360,57 @@ test('U26 (the reader): a network file\'s layers come back as f32, and names tha
         /actNames\[1\] is "speed"; the definition has "throttle"\./);
     assert.throws(() => networkFromModel({ ...model, version: 2 }, definition, 'prey.mlp.json'),
         /model: prey\.mlp\.json is "null-graph\/mlp" version 2; this reader takes "null-graph\/mlp" version 1\./);
+});
+
+test('U26 (the writer): a network written and read back is bit-identical, and the same input gives the same bytes', () => {
+    const definition = herdDefinition();
+    // Awkward f32 values: a denormal, the largest and the smallest normal, and neighbours one bit apart.
+    const next = value => new Float32Array(Uint32Array.of(new Uint32Array(Float32Array.of(value).buffer)[0] + 1).buffer)[0];
+    const awkward = [1e-45, 3.4028234663852886e38, 1.1754943508222875e-38, 0.1, next(0.1), -1 / 3, 0];
+    const weights = Float32Array.from({ length: 48 }, (_, k) => (k < awkward.length ? awkward[k] : A.rand01(k, 0, 5) * 2 - 1));
+    const network = [{ input: 24, output: 2, activation: 'tanh', weights, biases: Float32Array.of(0.125, -0.7) }];
+    const input = { species: 'prey', obsNames: [...definition.obsNames], actNames: [...definition.actNames], network,
+        trainedOn: { seed: 1 }, measured: { rows: 3 } };
+    const text = modelText(input), model = JSON.parse(text);
+    assert.deepEqual(Object.keys(model), ['format', 'version', 'species', 'obsNames', 'actNames', 'layers', 'trainedOn', 'measured']);
+    assert.equal(text, modelText(input));
+    assert.ok(text.endsWith('}\n'));
+    const back = networkFromModel(model, definition, 'prey.mlp.json');
+    const bits = array => [...new Uint32Array(array.buffer, array.byteOffset, array.length)];
+    assert.deepEqual(bits(back[0].weights), bits(weights));
+    assert.deepEqual(bits(back[0].biases), bits(network[0].biases));
+    assert.equal(bits(weights)[4], bits(weights)[3] + 1);      // the two neighbours stayed apart
+
+    // JSON cannot hold these, so they are refused rather than changed in silence.
+    for (const value of [-0, NaN, Infinity]) {
+        const broken = [{ ...network[0], weights: Float32Array.from(weights, (w, k) => (k === 9 ? value : w)) }];
+        assert.throws(() => modelText({ ...input, network: broken }), /model: the network for "prey" does not read back bit for bit/);
+    }
+});
+
+test('U26 (the committed files): the Herd & Wolves networks fit the scenario and were trained on its label', async () => {
+    const definition = herdDefinition(), teacher = await hashText(herdWolves.texts().label);
+    for (const species of ['prey', 'wolf']) {
+        const path = new URL(`../tools/agents/models/herd-wolves/${species}.mlp.json`, import.meta.url);
+        const text = readFileSync(path, 'utf8'), model = JSON.parse(text);
+        assert.equal(model.species, species);
+        const network = networkFromModel(model, definition, `${species}.mlp.json`);
+        assert.deepEqual(network.map(l => [l.input, l.output, l.activation]),
+            [[24, 64, 'tanh'], [64, 64, 'tanh'], [64, 64, 'tanh'], [64, 2, 'tanh']]);
+        const { format, version, layers, ...rest } = model;
+        assert.equal(modelText({ ...rest, network }), text, `${species}.mlp.json is what the writer writes`);
+        // The file names the rule it copies. If this fails, the scenario's label changed: train again.
+        assert.equal(model.trainedOn.teacher, teacher, `${species}.mlp.json was trained on another label text`);
+        assert.deepEqual(model.trainedOn.settings, herdWolves.settings());
+        // The report beside it is this file's: a changed weight no longer matches its hash.
+        const report = JSON.parse(readFileSync(new URL(`../tools/agents/models/herd-wolves/${species}.report.json`, import.meta.url), 'utf8'));
+        assert.equal(report.file.sha256, await hashText(text), `${species}.report.json is not ${species}.mlp.json's report`);
+        assert.equal(report.dataset, model.trainedOn.dataset);
+        assert.deepEqual(report.heldOutMae, model.measured.heldOutMae);
+        for (const action of definition.actNames) {
+            assert.ok(model.measured.heldOutMae[action] <= 0.05, `${species} ${action}: held-out error ${model.measured.heldOutMae[action]}`);
+        }
+        const action = A.mlpForward(network, new Float32Array(definition.obsDim));
+        assert.ok(action.every(v => Math.abs(v) <= 1));
+    }
 });

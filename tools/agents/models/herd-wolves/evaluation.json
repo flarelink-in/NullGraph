@@ -1,0 +1,2743 @@
+{
+ "scenario": "herd-wolves",
+ "seeds": [
+  21,
+  22,
+  23,
+  24,
+  25
+ ],
+ "steps": 1800,
+ "stride": 6,
+ "students": {
+  "prey": {
+   "path": "tools/agents/models/herd-wolves/prey.mlp.json",
+   "sha256": "ddb0fb0b913ff59551274da802ebd9f245dd95ec11b7a774dd6f89bed23c2d19",
+   "trainedOn": {
+    "dataset": "ed81213dda987f10b7e7bcf97af3491b43c86c56526baa6f2363619cb6f9da85",
+    "teacher": "9518de56ce30d9acd34b02f8e9d241ab42564d86088f35a73643c9d881e3a3a3",
+    "settings": {
+     "restSeconds": 5,
+     "flocking": true,
+     "fleeing": true,
+     "wolfShare": 0.0625
+    },
+    "seed": 1,
+    "rounds": 1
+   },
+   "heldOutMae": {
+    "turn": 0.03329983473333681,
+    "throttle": 0.00022199715706850695
+   }
+  },
+  "wolf": {
+   "path": "tools/agents/models/herd-wolves/wolf.mlp.json",
+   "sha256": "67c087b4d59ff12f48949d2a8dd3f559d6f62a891ef2c1dcd0f12c496a3e7f3c",
+   "trainedOn": {
+    "dataset": "ed81213dda987f10b7e7bcf97af3491b43c86c56526baa6f2363619cb6f9da85",
+    "teacher": "9518de56ce30d9acd34b02f8e9d241ab42564d86088f35a73643c9d881e3a3a3",
+    "settings": {
+     "restSeconds": 5,
+     "flocking": true,
+     "fleeing": true,
+     "wolfShare": 0.0625
+    },
+    "seed": 1,
+    "rounds": 1
+   },
+   "heldOutMae": {
+    "turn": 0.010825968381597585,
+    "throttle": 0.00021737008943900326
+   }
+  }
+ },
+ "runs": {
+  "T": {
+   "drivers": {
+    "prey": "teacher",
+    "wolf": "teacher"
+   },
+   "episodes": [
+    {
+     "seed": 21,
+     "steps": 1800,
+     "catches": 1013,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.0834411156827845,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 106,
+         "mae": {
+          "turn": 0.12173077573709823,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 481907,
+         "mae": {
+          "turn": 0.12112887065383646,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 611394,
+         "mae": {
+          "turn": 0.05872707765305254,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 58593,
+         "mae": {
+          "turn": 0.03128408204991805,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.658222277375365,
+        "nearest prey": 0.7777985556097947,
+        "no prey in sight": 0.0006918402777777778
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46957,
+       "mae": {
+        "turn": 0.008458221225010693,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 655,
+         "mae": {
+          "turn": 0.2768018065444336,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27658,
+         "mae": {
+          "turn": 0.001200648517757603,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1530,
+         "mae": {
+          "turn": 0.024775147730228948,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.528404606890082,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 22,
+     "steps": 1800,
+     "catches": 1013,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08427532614021865,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 127,
+         "mae": {
+          "turn": 0.1428161411377506,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 496951,
+         "mae": {
+          "turn": 0.12089857177694437,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 595728,
+         "mae": {
+          "turn": 0.058964808391398595,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 59194,
+         "mae": {
+          "turn": 0.03141170637382202,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.640652521728387,
+        "nearest prey": 0.7780059760216136,
+        "no prey in sight": 0.0007517361111111111
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46101,
+       "mae": {
+        "turn": 0.007501597267534091,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 565,
+         "mae": {
+          "turn": 0.27333520993639804,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 28586,
+         "mae": {
+          "turn": 0.0013107636051004489,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1548,
+         "mae": {
+          "turn": 0.024798225120518557,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5614474548922055,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 23,
+     "steps": 1800,
+     "catches": 998,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08386775059247621,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 90,
+         "mae": {
+          "turn": 0.1212170026032254,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 489642,
+         "mae": {
+          "turn": 0.12043498871615704,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 609942,
+         "mae": {
+          "turn": 0.058380008096114835,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 52326,
+         "mae": {
+          "turn": 0.03872437238048505,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6466160271673353,
+        "nearest prey": 0.7712771869890276,
+        "no prey in sight": 0.0004930555555555556
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46776,
+       "mae": {
+        "turn": 0.009942022026516187,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 863,
+         "mae": {
+          "turn": 0.27546718415614274,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27725,
+         "mae": {
+          "turn": 0.0011514722072830923,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1436,
+         "mae": {
+          "turn": 0.020088107556021646,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5251057688687606,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 24,
+     "steps": 1800,
+     "catches": 1040,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08524387677964046,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 71,
+         "mae": {
+          "turn": 0.17716556959326418,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 508835,
+         "mae": {
+          "turn": 0.12123037211409407,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 583929,
+         "mae": {
+          "turn": 0.05948496820243171,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 59165,
+         "mae": {
+          "turn": 0.029867538283645557,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6300844829326766,
+        "nearest prey": 0.7846683030001487,
+        "no prey in sight": 0.0004600694444444444
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47949,
+       "mae": {
+        "turn": 0.007952870061110846,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 549,
+         "mae": {
+          "turn": 0.30424462559163057,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 26355,
+         "mae": {
+          "turn": 0.0009186338137865654,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1947,
+         "mae": {
+          "turn": 0.019623708536702054,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.4966521860761404,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 25,
+     "steps": 1800,
+     "catches": 1015,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08221949332533897,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 40,
+         "mae": {
+          "turn": 0.14149033853318543,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 467862,
+         "mae": {
+          "turn": 0.12194223267947886,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 615670,
+         "mae": {
+          "turn": 0.057826155944856135,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 68428,
+         "mae": {
+          "turn": 0.03006416088141191,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.668262851213511,
+        "nearest prey": 0.7688370737851888,
+        "no prey in sight": 0.0005737847222222223
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47087,
+       "mae": {
+        "turn": 0.009981974725727889,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 804,
+         "mae": {
+          "turn": 0.27921597884049343,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27326,
+         "mae": {
+          "turn": 0.0012999653128040994,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1583,
+         "mae": {
+          "turn": 0.023109233038604675,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.521008052941638,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    }
+   ],
+   "catches": {
+    "values": [
+     1013,
+     1013,
+     998,
+     1040,
+     1015
+    ],
+    "mean": 1015.8,
+    "low": -0.017523134475290414,
+    "high": 0.023823587320338735
+   },
+   "species": {
+    "prey": {
+     "decisions": 5760000,
+     "frozen": 0,
+     "mae": {
+      "turn": 0.08380951250409176,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 434,
+       "mae": {
+        "turn": 0.13868435799393133,
+        "throttle": 0
+       }
+      },
+      "flock": {
+       "rows": 2445197,
+       "mae": {
+        "turn": 0.12111986838640021,
+        "throttle": 0
+       }
+      },
+      "flee": {
+       "rows": 3016663,
+       "mae": {
+        "turn": 0.0586666845498517,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 297706,
+       "mae": {
+        "turn": 0.03205527459698251,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 2.6487676320834552,
+      "nearest prey": 0.776117428502632,
+      "no prey in sight": 0.0005940972222222222
+     }
+    },
+    "wolf": {
+     "decisions": 384000,
+     "frozen": 234870,
+     "mae": {
+      "turn": 0.008765856427390913,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 3436,
+       "mae": {
+        "turn": 0.28084624658468627,
+        "throttle": 0
+       }
+      },
+      "chase": {
+       "rows": 137650,
+       "mae": {
+        "turn": 0.0011793319169378475,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 8044,
+       "mae": {
+        "turn": 0.02236815357848461,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 3.526925864703345,
+      "nearest prey": null,
+      "no prey in sight": null
+     }
+    }
+   }
+  },
+  "C": {
+   "drivers": {
+    "prey": "label",
+    "wolf": "label"
+   },
+   "episodes": [
+    {
+     "seed": 21,
+     "steps": 1800,
+     "catches": 1022,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 87,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 471518,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 614604,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 65791,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6671862197207017,
+        "nearest prey": 0.76979409678423,
+        "no prey in sight": 0.00048177083333333335
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46887,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 880,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27243,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1790,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.522349780189255,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 22,
+     "steps": 1800,
+     "catches": 1019,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 69,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 470181,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 628566,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 53184,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.671472662327159,
+        "nearest prey": 0.7537368159853978,
+        "no prey in sight": 0.0005564236111111112
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47195,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 912,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27209,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1484,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5039697925950373,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 23,
+     "steps": 1800,
+     "catches": 1024,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 6,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 471274,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 614129,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 66591,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6646600407597587,
+        "nearest prey": 0.7753500538167091,
+        "no prey in sight": 0.0004409722222222222
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47354,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 713,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27135,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1598,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.518577245694969,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 24,
+     "steps": 1800,
+     "catches": 1012,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 37,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 482869,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 616569,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 52525,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.659906619995384,
+        "nearest prey": 0.7754741724773224,
+        "no prey in sight": 0.00046614583333333333
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47007,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 886,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27086,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1821,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.508703138850444,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 25,
+     "steps": 1800,
+     "catches": 1031,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 47,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 437338,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 653943,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 60672,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.7050272993955167,
+        "nearest prey": 0.7660419100249038,
+        "no prey in sight": 0.0005503472222222223
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47294,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 591,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27146,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1769,
+         "mae": {
+          "turn": 0,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.523903572629815,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    }
+   ],
+   "catches": {
+    "values": [
+     1022,
+     1019,
+     1024,
+     1012,
+     1031
+    ],
+    "mean": 1021.6,
+    "low": -0.009397024275646038,
+    "high": 0.009201252936570148
+   },
+   "species": {
+    "prey": {
+     "decisions": 5760000,
+     "frozen": 0,
+     "mae": {
+      "turn": 0,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 246,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      },
+      "flock": {
+       "rows": 2333180,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      },
+      "flee": {
+       "rows": 3127811,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 298763,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 2.673650568439704,
+      "nearest prey": 0.7680797345026117,
+      "no prey in sight": 0.0004991319444444444
+     }
+    },
+    "wolf": {
+     "decisions": 384000,
+     "frozen": 235737,
+     "mae": {
+      "turn": 0,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 3982,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      },
+      "chase": {
+       "rows": 135819,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 8462,
+       "mae": {
+        "turn": 0,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 3.515497404552032,
+      "nearest prey": null,
+      "no prey in sight": null
+     }
+    }
+   }
+  },
+  "S": {
+   "drivers": {
+    "prey": "student",
+    "wolf": "student"
+   },
+   "episodes": [
+    {
+     "seed": 21,
+     "steps": 1800,
+     "catches": 1061,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03418892262797726,
+        "throttle": 0.00025121920362451217
+       },
+       "byReason": {
+        "wander": {
+         "rows": 30,
+         "mae": {
+          "turn": 0.020412204197297494,
+          "throttle": 0.14390108386675518
+         }
+        },
+        "flock": {
+         "rows": 463917,
+         "mae": {
+          "turn": 0.029576383829012676,
+          "throttle": 0.0002635875524786187
+         }
+        },
+        "flee": {
+         "rows": 623708,
+         "mae": {
+          "turn": 0.030401524177266243,
+          "throttle": 0.00015555611005863926
+         }
+        },
+        "wall": {
+         "rows": 64345,
+         "mae": {
+          "turn": 0.10416295598640816,
+          "throttle": 0.0010223506594725037
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.677120985394927,
+        "nearest prey": 0.7698713960429098,
+        "no prey in sight": 0.0004201388888888889
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47500,
+       "mae": {
+        "turn": 0.01119138952986946,
+        "throttle": 0.0002118474348057252
+       },
+       "byReason": {
+        "wander": {
+         "rows": 639,
+         "mae": {
+          "turn": 0.022278370748799445,
+          "throttle": 0.0017188637982325189
+         }
+        },
+        "chase": {
+         "rows": 26895,
+         "mae": {
+          "turn": 0.007551046876116413,
+          "throttle": 0.00009736579730843584
+         }
+        },
+        "wall": {
+         "rows": 1766,
+         "mae": {
+          "turn": 0.06261972173473467,
+          "throttle": 0.0014100355346131298
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.543182681520268,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 22,
+     "steps": 1800,
+     "catches": 1015,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.0337448150902923,
+        "throttle": 0.0002613521415947212
+       },
+       "byReason": {
+        "wander": {
+         "rows": 89,
+         "mae": {
+          "turn": 0.039893415808845104,
+          "throttle": 0.14439731493089977
+         }
+        },
+        "flock": {
+         "rows": 474471,
+         "mae": {
+          "turn": 0.030268831096699075,
+          "throttle": 0.00027363717847822837
+         }
+        },
+        "flee": {
+         "rows": 619727,
+         "mae": {
+          "turn": 0.0298132175114217,
+          "throttle": 0.00016044997464839016
+         }
+        },
+        "wall": {
+         "rows": 57713,
+         "mae": {
+          "turn": 0.10452996832649486,
+          "throttle": 0.0010215760563409002
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6640916982042437,
+        "nearest prey": 0.7658500005462429,
+        "no prey in sight": 0.0006050347222222222
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46721,
+       "mae": {
+        "turn": 0.009857112116102136,
+        "throttle": 0.00013168864074771585
+       },
+       "byReason": {
+        "wander": {
+         "rows": 455,
+         "mae": {
+          "turn": 0.015365072422031476,
+          "throttle": 0.001335756791816963
+         }
+        },
+        "chase": {
+         "rows": 28236,
+         "mae": {
+          "turn": 0.007050946855421669,
+          "throttle": 0.000094443612420233
+         }
+        },
+        "wall": {
+         "rows": 1388,
+         "mae": {
+          "turn": 0.06513719883179077,
+          "throttle": 0.0004946566602853945
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5760964369466923,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 23,
+     "steps": 1800,
+     "catches": 1016,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03395302329402711,
+        "throttle": 0.00028646602251683364
+       },
+       "byReason": {
+        "wander": {
+         "rows": 150,
+         "mae": {
+          "turn": 0.03172616211619849,
+          "throttle": 0.14463492214679718
+         }
+        },
+        "flock": {
+         "rows": 524134,
+         "mae": {
+          "turn": 0.029823926946063055,
+          "throttle": 0.00026988095124307244
+         }
+        },
+        "flee": {
+         "rows": 566143,
+         "mae": {
+          "turn": 0.03001923463621351,
+          "throttle": 0.00015576229869946774
+         }
+        },
+        "wall": {
+         "rows": 61573,
+         "mae": {
+          "turn": 0.10527682961369687,
+          "throttle": 0.0012777695101087079
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6108468282021864,
+        "nearest prey": 0.7903999663133062,
+        "no prey in sight": 0.0007309027777777778
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46910,
+       "mae": {
+        "turn": 0.011702426759421809,
+        "throttle": 0.00020612628713584177
+       },
+       "byReason": {
+        "wander": {
+         "rows": 1128,
+         "mae": {
+          "turn": 0.02685262549607453,
+          "throttle": 0.0015521248445865955
+         }
+        },
+        "chase": {
+         "rows": 27272,
+         "mae": {
+          "turn": 0.007163282657460298,
+          "throttle": 0.00009706947295747569
+         }
+        },
+        "wall": {
+         "rows": 1490,
+         "mae": {
+          "turn": 0.08331458365455607,
+          "throttle": 0.0011832478062418484
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.522248037040031,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 24,
+     "steps": 1800,
+     "catches": 1016,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03371195604706959,
+        "throttle": 0.00027235255511590773
+       },
+       "byReason": {
+        "wander": {
+         "rows": 149,
+         "mae": {
+          "turn": 0.02302632665952305,
+          "throttle": 0.14403972324708963
+         }
+        },
+        "flock": {
+         "rows": 498553,
+         "mae": {
+          "turn": 0.029521107374527393,
+          "throttle": 0.00026429216017062
+         }
+        },
+        "flee": {
+         "rows": 594590,
+         "mae": {
+          "turn": 0.030052212264518544,
+          "throttle": 0.00015158546257817794
+         }
+        },
+        "wall": {
+         "rows": 58708,
+         "mae": {
+          "turn": 0.10639369265345544,
+          "throttle": 0.0011990422975711554
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6415821228207936,
+        "nearest prey": 0.7829489251134386,
+        "no prey in sight": 0.0007829861111111111
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47295,
+       "mae": {
+        "turn": 0.011239630764741911,
+        "throttle": 0.00022844957309927987
+       },
+       "byReason": {
+        "wander": {
+         "rows": 911,
+         "mae": {
+          "turn": 0.016689093438884178,
+          "throttle": 0.0013622769638159927
+         }
+        },
+        "chase": {
+         "rows": 26914,
+         "mae": {
+          "turn": 0.007586854045602485,
+          "throttle": 0.00009865728292403555
+         }
+        },
+        "wall": {
+         "rows": 1680,
+         "mae": {
+          "turn": 0.06680294750448887,
+          "throttle": 0.001692921564071661
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5231304252412956,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 25,
+     "steps": 1800,
+     "catches": 1010,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03373077801680027,
+        "throttle": 0.00026485911556907617
+       },
+       "byReason": {
+        "wander": {
+         "rows": 146,
+         "mae": {
+          "turn": 0.024755269541781498,
+          "throttle": 0.14410096213017423
+         }
+        },
+        "flock": {
+         "rows": 476949,
+         "mae": {
+          "turn": 0.029590110672634073,
+          "throttle": 0.0002707397318869822
+         }
+        },
+        "flee": {
+         "rows": 615050,
+         "mae": {
+          "turn": 0.030056058564304527,
+          "throttle": 0.00015539128279726675
+         }
+        },
+        "wall": {
+         "rows": 59855,
+         "mae": {
+          "turn": 0.10450738435925434,
+          "throttle": 0.0009920058106481855
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.662217049142069,
+        "nearest prey": 0.759236071042404,
+        "no prey in sight": 0.0004956597222222222
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47176,
+       "mae": {
+        "turn": 0.010879152958574044,
+        "throttle": 0.00018909814446367769
+       },
+       "byReason": {
+        "wander": {
+         "rows": 891,
+         "mae": {
+          "turn": 0.019157733762279826,
+          "throttle": 0.0014290821672690035
+         }
+        },
+        "chase": {
+         "rows": 27319,
+         "mae": {
+          "turn": 0.00740260421212645,
+          "throttle": 0.00009585754069948952
+         }
+        },
+        "wall": {
+         "rows": 1414,
+         "mae": {
+          "turn": 0.07283079348764049,
+          "throttle": 0.0012091931161145341
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.524684729265428,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    }
+   ],
+   "catches": {
+    "values": [
+     1061,
+     1015,
+     1016,
+     1016,
+     1010
+    ],
+    "mean": 1023.6,
+    "low": -0.013286440015631173,
+    "high": 0.03653771004298556
+   },
+   "species": {
+    "prey": {
+     "decisions": 5760000,
+     "frozen": 0,
+     "mae": {
+      "turn": 0.03386589901523331,
+      "throttle": 0.0002672498076842102
+     },
+     "byReason": {
+      "wander": {
+       "rows": 564,
+       "mae": {
+        "turn": 0.028310277439193166,
+        "throttle": 0.14426292748527325
+       }
+      },
+      "flock": {
+       "rows": 2438024,
+       "mae": {
+        "turn": 0.029755742471004674,
+        "throttle": 0.0002684395758635316
+       }
+      },
+      "flee": {
+       "rows": 3019218,
+       "mae": {
+        "turn": 0.030069916433739005,
+        "throttle": 0.00015578375443005678
+       }
+      },
+      "wall": {
+       "rows": 302194,
+       "mae": {
+        "turn": 0.10496159451841804,
+        "throttle": 0.0011025611268636658
+       }
+      }
+     },
+     "measures": {
+      "speed": 2.651171736752844,
+      "nearest prey": 0.7736600634569948,
+      "no prey in sight": 0.0006069444444444445
+     }
+    },
+    "wolf": {
+     "decisions": 384000,
+     "frozen": 235602,
+     "mae": {
+      "turn": 0.010971136116140626,
+      "throttle": 0.00019320715422872846
+     },
+     "byReason": {
+      "wander": {
+       "rows": 4024,
+       "mae": {
+        "turn": 0.02082257786408898,
+        "throttle": 0.0014839131851675023
+       }
+      },
+      "chase": {
+       "rows": 136636,
+       "mae": {
+        "turn": 0.0073476779182025396,
+        "throttle": 0.00009665560973968211
+       }
+      },
+      "wall": {
+       "rows": 7738,
+       "mae": {
+        "turn": 0.06983035461442498,
+        "throttle": 0.0012268871444468352
+       }
+      }
+     },
+     "measures": {
+      "speed": 3.5379578885099088,
+      "nearest prey": null,
+      "no prey in sight": null
+     }
+    }
+   }
+  },
+  "Sp": {
+   "drivers": {
+    "prey": "student",
+    "wolf": "teacher"
+   },
+   "episodes": [
+    {
+     "seed": 21,
+     "steps": 1800,
+     "catches": 1043,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03433163778390637,
+        "throttle": 0.0002576240717058277
+       },
+       "byReason": {
+        "wander": {
+         "rows": 96,
+         "mae": {
+          "turn": 0.028357520230808102,
+          "throttle": 0.14407258558397493
+         }
+        },
+        "flock": {
+         "rows": 447941,
+         "mae": {
+          "turn": 0.029953884312846547,
+          "throttle": 0.0002694840978541249
+         }
+        },
+        "flee": {
+         "rows": 639064,
+         "mae": {
+          "turn": 0.030383102649525554,
+          "throttle": 0.0001581526280110551
+         }
+        },
+        "wall": {
+         "rows": 64899,
+         "mae": {
+          "turn": 0.1034377170760842,
+          "throttle": 0.000942531241543328
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6898232348976987,
+        "nearest prey": 0.7625736555991044,
+        "no prey in sight": 0.0005277777777777777
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47197,
+       "mae": {
+        "turn": 0.007843130122667854,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 554,
+         "mae": {
+          "turn": 0.26070760987322467,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27447,
+         "mae": {
+          "turn": 0.0013223354161160552,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1602,
+         "mae": {
+          "turn": 0.032118617344215124,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.54477719619235,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 22,
+     "steps": 1800,
+     "catches": 1017,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03347236186931981,
+        "throttle": 0.0002602156482041917
+       },
+       "byReason": {
+        "wander": {
+         "rows": 113,
+         "mae": {
+          "turn": 0.028205929822659334,
+          "throttle": 0.14407839322775867
+         }
+        },
+        "flock": {
+         "rows": 475130,
+         "mae": {
+          "turn": 0.03005471763372247,
+          "throttle": 0.00027035132178785954
+         }
+        },
+        "flee": {
+         "rows": 620724,
+         "mae": {
+          "turn": 0.029604550321512588,
+          "throttle": 0.00015834923517808408
+         }
+        },
+        "wall": {
+         "rows": 56033,
+         "mae": {
+          "turn": 0.10530974105090424,
+          "throttle": 0.0010126956279111474
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6637836591641317,
+        "nearest prey": 0.7717224323728996,
+        "no prey in sight": 0.0005807291666666667
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46784,
+       "mae": {
+        "turn": 0.01202334142114595,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 918,
+         "mae": {
+          "turn": 0.3040284197168802,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27552,
+         "mae": {
+          "turn": 0.001619250160860264,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1546,
+         "mae": {
+          "turn": 0.024049771258084617,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5171529243035264,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 23,
+     "steps": 1800,
+     "catches": 1009,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.033972727694818135,
+        "throttle": 0.00028519192778427775
+       },
+       "byReason": {
+        "wander": {
+         "rows": 186,
+         "mae": {
+          "turn": 0.02447087885824443,
+          "throttle": 0.14416248094971462
+         }
+        },
+        "flock": {
+         "rows": 506467,
+         "mae": {
+          "turn": 0.02957659017397169,
+          "throttle": 0.0002681650465622146
+         }
+        },
+        "flee": {
+         "rows": 579992,
+         "mae": {
+          "turn": 0.030155153423459372,
+          "throttle": 0.0001575386221014149
+         }
+        },
+        "wall": {
+         "rows": 65355,
+         "mae": {
+          "turn": 0.10194653937637349,
+          "throttle": 0.0011405247066601188
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6324264584907366,
+        "nearest prey": 0.7813195003456397,
+        "no prey in sight": 0.0008385416666666667
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 45918,
+       "mae": {
+        "turn": 0.01667317802247634,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 1505,
+         "mae": {
+          "turn": 0.2954903730466665,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27798,
+         "mae": {
+          "turn": 0.0011087576564205997,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1579,
+         "mae": {
+          "turn": 0.024931492667321996,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5024562953593077,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 24,
+     "steps": 1800,
+     "catches": 982,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03281941775479636,
+        "throttle": 0.000257937387237487
+       },
+       "byReason": {
+        "wander": {
+         "rows": 50,
+         "mae": {
+          "turn": 0.030078828057739884,
+          "throttle": 0.1452793511748314
+         }
+        },
+        "flock": {
+         "rows": 507463,
+         "mae": {
+          "turn": 0.029207211367907347,
+          "throttle": 0.0002640426905397522
+         }
+        },
+        "flee": {
+         "rows": 591343,
+         "mae": {
+          "turn": 0.029497807432697067,
+          "throttle": 0.00015375071989905004
+         }
+        },
+        "wall": {
+         "rows": 53144,
+         "mae": {
+          "turn": 0.10427450453591706,
+          "throttle": 0.0012225010295086036
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6301054396253836,
+        "nearest prey": 0.7865412377112656,
+        "no prey in sight": 0.0005850694444444445
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46569,
+       "mae": {
+        "turn": 0.010050963317198576,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 768,
+         "mae": {
+          "turn": 0.27289412394990603,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 27809,
+         "mae": {
+          "turn": 0.0013421651684272222,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1654,
+         "mae": {
+          "turn": 0.034427880096680595,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.525148864524873,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 25,
+     "steps": 1800,
+     "catches": 1023,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.03391572823786377,
+        "throttle": 0.00024537450278229597
+       },
+       "byReason": {
+        "wander": {
+         "rows": 66,
+         "mae": {
+          "turn": 0.025497174869418483,
+          "throttle": 0.14432352352322955
+         }
+        },
+        "flock": {
+         "rows": 430135,
+         "mae": {
+          "turn": 0.029893519240731366,
+          "throttle": 0.00026795084180730695
+         }
+        },
+        "flee": {
+         "rows": 660513,
+         "mae": {
+          "turn": 0.029831717656256165,
+          "throttle": 0.00015409503736481145
+         }
+        },
+        "wall": {
+         "rows": 61286,
+         "mae": {
+          "turn": 0.1061702492180753,
+          "throttle": 0.0009155315063300287
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.711315099056771,
+        "nearest prey": 0.7542210794148277,
+        "no prey in sight": 0.0005972222222222222
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47768,
+       "mae": {
+        "turn": 0.007279056619194388,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 579,
+         "mae": {
+          "turn": 0.27232126707117843,
+          "throttle": 0
+         }
+        },
+        "chase": {
+         "rows": 26797,
+         "mae": {
+          "turn": 0.0008745075783673845,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 1656,
+         "mae": {
+          "turn": 0.018247209273386692,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.521876987647827,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    }
+   ],
+   "catches": {
+    "values": [
+     1043,
+     1017,
+     1009,
+     982,
+     1023
+    ],
+    "mean": 1014.8,
+    "low": -0.03232163973196689,
+    "high": 0.027788726842727707
+   },
+   "species": {
+    "prey": {
+     "decisions": 5760000,
+     "frozen": 0,
+     "mae": {
+      "turn": 0.03370237466814088,
+      "throttle": 0.000261268707542816
+     },
+     "byReason": {
+      "wander": {
+       "rows": 511,
+       "mae": {
+        "turn": 0.026708278716282112,
+        "throttle": 0.14425708066285706
+       }
+      },
+      "flock": {
+       "rows": 2367136,
+       "mae": {
+        "turn": 0.02972235890922052,
+        "throttle": 0.0002679308149786601
+       }
+      },
+      "flee": {
+       "rows": 3091636,
+       "mae": {
+        "turn": 0.029896892459114248,
+        "throttle": 0.00015636806842913895
+       }
+      },
+      "wall": {
+       "rows": 300717,
+       "mae": {
+        "turn": 0.10416722488055126,
+        "throttle": 0.001042610028620215
+       }
+      }
+     },
+     "measures": {
+      "speed": 2.6654907782469444,
+      "nearest prey": 0.7712750136929684,
+      "no prey in sight": 0.0006258680555555555
+     }
+    },
+    "wolf": {
+     "decisions": 384000,
+     "frozen": 234236,
+     "mae": {
+      "turn": 0.010838052700376922,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 4324,
+       "mae": {
+        "turn": 0.2857307625885374,
+        "throttle": 0
+       }
+      },
+      "chase": {
+       "rows": 137403,
+       "mae": {
+        "turn": 0.0012553395244473747,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 8037,
+       "mae": {
+        "turn": 0.02677154292755642,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 3.5221125561343585,
+      "nearest prey": null,
+      "no prey in sight": null
+     }
+    }
+   }
+  },
+  "Sw": {
+   "drivers": {
+    "prey": "teacher",
+    "wolf": "student"
+   },
+   "episodes": [
+    {
+     "seed": 21,
+     "steps": 1800,
+     "catches": 1035,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08267089479665699,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 93,
+         "mae": {
+          "turn": 0.13374805296721157,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 467373,
+         "mae": {
+          "turn": 0.12168305653321132,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 625885,
+         "mae": {
+          "turn": 0.058657764960489224,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 58649,
+         "mae": {
+          "turn": 0.02796367940511396,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6739200371960528,
+        "nearest prey": 0.7705765962305438,
+        "no prey in sight": 0.0005295138888888889
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46996,
+       "mae": {
+        "turn": 0.011374703420418826,
+        "throttle": 0.0001853620522239195
+       },
+       "byReason": {
+        "wander": {
+         "rows": 973,
+         "mae": {
+          "turn": 0.022497557692051716,
+          "throttle": 0.0012902136114861468
+         }
+        },
+        "chase": {
+         "rows": 27019,
+         "mae": {
+          "turn": 0.007281752836939532,
+          "throttle": 0.00009758633967927314
+         }
+        },
+        "wall": {
+         "rows": 1812,
+         "mae": {
+          "turn": 0.06643259227733286,
+          "throttle": 0.0009009202255581652
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.538136122133774,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 22,
+     "steps": 1800,
+     "catches": 1013,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08380117521296836,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 43,
+         "mae": {
+          "turn": 0.16415331443381864,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 481673,
+         "mae": {
+          "turn": 0.1207200977544335,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 615398,
+         "mae": {
+          "turn": 0.05924021358575113,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 54886,
+         "mae": {
+          "turn": 0.03512689295819652,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.656789586726076,
+        "nearest prey": 0.7813584880016436,
+        "no prey in sight": 0.0005208333333333333
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46782,
+       "mae": {
+        "turn": 0.01087706061676435,
+        "throttle": 0.0001466504147801109
+       },
+       "byReason": {
+        "wander": {
+         "rows": 550,
+         "mae": {
+          "turn": 0.02326839257634922,
+          "throttle": 0.0010244492509148338
+         }
+        },
+        "chase": {
+         "rows": 27810,
+         "mae": {
+          "turn": 0.0076227446157230835,
+          "throttle": 0.00009659588101183669
+         }
+        },
+        "wall": {
+         "rows": 1658,
+         "mae": {
+          "turn": 0.06135190706500678,
+          "throttle": 0.0006950383666628663
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5603476137108663,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 23,
+     "steps": 1800,
+     "catches": 1005,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08430106283532869,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 66,
+         "mae": {
+          "turn": 0.15403617634155758,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 498084,
+         "mae": {
+          "turn": 0.12125700032696864,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 596034,
+         "mae": {
+          "turn": 0.058185001131321905,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 57816,
+         "mae": {
+          "turn": 0.03508107242797777,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.638123841068185,
+        "nearest prey": 0.7812712017994091,
+        "no prey in sight": 0.0004765625
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46621,
+       "mae": {
+        "turn": 0.011918816496816973,
+        "throttle": 0.0003210497942470984
+       },
+       "byReason": {
+        "wander": {
+         "rows": 1026,
+         "mae": {
+          "turn": 0.020371022000504915,
+          "throttle": 0.0015804330014113563
+         }
+        },
+        "chase": {
+         "rows": 27551,
+         "mae": {
+          "turn": 0.007528561542074812,
+          "throttle": 0.00009732788381271581
+         }
+        },
+        "wall": {
+         "rows": 1602,
+         "mae": {
+          "turn": 0.08200867380725235,
+          "throttle": 0.003362020570668537
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.529034758466543,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 24,
+     "steps": 1800,
+     "catches": 1011,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.0858607813957476,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 66,
+         "mae": {
+          "turn": 0.12981682063334368,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 514439,
+         "mae": {
+          "turn": 0.12223280950894984,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 583070,
+         "mae": {
+          "turn": 0.05901561516436916,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 54425,
+         "mae": {
+          "turn": 0.029609430094185804,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.625902903546778,
+        "nearest prey": 0.7869771426222504,
+        "no prey in sight": 0.0006684027777777777
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 46654,
+       "mae": {
+        "turn": 0.01287624918153427,
+        "throttle": 0.00022508398134992686
+       },
+       "byReason": {
+        "wander": {
+         "rows": 950,
+         "mae": {
+          "turn": 0.018743928504347997,
+          "throttle": 0.0018024471951158423
+         }
+        },
+        "chase": {
+         "rows": 27226,
+         "mae": {
+          "turn": 0.008387463273858897,
+          "throttle": 0.00009969153122610132
+         }
+        },
+        "wall": {
+         "rows": 1970,
+         "mae": {
+          "turn": 0.07208304601691327,
+          "throttle": 0.0011973884453060967
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5369256692578546,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    },
+    {
+     "seed": 25,
+     "steps": 1800,
+     "catches": 1050,
+     "species": {
+      "prey": {
+       "decisions": 1152000,
+       "frozen": 0,
+       "mae": {
+        "turn": 0.08181022604041872,
+        "throttle": 0
+       },
+       "byReason": {
+        "wander": {
+         "rows": 85,
+         "mae": {
+          "turn": 0.1491220380700029,
+          "throttle": 0
+         }
+        },
+        "flock": {
+         "rows": 463461,
+         "mae": {
+          "turn": 0.12158663033554605,
+          "throttle": 0
+         }
+        },
+        "flee": {
+         "rows": 620863,
+         "mae": {
+          "turn": 0.05788551313470167,
+          "throttle": 0
+         }
+        },
+        "wall": {
+         "rows": 67591,
+         "mae": {
+          "turn": 0.028747472326694782,
+          "throttle": 0
+         }
+        }
+       },
+       "measures": {
+        "speed": 2.6768244499379144,
+        "nearest prey": 0.7677044630989605,
+        "no prey in sight": 0.0005859375
+       }
+      },
+      "wolf": {
+       "decisions": 76800,
+       "frozen": 47531,
+       "mae": {
+        "turn": 0.011989034533504332,
+        "throttle": 0.0002657099995713617
+       },
+       "byReason": {
+        "wander": {
+         "rows": 774,
+         "mae": {
+          "turn": 0.018058351127644978,
+          "throttle": 0.0014484451953754869
+         }
+        },
+        "chase": {
+         "rows": 26733,
+         "mae": {
+          "turn": 0.007512894233603029,
+          "throttle": 0.0000987322122762711
+         }
+        },
+        "wall": {
+         "rows": 1762,
+         "mae": {
+          "turn": 0.07723478231636281,
+          "throttle": 0.0022795466319250873
+         }
+        }
+       },
+       "measures": {
+        "speed": 3.5223139525863933,
+        "nearest prey": null,
+        "no prey in sight": null
+       }
+      }
+     }
+    }
+   ],
+   "catches": {
+    "values": [
+     1035,
+     1013,
+     1005,
+     1011,
+     1050
+    ],
+    "mean": 1022.8,
+    "low": -0.01740320688306607,
+    "high": 0.02659366445052802
+   },
+   "species": {
+    "prey": {
+     "decisions": 5760000,
+     "frozen": 0,
+     "mae": {
+      "turn": 0.08368882805622406,
+      "throttle": 0
+     },
+     "byReason": {
+      "wander": {
+       "rows": 353,
+       "mae": {
+        "turn": 0.14421199003653998,
+        "throttle": 0
+       }
+      },
+      "flock": {
+       "rows": 2425030,
+       "mae": {
+        "turn": 0.12150247384590822,
+        "throttle": 0
+       }
+      },
+      "flee": {
+       "rows": 3041250,
+       "mae": {
+        "turn": 0.05859392395300789,
+        "throttle": 0
+       }
+      },
+      "wall": {
+       "rows": 293367,
+       "mae": {
+        "turn": 0.03119242245630816,
+        "throttle": 0
+       }
+      }
+     },
+     "measures": {
+      "speed": 2.654312163695001,
+      "nearest prey": 0.7775774742896107,
+      "no prey in sight": 0.00055625
+     }
+    },
+    "wolf": {
+     "decisions": 384000,
+     "frozen": 234584,
+     "mae": {
+      "turn": 0.011807916749085138,
+      "throttle": 0.000228744526524357
+     },
+     "byReason": {
+      "wander": {
+       "rows": 4273,
+       "mae": {
+        "turn": 0.02044753193910701,
+        "throttle": 0.0014682355740715909
+       }
+      },
+      "chase": {
+       "rows": 136339,
+       "mae": {
+        "turn": 0.007667306371260047,
+        "throttle": 0.00009797715363616413
+       }
+      },
+      "wall": {
+       "rows": 8804,
+       "mae": {
+        "turn": 0.07173631322742811,
+        "throttle": 0.0016522278984046385
+       }
+      }
+     },
+     "measures": {
+      "speed": 3.5374165546655516,
+      "nearest prey": null,
+      "no prey in sight": null
+     }
+    }
+   }
+  }
+ },
+ "against": {
+  "T": {
+   "C": -0.0056773688332029115
+  },
+  "C": {
+   "T": 0.005709785390825006
+  },
+  "S": {
+   "T": 0.007678676904902648,
+   "C": 0.0019577133907595634
+  },
+  "Sp": {
+   "T": -0.000984445757038821,
+   "C": -0.006656225528582693
+  },
+  "Sw": {
+   "T": 0.006891120299271414,
+   "C": 0.0011746280344557825
+  }
+ },
+ "bar": {
+  "share": 0.0019577133907595634,
+  "limit": 0.1,
+  "met": true
+ },
+ "selfCheck": true,
+ "madeWith": {
+  "commit": "8afc6faec9fb24b8d0bf42795d290fee54471727",
+  "dirty": true,
+  "node": "v24.12.0",
+  "adapter": "amd gcn-5 D3D12 driver version 31.0.12002.1002"
+ }
+}
