@@ -21,7 +21,7 @@ neighbour lookups were completed for it.
 
 **Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`). ✅ 7.7 committed
 (`0d3fb9f`). ✅ 7.8 committed (`8afc6fa`). ✅ 7.9 committed (`cd76a25`). ✅ 7.10 committed
-(the commit after `cd76a25`; results at the end):
+(`834b360`; results at the end):
 - **7.7:** both species meet the 0.05 bar at round 0;
 - **7.8:** the students' catches are within 1% of the rule without wander (the bar is 10%), and
   they do not drift, so no round of correction was needed;
