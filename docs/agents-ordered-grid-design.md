@@ -25,8 +25,9 @@ implementation committed (`e4eaad2`); ✅ 5.6 correctness verified 2026-10-13 (`
 5.7 first measured 2026-10-13 (`da262ad`): whole-step regressions over the ~10% rule, so the
 numbers went back to the user. Its follow-up found the sort within the rule and the cost in the
 window per querying agent. **The user revised decision 2 on 2026-10-13: a window per cell and
-tick.** ✅ **5.7 is within the rule with that change:** the worst case is +9.6% (results at the
-end). 5.8 is not started.
+tick.** ✅ **5.7 is within the rule with that change** (`de87b3f`): the worst case is +9.6%.
+✅ **5.8, 2026-10-13:** the guides and the parent state the new claim, and this sub-step is
+complete (results at the end). The scaling study (the parent's phases 5.0–5.4) stays deferred.
 
 **Target:**
 - `src/extras/spatial/`: the grid's scatter and the CPU mirror;
@@ -176,7 +177,7 @@ The last pass writes `cellBodies` directly. `AgentGrid` appends its counter stag
 ## 5. The determinism claim afterwards
 
 Same device, lockstep, built-in sensors, and custom sensors that read only their own record ⇒
-bit-exact reruns, with or without overflow. The guides' overflow caveats are rewritten to match in
+bit-exact reruns, with or without overflow. The guides' overflow caveats were rewritten to match in
 phase 5.8:
 - [`api/agents.md`](./api/agents.md): "Definition and observations" and the lockstep paragraph;
 - [`api/agent-grid.md`](./api/agent-grid.md): "Atomic scatter order is unspecified".
@@ -261,10 +262,10 @@ see the nearest seeker" check would need?
 - documented `agents` and `neighbours` access;
 - the lists passed to the CPU mirror.
 
-**Phase 5.8 documents today's limits above in the guide.** It also fixes
-[`agents-design.md`](./agents-design.md) §6, which says the API docs warn against order-dependent
-float sums over neighbours. They do not. After this step, such sums are deterministic in any case,
-because the grid's order and the lists are fixed.
+**Phase 5.8 documented today's limits above in the guide** ("What a custom sensor can read
+today"). It also fixed [`agents-design.md`](./agents-design.md) §6.3, which said the API docs warn
+against order-dependent float sums over neighbours. They did not. After this step, such sums are
+deterministic in any case, because the grid's order and the lists are fixed.
 
 ## 9. Build order
 
@@ -275,7 +276,7 @@ Numbered after the study's later phases 5.0–5.4.
 | **5.5** ✅ | A measurement spike on today's code, on three host/GPU pairs: (1) A23's scenario, two identical runs with heavy overflow, counting the differing words; (2) the baseline step time and grid share at 4,096 and 65,536 agents (§6) | Measured 2026-10-13: the watch observed on all three; results below |
 | **5.6** | The stable scatter, the window and its tick source, and the CPU mirror; U23; A1 exact; A23 green, and watched failing by mutation | Headless green; GPU green on three host/GPU pairs |
 | **5.7** ✅ | The same spike after the change; the bundle | The numbers went to the user, who revised decision 2. Within the 10% rule with a window per cell, measured like for like 2026-10-13 |
-| **5.8** | Docs: the determinism paragraphs (guide, `agent-grid.md`, parent §6); today's custom-sensor limits; closure | Docs match what was measured; `docs/work` updated |
+| **5.8** ✅ | Docs: the determinism paragraphs (guide, `agent-grid.md`, parent §6); today's custom-sensor limits; closure | Docs match what was measured; `docs/work` updated. Done 2026-10-13 |
 
 ## 10. Decisions (the user, 2026-10-13)
 
@@ -695,6 +696,59 @@ MLP marker.
 - **The loop at 65,536 agents on AMD.** The tighter loop gains 10 to 18 points at 4,096 agents and
   costs 3 to 7 at 65,536 flocked against 5.6's loop. A third form, with the offset read once and
   the position still computed from the loop counter, was not tried.
-- **The pile-up** was not rerun on the final code. `cell+`, the same kernel, measured +5% to +27%
-  there.
-- **5.8** is not started.
+- **The pile-up** was rerun on the final code in phase 5.8 (results below).
+
+## Phase 5.8 results — 2026-10-13: the guides, and closure
+
+**What the guides now say.** No code changed in this phase.
+- **[`api/agents.md`](./api/agents.md):**
+  - "Definition and observations": overflow costs perception, not determinism. It says which
+    entries a crowded cell yields, and that a window is a run of consecutive indices, so in a cell
+    many times over its budget it can hold a single species.
+  - "What a custom sensor can read today": §8's limits, and the `Sensors.nearest` answer to "can I
+    see the nearest seeker?".
+  - "The frame and fixed-step paths": lockstep reruns on one device are bit-exact with or without
+    overflow; what that holds for, what it needs, and no cross-device guarantee.
+  - "Current validation and limits": A1, A7 and A23; 137/137.
+- **[`api/agent-grid.md`](./api/agent-grid.md):** the stage order with the stable sort and the tick
+  stage; `cellBodies`' order; the window, its tick source and its CPU mirror; a query is
+  deterministic on a device; the CPU mirror can bin an agent on a cell edge elsewhere; what a
+  build costs; the validation list.
+- **[`agents-design.md`](./agents-design.md):** principle 6, §6.1 and §6.3. §6.3 states the new
+  claim and corrects the passage about float sums over neighbours (§8).
+  [`agents-demo-design.md`](./agents-demo-design.md) and the parent's step list mark this sub-step
+  complete.
+
+**Checked:** agents reference + 63 pass, including the guide's three examples; agent-kit 4/4;
+all 57 relative links in the edited documents resolve.
+
+**The pile-up on the final code.** 65,536 agents in four knots 12 m across; 16 cells over budget,
+the largest holding 4,770. A few steps / 64 steps:
+
+| | Node/Dawn, NVIDIA | Node/Dawn, AMD iGPU | Chrome, AMD iGPU |
+|---|---:|---:|---:|
+| Before step 5, ms | 3.87 / 4.47 | 10.19 / 12.62 | 10.43 / 12.53 |
+| Production, ms | 4.59 / 4.70 | 15.50 / 15.55 | 13.78 / 13.97 |
+| Production against before | +18.6% / +5.1% | +52.1% / +23.2% | +32.1% / +11.5% |
+| 5.6's window per agent against before | 8.7× / 7.6× | 14.3× / 11.8× | 12.9× / 11.0× |
+
+- **Production adds 0.2 to 5.3 ms a step here;** 5.6's window per agent added 30 to 136 ms.
+- **The follow-up read +5% to +27%** for the same kernel. This layout varies that much between
+  runs under Node on AMD: "before" read 11.9 ms then and 10.2 ms now.
+- **Why it costs more than before although a cell's entries are shared** is in the follow-up: the
+  old first entries of these cells were all wolves, so no agent sensed a prey.
+- **Checks:** 88/88 under Node and 44/44 in Chrome, zero GPU errors. They include that the
+  production query equals `cell+` word for word, and that the production run repeats word for word.
+
+**Closure.** Step 5's deterministic neighbour lookups, phases 5.5 to 5.8, are complete.
+- **The claim:** same device, lockstep, built-in sensors, and custom sensors that read only their
+  own record ⇒ bit-exact reruns, with or without overflow. A23 and both spikes hold it on three
+  host/GPU pairs.
+- **The cost:** within the 10% rule on the acceptance layouts, by like-for-like measurement; the
+  worst case is +9.6%.
+- **The bundle:** +1,145 B over the code before step 5; 2,172 B below the ceiling.
+- **Still deferred:** the scaling study (the parent's phases 5.0–5.4), and contract (a) for
+  custom sensors that read the neighbour lists (decision 4).
+- **Left open, none blocking:** a third form of the scan loop; the CPU `pointCell`; the acceptance
+  spike's cost half; the comb.
+- **Unblocked:** step 7, part 2 (record → train → export), which has no design yet.

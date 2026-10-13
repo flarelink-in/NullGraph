@@ -109,9 +109,11 @@ not download 6.4 MB to run 8 KB of weights. So small dense networks default to a
 4. **In the frame by default; async only where a runtime forces it** — and the latency is stated
    here, not discovered in a demo.
 5. **Buffers are fixed for life.** Graph capture's rule, adopted for every brain.
-6. **Sensing is order-independent.** The grid's atomic scatter has no stable order, so built-in
-   sensors use only order-independent reductions (§6.3). Determinism comes from the kernels, and
-   holds while no cell overflows: past the scan budget, the scanned subset follows atomic timing.
+6. **Sensing is order-independent.** Built-in sensors use only order-independent reductions
+   (§6.3), so determinism comes from the kernels. Since step 5 the grid's order is fixed as well,
+   and determinism holds past the scan budget too: a crowded cell yields a window that depends
+   only on the cell and the tick. (Before step 5, the scatter was atomic, and the scanned subset
+   followed its timing.)
 7. **A missed neighbour is a wrong decision.** The conservative direction for queries is to look at
    more, never fewer (§6.2).
 8. **CPU mirrors are pinned by definitions.** Brute-force k-nearest is the definition the grid query
@@ -307,6 +309,8 @@ Agents bin by position into exactly one cell. P2 bins spheres into every cell th
 generality stays in P2. The stages: **A** bin (`atomicAdd` per cell; one `preClearBuffers` zeroes
 counts and `overflow`) → **B** P2 §5.4's three-pass prefix sum → **C** scatter. They live in
 `src/extras/spatial/` under P2's names and data model, and P2's `GpuBroadphase` imports them.
+Since step 5, **C** is a stable radix sort by cell, so a cell lists its agents by index
+([`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md)).
 
 ### 6.2 The query, and the conservative direction
 
@@ -324,16 +328,27 @@ once its flocks formed. Size the budget, or the cell, for the crowd's peak densi
 
 ### 6.3 Determinism
 
-The scatter's order within a cell depends on atomic timing. Built-in sensors therefore use only
-order-independent reductions: k-nearest with ties broken by agent index, counts, minima. **Same
-device + lockstep + built-in sensors + no overflow ⇒ bit-exact reruns** (A7, overflow-free by
-assertion; [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §8.3). Past the scan budget, a
-crowded cell yields its first `maxScanPerCell` entries in scatter order, which follows atomic
-timing, so reruns diverge. Measured 2026-10-12: 19,990 of 64,000 record words differed between two
-identical 200-step runs at budget 64; none differed with no overflow. Grid-ordered queries (step 5)
-would make that subset deterministic ([`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md),
-decided with the user 2026-10-13: a stable grid order plus a window rotating per cell and tick). A custom WGSL sensor that sums floats
-over neighbours breaks this, and the API docs say so.
+Built-in sensors use only order-independent reductions: k-nearest with ties broken by agent
+index, counts, minima. Since step 5 the grid's order is fixed too: a stable sort lists each cell's
+agents by index ([`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md)). **Same
+device + lockstep + built-in sensors ⇒ bit-exact reruns, with or without overflow:**
+- **without overflow,** A7 ([`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §8.3);
+- **with overflow in every step,** A23, on three host/GPU pairs.
+
+**Past the scan budget,** a crowded cell yields a window of `maxScanPerCell` consecutive entries
+that rotates per cell and tick. It depends only on the cell, the tick and the fixed order. The
+user decided it on 2026-10-13, and revised it the same day from a window per querying agent, which
+cost +15% to +26% on a step.
+
+**Before step 5,** the scatter's order within a cell followed atomic timing, so reruns diverged
+past the budget. Measured 2026-10-12: 19,990 of 64,000 record words differed between two identical
+200-step runs at budget 64; none differed with no overflow.
+
+**A custom WGSL sensor that sums floats over neighbours** was said here to break determinism, "and
+the API docs say so". They did not say so, and it no longer holds: the grid's order and the
+neighbour lists are fixed, so such a sum is taken in the same order on every rerun. A custom sensor
+still has no contract for reading the lists ([`api/agents.md`](./api/agents.md), "Definition and
+observations").
 
 ---
 
@@ -783,7 +798,7 @@ on NVIDIA. What the spike found:
    API guide complete; remaining README/starter/showcase packaging is separate product follow-up.
    **Resumed 2026-10-13 by the user, ahead of step 7, part 2,** for deterministic neighbour lookups
    (a stable grid order): [`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md),
-   phases 5.5–5.8. The rest of the study stays deferred.
+   phases 5.5–5.8, **complete 2026-10-13**. The rest of the study stays deferred.
 
 C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
 

@@ -8,7 +8,7 @@ wishful population/timing target. Detailed experiment choices remain draft.
 **Status:** Design only; no new measurements or step-5 implementation claimed.
 **Sub-step, 2026-10-13:** the user resumed step 5 ahead of step 7, part 2, for deterministic
 neighbour lookups, designed in [`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md)
-(phases 5.5–5.8). The study below (phases 5.0–5.4) stays deferred.
+(phases 5.5–5.8, complete 2026-10-13). The study below (phases 5.0–5.4) stays deferred.
 **Outcome:** explain how far the system scales, under which conditions, what limits it first,
 and which finer agent/renderer/engine improvements the evidence supports. No core rewrite planned.
 
