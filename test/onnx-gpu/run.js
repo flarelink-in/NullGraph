@@ -4,6 +4,8 @@
 //   O2  NullGraph ADOPTS ORT's device — init(null, { device }) — instead of creating its own
 //   O3  the model's output buffer, bound as-is (no copy, no wrapper), feeds a NullGraph compute
 //       stage, and the numbers that come out are the model's numbers transformed by that stage
+//   A27 the trained Herd & Wolves networks, written as .onnx by tools/agents/onnx.mjs, give in
+//       ONNX Runtime the actions mlpForward gives (docs/agents-cloning-design.md, phase 7.10)
 //
 // The direction matters (ORT owns, NullGraph adopts): ORT requests the features and limits its
 // kernels need when it creates the device, and its maintainers warn a device created with other
@@ -20,6 +22,11 @@
 import { NullGraph } from '../../dist/index.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 import { addModel } from './tiny-model.mjs';
+import { mlpForward } from '../../dist/agents.js';
+import { createHerd, herdDefinition } from '../../tools/agents/scenario/herd-wolves.mjs';
+import { lockstep, readBuffers } from '../../tools/agents/label-pass.mjs';
+import { networkFromModel } from '../../tools/agents/model.mjs';
+import { onnxFromNetwork } from '../../tools/agents/onnx.mjs';
 
 const { log, check, fatal, finish, inBrowser } = harnessEnv('__ONNX_RESULTS__');
 
@@ -118,6 +125,59 @@ const want = Array.from(x, v => (v + v) * 10 + 0.5);
 check('O3: the model output, bound with zero copies, drives a NullGraph compute stage',
     got.every((v, i) => v === want[i]),
     `got=[${got.join(', ')}] want=[${want.join(', ')}]`);
+
+// A27 runs before the first session is released. Run after it, the read-back of the observations
+// aborted (AbortError): the device ONNX Runtime made does not outlive its sessions.
+// Each committed network becomes an .onnx file in memory, and ONNX Runtime runs it on 256
+// observations per species that the simulation itself produced: 120 steps of Herd & Wolves under
+// the rule, on this same device. Its actions must equal mlpForward's within 1e-4 (the parent's A5).
+{
+    const TOL = 1e-4, ROWS = 256;
+    const readJson = async path => {
+        const url = new URL(path, import.meta.url);
+        return inBrowser ? (await fetch(url)).json() : JSON.parse((await import('node:fs')).readFileSync(url, 'utf8'));
+    };
+    const herd = createHerd(engine), { capacity, obsDim, actDim } = herd.definition;
+    const step = lockstep(engine, herd.agents);
+    for (let s = 0; s < 120; s++) await step();
+    const [words] = await readBuffers(ortDevice, [herd.agents.obs]);
+    const obs = new Float32Array(words.buffer, words.byteOffset, words.length);
+    herd.destroy();
+    for (const [index, species] of herd.definition.species.map(s => s.name).entries()) {
+        const file = `../../tools/agents/models/herd-wolves/${species}.mlp.json`, model = await readJson(file);
+        const network = networkFromModel(model, herdDefinition(), file);
+        const bytes = onnxFromNetwork(network, { name: `${species}-mlp`, metadata: { species } });
+        // This species' first 256 agents, at a spread of indices so that several think blocks are in.
+        const mine = Array.from({ length: capacity }, (_, i) => i).filter(i => herd.speciesOf(i) === index);
+        const picked = Array.from({ length: ROWS }, (_, k) => mine[Math.floor(k * mine.length / ROWS)]);
+        const input = new Float32Array(ROWS * obsDim);
+        picked.forEach((i, k) => input.set(obs.subarray(i * obsDim, (i + 1) * obsDim), k * obsDim));
+        let worst = 0, bad = 0, moved = 0, note = '';
+        try {
+            const run = await ort.InferenceSession.create(bytes, { executionProviders: ['webgpu'] });
+            const { act } = await run.run({ obs: new ort.Tensor('float32', input, [ROWS, obsDim]) });
+            const got = await act.getData(), cpu = new Float32Array(actDim);
+            note = `output [${act.dims.join(', ')}]; `;
+            for (let k = 0; k < ROWS; k++) {
+                mlpForward(network, input.subarray(k * obsDim, (k + 1) * obsDim), cpu);
+                for (let j = 0; j < actDim; j++) {
+                    const d = Math.abs(got[k * actDim + j] - cpu[j]);
+                    worst = Math.max(worst, d);
+                    if (!(d <= TOL)) bad++;
+                }
+                if (Math.abs(cpu[0]) > 0.01) moved++;
+            }
+            act.dispose();
+            await run.release();
+        } catch (e) {
+            bad = -1;
+            note = `ONNX Runtime failed: ${e.message.split('\n')[0]}; `;
+        }
+        check(`A27: ONNX Runtime runs ${species}.onnx on ${ROWS} observations and its actions equal mlpForward's within ${TOL}`,
+            bad === 0 && moved > ROWS / 4, `${note}${bad} of ${ROWS * actDim} actions out of tolerance; worst difference ${worst.toExponential(1)}; ` +
+            `${moved} rows turn by more than 0.01; ${bytes.length.toLocaleString('en-US')} B`);
+    }
+}
 
 Y.dispose();
 out.destroy();

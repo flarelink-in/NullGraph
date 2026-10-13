@@ -26,7 +26,7 @@ log, not here.
     - **No drift:** the students' error on their own runs equals their held-out error, so no round
       of correction was built.
     - **The rule without wander catches as many prey as the rule** (under 1% apart).
-  - **7.9 is committed** (the commit after `8afc6fa`). The networks in the repository:
+  - **7.9 is committed:** `cd76a25`. The networks in the repository:
     - `tools/agents/models/herd-wolves/`: two `.mlp.json` files, their reports, the evaluation
       (476 KB; the draft said 50 KB);
     - U26 (writer, committed files), A26, A8; the guide's "A trained network";
@@ -34,11 +34,26 @@ log, not here.
     - **a retrain wrote both networks byte for byte;**
     - **trained weights are large (up to 178),** so the GPU differs from `mlpForward` by up to
       4.4e-5: beyond A4's bound for a few actions. A26 asserts 1e-4.
-  - **Next: 7.10.** The `.onnx` writer; U12; A27 (ONNX Runtime against `mlpForward`).
+  - **7.10 is committed** (the commit after `cd76a25`). The `.onnx` writer: `onnx.mjs`, `export.mjs`
+    (`npm run agents:export`), U12, A27.
+    - ONNX Runtime gives `mlpForward`'s actions within 4.5e-6, on Node (both GPUs) and Chrome.
+    - The `.onnx` files are not committed; they are a function of the `.mlp.json` files.
+  - **Part 2 is built** (closure in the design). **Next: step 8,** `MlpBrain.fromOnnx`, which
+    touches `src/` and the bundle (2,172 B left under the C2 ceiling).
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed). Nothing uncommitted after 7.9's commit.
+- **null-graph** (`master`, not pushed). Nothing uncommitted after 7.10's commit.
+- **The site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, uncommitted): the Herd &
+  Wolves demo has a live Rules / Network choice per species.
+  - New: `HerdWolvesGPU/networks.ts` and `networks/{prey,wolf}.mlp.json`, copies of the committed
+    files, loaded on first use.
+  - Changed: the demo's `index.ts` and `options.ts`, its controls, `HerdGPUState`, the store
+    defaults, the docs entry.
+  - Its `node_modules/null-graph/dist` was replaced with this repository's dev `dist/`; the old
+    copy predated per-species brains.
+  - Driven with `npm run drive` at 4K and 16K: both networks, mixed, and back; no errors. Not
+    checked by eye: the inspector's text for a network-driven agent.
 - **The students and the recording** are in `tools/agents/out/` (ignored):
   - the recording: `herd-wolves/`, made at `cf3f972`;
   - the round-0 students: `e4-64x64x64-200-r01/`; the retrain that reproduced them: `r0-check/`;
@@ -47,9 +62,10 @@ log, not here.
   left from 5.6's validation. It holds a `node_modules` junction. Remove that first with
   `cmd /c rmdir`, which drops the link only, before `git worktree remove`, which may follow it.
 - **Green:**
-  - headless: agents (reference + 72);
+  - headless: agents (reference + 73);
   - `agent-tools` 15/15 on three host/GPU pairs. It now takes about a minute, and up to two in
-    Chrome.
+    Chrome;
+  - `onnx` 5/5 on Node/NVIDIA, Node/AMD and Chrome/AMD.
   - Not re-run this session, and untouched by it: core, agent-kit, the agents GPU suite (137).
 - **Bundle:** unchanged by part 2 (agents 19,323 B; C2 ceiling 21,495 B).
 

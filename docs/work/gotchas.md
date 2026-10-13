@@ -64,3 +64,7 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
     `Start-Process node -ArgumentList … -RedirectStandardOutput …`) and note their process IDs.
     Find a stray one by its command line (`Get-CimInstance Win32_Process`), and stop only the ones
     you started.
+- **ONNX Runtime's device does not outlive its sessions.** In `test/onnx-gpu/run.js`, NullGraph
+  adopts the device ONNX Runtime made. After `session.release()` on the last session, a
+  `mapAsync` on that device rejected with `AbortError`, and the harness crashed with no check
+  reported. Do the GPU work that reads back before releasing the last session.

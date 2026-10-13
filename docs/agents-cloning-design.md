@@ -20,14 +20,17 @@ neighbour lookups were completed for it.
 6. **The scene is the demo's defaults only.**
 
 **Status:** ✅ design decided 2026-10-13 (`f1244cb`). ✅ 7.6 committed (`c2608d7`). ✅ 7.7 committed
-(`0d3fb9f`). ✅ 7.8 committed (`8afc6fa`). ✅ 7.9 built 2026-10-13 (results at the end):
+(`0d3fb9f`). ✅ 7.8 committed (`8afc6fa`). ✅ 7.9 committed (`cd76a25`). ✅ 7.10 committed
+(the commit after `cd76a25`; results at the end):
 - **7.7:** both species meet the 0.05 bar at round 0;
 - **7.8:** the students' catches are within 1% of the rule without wander (the bar is 10%), and
   they do not drift, so no round of correction was needed;
 - **7.9:** the two networks are in the repository with their tests, and the guide shows how to load
-  one.
+  one;
+- **7.10:** each network is written as an `.onnx` file, and ONNX Runtime gives `mlpForward`'s
+  actions within 4.5e-6.
 
-Next: 7.10, the `.onnx` writer.
+**Part 2 is built.** Next is step 8, `MlpBrain.fromOnnx`.
 
 **Target:** `tools/agents/` (new, in the repository, not in the package), tests, one guide
 section. **`src/` unchanged; no bundle bytes.**
@@ -433,7 +436,7 @@ is not known;** 7.8 measures it, and stops at 3 rounds.
 | A25 | The label pass, given the driver's text, writes the system's own actions, word for word, for exactly the agents that thought in that step, over 300 steps with respawns. **Watched failing** with the pass spliced after act, where a newborn's gate has already closed |
 | A26 | The committed Herd & Wolves files load into one `MlpBrain` per species, and over 60 steps every action written in a step equals `mlpForward` of that step's observation within 1e-4. A4's tolerance is too tight for trained weights (7.9's results). **Watched failing** against the other species' network |
 | A8 | Cloning quality, the parent's check, with its two bars stated in §8: error at most 0.05 per species and action; catches of S within 10% of C over 30 s on 5 seeds. As built, the error is the networks' on their own runs, which needs no dataset; the held-out error stored in each file is checked by U26. Run C must differ from its label by nothing |
-| A27 | ONNX Runtime runs each exported `.onnx` on 256 held-out observations, and its actions equal `mlpForward`'s within 1e-4 (the bound of the parent's A5). Node only, in the `onnx` suite |
+| A27 | ONNX Runtime runs each exported `.onnx` on 256 observations, and its actions equal `mlpForward`'s within 1e-4 (the bound of the parent's A5). In the `onnx` suite. As built: on both hosts, not Node only, and on observations the suite takes from 120 steps of the simulation, because no dataset is committed |
 
 ## 11. Errors
 
@@ -472,8 +475,8 @@ Phases continue from part 1's 7.5.
 | **7.6** ✅ | The scenario, the label pass, the dataset format, `record.mjs`; U24, U25, U27; A24, A25 | A round-0 recording that reproduces byte for byte. **Measured:** the difference between the driver's action and the label (what no network could learn), the teacher's catches in 30 s and their spread across seeds, the share of frozen rows, the mix of reason codes |
 | **7.7** ✅ | `mlp-train.mjs`, `train.mjs`; U11 | Round-0 students. **Measured:** held-out error per species, action and reason code, for three shapes; training time. Built 2026-10-13 (`0d3fb9f`): both species within 0.05 at round 0; results below |
 | **7.8** ✅ | `evaluator.mjs`, `evaluate.mjs`, `model.mjs`; U28, and U26's reader half | **Measured:** T, C, S and the mixed runs; the students' error on their own runs. Built 2026-10-13 (`8afc6fa`): within §8's bars at round 0, so no round of correction; results below |
-| **7.9** ✅ | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated. Built 2026-10-13; results below |
-| **7.10** | `<species>.onnx` writer; U12; A27 | ONNX Runtime's output equals `mlpForward`'s. Stays in this part (§14, decision 4) |
+| **7.9** ✅ | `.mlp.json` export and the committed files; U26; A26, A8; the guide's "A trained network"; `tools/agents/README.md`; closure | The tests pass on three host/GPU pairs; docs match what was measured; `docs/work` updated. Built 2026-10-13 (`cd76a25`); results below |
+| **7.10** ✅ | `<species>.onnx` writer; U12; A27 | ONNX Runtime's output equals `mlpForward`'s. Stays in this part (§14, decision 4). Built 2026-10-13; results below |
 
 Every test is watched failing before it passes.
 
@@ -777,7 +780,7 @@ the guide's "A trained network"; `tools/agents/README.md`; closure.
 
 ## Phase 7.9 results — 2026-10-13: the committed networks, their tests, the guide
 
-**Built** (no `src/` change; no bundle bytes):
+**Built** (`cd76a25`; no `src/` change; no bundle bytes):
 - `tools/agents/models/herd-wolves/`: `prey.mlp.json` and `wolf.mlp.json` (7.7's round-0 students),
   their `.report.json` files, and `evaluation.json` (7.8's five runs, on the AMD iGPU).
 - `model.mjs`: `modelText`, the writer, moved out of `train.mjs`. It refuses a network that would
@@ -860,3 +863,89 @@ They are in the repository only; the package still ships `dist`.
 **Not done here:** the site's demo does not load these files yet. That is step 10.
 
 **Next: 7.10.** The `.onnx` writer; U12; A27.
+
+## Phase 7.10 results — 2026-10-13: the `.onnx` writer
+
+**Built** (no `src/` change; no bundle bytes):
+- `tools/agents/onnx.mjs`: `onnxFromNetwork(network, { name, metadata })`, hand-encoded protobuf with
+  no dependency, as `test/onnx-gpu/tiny-model.mjs` is.
+- `tools/agents/export.mjs`: `npm run agents:export`. It reads every `<species>.mlp.json` in a
+  folder (by default the committed networks) and writes `<species>.onnx` to `tools/agents/out/onnx`.
+
+**What a file holds:**
+- **One `Gemm` per layer, with `transB = 1`,** so the weights are the layer's row-major
+  `[output][input]` array unchanged; then `Tanh`, `Relu` or `Sigmoid`. An identity layer has no
+  second node.
+- **Opset 13, IR version 8.** The input is `obs`, float32 `[batch, 24]`; the output is `act`,
+  float32 `[batch, 2]`. The batch dimension is free.
+- **Weights as raw little-endian f32,** so they are the network's, bit for bit.
+- **Metadata:** the species, and the observation and action names as JSON, so step 8's reader can
+  check them as the `.mlp.json` reader does.
+- **No clamp before `Tanh`.** `MlpBrain` clamps tanh's input to ±15; `tanh(15)` is 1 in f32, so
+  the results are the same.
+- **Size:** 41,186 B per Herd & Wolves network, against 180 KB as `.mlp.json`.
+
+**The `.onnx` files are not committed.** They are a pure function of the committed `.mlp.json`
+files: `npm run agents:export` writes them in under a second, and the same network gives the same
+bytes.
+
+**Tests** (the agents suite is now reference + 73):
+- **U12:** a five-layer network with all four activations decodes to what was written: the node
+  order and names, `transB`, each tensor's dimensions, the weights bit for bit (a −0 included), the
+  free batch dimension, the opset and the metadata. A network with an unknown activation, a wrong
+  weight count or layers that do not chain is refused by name. The test carries its own small
+  protobuf decoder; the reader proper is step 8's.
+- **A27,** in the `onnx` suite, on 256 observations per species:
+
+| | Node/Dawn NVIDIA | Node/Dawn AMD | Chrome AMD |
+|---|---:|---:|---:|
+| Prey: worst difference from `mlpForward` | 4.5e-6 | 9.5e-7 | 9.2e-7 |
+| Wolves: worst difference | 4.0e-7 | 1.1e-6 | 5.4e-7 |
+| Actions beyond 1e-4, of 512 per species | 0 | 0 | 0 |
+
+  The suite is 5/5 with zero GPU errors on all three. It takes the default high-performance
+  adapter, which is the NVIDIA GPU under Node here.
+- **Watched failing:** 10 mutations of the writer. Eight fail U12. Two ran the GPU suite: with the
+  biases written as zero, and with `Relu` in place of `Tanh`, A27 fails for both species.
+
+**ONNX Runtime is closer to `mlpForward` than `MlpBrain` is:** 4.5e-6 at worst, against 4.4e-5
+(A26). Both are rounding; the kernels sum in different orders.
+
+**Differs from the draft:**
+- **A27 runs in Chrome as well as under Node.**
+- **Its observations come from the simulation,** not from a held-out episode: 120 steps under the
+  rule on the suite's own device, 256 agents of each species.
+- **A27 must run before the suite releases its first ONNX Runtime session.** Run after it, the
+  read-back of the observations aborted: the device ONNX Runtime made does not outlive its
+  sessions. It is in `gotchas.md`.
+- **A command line,** `export.mjs`, beside the writer.
+
+## Closure of part 2 — 2026-10-13
+
+**Every phase, 7.6 to 7.10, is built and measured.** The first network that has learned Herd &
+Wolves exists, is in the repository, and is checked on every run of the suites.
+
+| Asked for | Result |
+|---|---|
+| Record the rule | `npm run agents:record`: 22 s for 5 episodes; byte-identical on a rerun |
+| Train a copy per species | `npm run agents:train`: about an hour of CPU; byte-identical on a rerun |
+| Error at most 0.05 per species and action | prey turn 0.033 held out and 0.034 on its own runs; wolves 0.011; throttles under 0.001 |
+| Catches within 10% of the rule without wander | +0.2% (AMD), −0.6% (NVIDIA) |
+| A file today's `MlpBrain` runs | `.mlp.json`, two committed; loading is in the guide |
+| An `.onnx` file | written by `npm run agents:export`; ONNX Runtime agrees within 4.5e-6 |
+| No library change | `src/` untouched; bundle unchanged |
+
+**What the measurements changed against the draft:**
+- **The network is larger and trains longer:** 24→64→64→64→2 at 200 passes, not 24→32→32→2 at 40.
+  An hour of CPU, not minutes; 476 KB committed, not 50 KB.
+- **No round of correction was needed.** The students do not drift.
+- **The copy does not wander, and nothing measured shows it.** Catches, speeds and herd tightness
+  are the same with and without the rule's wander.
+- **Trained weights are large,** so `MlpBrain` agrees with `mlpForward` within 4.4e-5, not within
+  A4's bound.
+
+**Left open:**
+- **The wall branch** is above 0.05 for both species (0.105 and 0.070), on 5% of decisions.
+- **Other settings** (speeds, rest, cadence) are not measured.
+- **The site's demo** still has its own copy of the rule, and does not load the networks: step 10.
+- **A public seam for a watching pass** (§12) is still not proposed; one tool uses the label pass.

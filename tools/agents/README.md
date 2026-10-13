@@ -24,9 +24,11 @@ in an app is in [`docs/api/agents.md`](../../docs/api/agents.md), "A trained net
 npm run agents:record                                # about 20 s; writes tools/agents/out/herd-wolves
 npm run agents:train                                 # about an hour of CPU; writes …/herd-wolves-students
 npm run agents:evaluate                              # about 2 minutes; writes evaluation.json beside the students
+npm run agents:export                                # under a second; writes tools/agents/out/onnx/<species>.onnx
 ```
 
-Everything under `tools/agents/out/` is ignored by git.
+Everything under `tools/agents/out/` is ignored by git. The first three steps make a network; the
+fourth writes it in another format.
 
 ### 1. Record
 
@@ -83,6 +85,18 @@ mean speeds, and how tight the herds are.
 
 `--students tools/agents/models/herd-wolves` evaluates the committed networks.
 
+### 4. Export to ONNX
+
+`npm run agents:export -- [--students <dir>] [--out <dir>]`
+
+- Reads every `<species>.mlp.json` in `--students`, by default the committed networks, and writes
+  `<species>.onnx`: one `Gemm` and one activation per layer, opset 13.
+- The input is `obs`, float32 `[batch, 24]`; the output is `act`, float32 `[batch, 2]`.
+- The file's metadata holds the species and the observation and action names.
+- The same network gives the same bytes. A Herd & Wolves network is 41 KB.
+- **Nothing in the library reads these files yet.** ONNX Runtime does, and its actions equal
+  `mlpForward`'s within 4.5e-6 on the measured GPUs.
+
 ## The committed networks
 
 `models/herd-wolves/` holds the two trained Herd & Wolves networks, their training reports, and
@@ -116,10 +130,11 @@ rest 5 s, flocking and fleeing on.
 | `mlp-train.mjs`, `train.mjs` | The trainer (Adam, mean-squared error, seeded), and its command line |
 | `evaluator.mjs`, `evaluate.mjs` | One run under a driver per species, and its command line |
 | `model.mjs` | A `.mlp.json` written, and read back with its names checked |
+| `onnx.mjs`, `export.mjs` | A network as `.onnx` bytes, and its command line |
 | `cli.mjs` | What the command lines share |
 
-`scenario/`, `label-pass.mjs`, `dataset.mjs`'s row helpers, `recorder.mjs`, `evaluator.mjs` and
-`model.mjs` import nothing from Node, so the GPU suite also runs them in Chrome.
+`scenario/`, `label-pass.mjs`, `dataset.mjs`'s row helpers, `recorder.mjs`, `evaluator.mjs`,
+`model.mjs` and `onnx.mjs` import nothing from Node, so the GPU suites also run them in Chrome.
 
 ## Limits
 
@@ -129,12 +144,14 @@ rest 5 s, flocking and fleeing on.
 - **No equality across GPUs.** A recording made on one GPU differs from one made on another.
 - **The site's demo has its own copy of the rule** until it moves onto `scenario/herd-wolves.mjs`.
   The two were compared once, by a scratch script: 0 rows differed over 600 steps.
-- **`.onnx` export** is the next phase (7.10) and is not built.
+- **Reading `.onnx`** is not built: `MlpBrain.fromOnnx` is the library's next step.
 
 ## Tests
 
 - `npm run test:agents` runs `test/agents-tools.test.mjs`: the dataset, the sampler, the trainer's
-  gradients, the evaluation's counts, and the network files.
+  gradients, the evaluation's counts, the network files, and the `.onnx` writer's bytes.
 - `npm run test:gpu -- --only agent-tools` and `npm run test:gpu:browser -- --only agent-tools` run
   the label pass, recording, the committed networks against `mlpForward`, and the two bars above,
   on a real GPU. They take one to two minutes.
+- `npm run test:gpu -- --only onnx` runs each committed network as `.onnx` in ONNX Runtime against
+  `mlpForward`.
