@@ -65,6 +65,11 @@ test('U16/U23: windowed query slices parse and never overlap; tick is GPU-owned'
     for (const stage of m.stages) new WgslReflect(stage.shaderCode);
     assert.equal(queries[0].entries[4].resource.buffer, queries[1].entries[4].resource.buffer);
     assert.ok(queries.every(q => q.entries[5].resource.buffer === s.state));
+    // A crowded cell's window is keyed by the cell, so every query of that cell reads the same entries.
+    for (const q of queries) {
+        assert.match(q.shaderCode, /at \+= gridWindow\(c, tick\) % count;/);
+        assert.doesNotMatch(q.shaderCode, /gridWindow\(i,/);
+    }
     assert.throws(() => A.buildAgentGridQueryWGSL(def, 1, 4, 3, { stride: 3, base: 1 }), /stride and base/);
     s.destroy();
 });

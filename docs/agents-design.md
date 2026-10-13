@@ -332,8 +332,7 @@ crowded cell yields its first `maxScanPerCell` entries in scatter order, which f
 timing, so reruns diverge. Measured 2026-10-12: 19,990 of 64,000 record words differed between two
 identical 200-step runs at budget 64; none differed with no overflow. Grid-ordered queries (step 5)
 would make that subset deterministic ([`agents-ordered-grid-design.md`](./agents-ordered-grid-design.md),
-decided with the user 2026-10-13: a stable grid order plus a window rotating per querying agent and
-tick). A custom WGSL sensor that sums floats
+decided with the user 2026-10-13: a stable grid order plus a window rotating per cell and tick). A custom WGSL sensor that sums floats
 over neighbours breaks this, and the API docs say so.
 
 ---

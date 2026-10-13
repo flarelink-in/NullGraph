@@ -48,17 +48,26 @@ test('U23: one, two and three-pass radix kernels parse; stable block model equal
     }
 });
 
-test('U23: crowded windows wrap, vary by tick and observer, while within-budget results do not', () => {
+test('U23: crowded windows wrap, vary by tick and cell, and are shared by a cell\'s observers, while within-budget results do not', () => {
     const def = definition({ maxScanPerCell: 2 }), rec = new A.AgentRecords(def);
-    for (let i = 0; i < 9; i++) rec.spawn(i, { position: [1, 0, 1], species: 0 });
-    const grid = gridFor(def, rec), seen = new Set();
-    for (let tick = 0; tick < 40; tick++) for (let i = 0; i < 9; i++) {
-        const start = A.gridWindow(i, tick) % 9, expected = [start, (start + 1) % 9].filter(j => j !== i).sort((a, b) => a - b);
-        const actual = [];
-        assert.equal(A.gridNearestNeighbours(def, rec, grid, i, 1, 4, 3, actual, tick), expected.length);
-        assert.deepEqual(actual, expected); seen.add(start);
+    // Two crowded cells, far apart. Each holds nine agents on one point, so every distance ties.
+    for (let i = 0; i < 18; i++) rec.spawn(i, { position: i < 9 ? [1, 0, 1] : [-13, 0, -13], species: 0 });
+    const grid = gridFor(def, rec), cells = [G.pointCell(def, 1, 1), G.pointCell(def, -13, -13)], seen = new Set();
+    let apart = 0;
+    for (let tick = 0; tick < 40; tick++) {
+        const starts = cells.map(cell => A.gridWindow(cell, tick) % 9);
+        seen.add(starts[0]);
+        if (starts[0] !== starts[1]) apart++;
+        for (let i = 0; i < 18; i++) {
+            // Every observer of a cell gets that cell's two entries, itself excepted.
+            const first = i < 9 ? 0 : 9, start = starts[i < 9 ? 0 : 1], actual = [];
+            const expected = [first + start, first + (start + 1) % 9].filter(j => j !== i).sort((a, b) => a - b);
+            assert.equal(A.gridNearestNeighbours(def, rec, grid, i, 1, 4, 3, actual, tick), expected.length);
+            assert.deepEqual(actual, expected);
+        }
     }
     assert.equal(seen.size, 9);
+    assert.ok(apart > 20, 'the two cells\' windows move together');
     const whole = { ...def, maxScanPerCell: 9 }, a = [], b = [];
     A.gridNearestNeighbours(whole, rec, grid, 0, 1, 4, 3, a, 0);
     A.gridNearestNeighbours(whole, rec, grid, 0, 1, 4, 3, b, 39);
@@ -131,7 +140,7 @@ test('U2/U3: crowded cells retain every index, count excess once, and bound the 
     const grid = gridFor(def, rec), out = [];
     assert.equal(grid.overflow, 4);
     assert.equal(grid.cellBodies.length, 6);
-    const start = A.gridWindow(0, 0) % 6;
+    const start = A.gridWindow(G.pointCell(def, 1, 1), 0) % 6;
     const expected = [start, (start + 1) % 6].filter(i => i !== 0).sort((a, b) => a - b);
     assert.equal(A.gridNearestNeighbours(def, rec, grid, 0, 1, 4, 3, out), expected.length);
     assert.deepEqual(out, expected);

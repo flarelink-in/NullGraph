@@ -5,7 +5,8 @@ import { AGENT_FLOATS, AGENT_FLAGS_OFFSET, AGENT_FLAG_ALIVE, AGENT_SPECIES_OFFSE
 import { type RecordViews } from './agentMath';
 import { gridWindow } from './agentGridWindow';
 
-/** Exact below the scan budget; overflowing cells intentionally expose the GPU's bounded scan. */
+/** Exact below the scan budget; overflowing cells intentionally expose the GPU's bounded scan,
+ * a window of the cell that rotates per cell and tick. */
 export function gridNearestNeighbours(
     def: AgentDefinition, rec: RecordViews, grid: PointGridMirror, i: number,
     mask: number, radius: number, k: number, out: { [n: number]: number }, tick = 0,
@@ -22,7 +23,7 @@ export function gridNearestNeighbours(
     for (let z = Math.max(0, cz - 1); z <= Math.min(cellsZ - 1, cz + 1); z++) {
         for (let x = Math.max(0, cx - 1); x <= Math.min(cellsX - 1, cx + 1); x++) {
             const c = z * cellsX + x, count = grid.cellCounts[c];
-            const start = count > def.maxScanPerCell ? gridWindow(i, tick) % count : 0;
+            const start = count > def.maxScanPerCell ? gridWindow(c, tick) % count : 0;
             for (let s = 0; s < Math.min(count, def.maxScanPerCell); s++) {
                 const j = grid.cellBodies[grid.cellOffsets[c] + (start + s) % count], b = j * AGENT_FLOATS;
                 if (j === i || !(rec.u32[b + AGENT_FLAGS_OFFSET] & AGENT_FLAG_ALIVE) ||
