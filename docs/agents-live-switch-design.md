@@ -23,7 +23,8 @@ uncommitted unless the user says otherwise.
 
 **Status:** decided with the user, 2026-10-14 (§12). Phase 10.0 measured on 2026-10-14 (results at
 the end). After it the user revised two decisions (§12): D5, Vite serves ONNX Runtime's own files;
-D6, no cap on the agents ORT runs over. Phases 10.1–10.5 follow (§13).
+D6, no cap on the agents ORT runs over. Phase 10.1 built on 2026-10-14 (results at the end); phases
+10.2–10.5 follow (§13).
 
 ---
 
@@ -292,7 +293,7 @@ rule.
 | Phase | Builds | Checked by |
 |---|---|---|
 | 10.0 ✅ | Spikes, no demo change: ONNX Runtime in the site's worker through Vite; the device switch over one `OffscreenCanvas` (D1); ONNX Runtime's time and memory at 4K–1M agents (D6); the run bracket's bias (§8) | Measurements, recorded here |
-| 10.1 | Plumbing: null-graph pushed to the site; `onnxruntime-web` 1.29.0 installed (D4), and left out of Vite's pre-bundling, so that Vite serves its files (D5); the two `.onnx` files exported and placed beside the `.mlp.json` (D2) | The site builds; the page loads as today |
+| 10.1 ✅ | Plumbing: null-graph pushed to the site; `onnxruntime-web` 1.29.0 installed (D4), and left out of Vite's pre-bundling, so that Vite serves its files (D5); the two `.onnx` files exported and placed beside the `.mlp.json` (D2) | The site builds; the page loads as today |
 | 10.2 | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
 | 10.3 | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
 | 10.4 | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
@@ -472,3 +473,57 @@ ahead of the run:
 - the default bundle with the prefix in a build;
 - ONNX Runtime 1.30.0;
 - the site's own worker and demo, which are phase 10.3's.
+
+## Phase 10.1 results — 2026-10-14: the plumbing
+
+**What changed in the site.** The site has no commits, so its changes are listed here, with what each
+file held before.
+
+| File | Now | Before |
+|---|---|---|
+| `package.json` | `"onnxruntime-web": "1.29.0"` among the dependencies, exact (D4) | No ONNX Runtime |
+| `package-lock.json` | Rewritten by npm to match `package.json`: null-graph is `file:.yalc/null-graph`, a link. Added: `onnxruntime-web` and `onnxruntime-common` 1.29.0, `flatbuffers` 25.9.23, `guid-typescript` 1.0.9, `platform` 1.3.6 | null-graph named as the registry's 1.0.5 |
+| `node_modules/null-graph` | A copy again, which yalc made (below). Between the install and that update it was a junction to `.yalc/null-graph`: npm 11 links a `file:` dependency to a folder | A copy, which yalc made |
+| `.yalc/null-graph`, `yalc.lock` | This repository's build at `a8d0107`, with the profiler's fix (signature `5fe8997d…`) | The user's push of 2026-10-14 (`451a1eca…`) |
+| `vite.config.ts` | `optimizeDeps.exclude: ['null-graph', 'onnxruntime-web']`, with a comment saying why (D5) | `['null-graph']` |
+| `HerdWolvesGPU/networks/prey.onnx`, `wolf.onnx` | New, 41,186 B each (D2) | — |
+
+- **How:**
+  - `npm install onnxruntime-web@1.29.0 --save-exact` (npm 11.6.2). A dry run first listed those
+    five packages and null-graph, and nothing else.
+  - `npm run agents:export -- --students <the demo's networks/> --out <the same folder>`.
+- **No source file of the site changed.**
+- **null-graph in the site.** The user pushed it with `npm run yalc:push` on 2026-10-14; its library
+  was that of `9320373`. To bring the profiler's fix (`a8d0107`), the site alone was then updated:
+  `yalc publish` here and `yalc update null-graph` there. The four other projects that `yalc:push`
+  reaches kept their copy (`docs/work/gotchas.md`).
+- **The update turned the junction back into a copy:** yalc deletes a link at
+  `node_modules/null-graph` (the link, not its target) and copies the package there. Both shapes
+  ran the demo, and the next `npm install` makes the junction again.
+
+**Checks:**
+- **The `.onnx` files hold the `.mlp.json` networks,** as 10.3's check will read them.
+  `mlpFromOnnx` reads each `.onnx` back as its `.mlp.json`'s layers, bit for bit (a scratch
+  script). The files are also byte for byte an export of the committed networks, and the site's
+  `.mlp.json` files equal those (SHA-256).
+- **The site builds:** `tsc` passes (35 s), and `vite build` passes into a scratch folder, so the
+  site's `dist/` was left alone. The build holds no ONNX Runtime: nothing imports it yet.
+- **The dev server serves ONNX Runtime's files from `node_modules`:**
+  `ort.webgpu.bundle.min.mjs` (799,159 B) and `ort-wasm-simd-threaded.asyncify.wasm`
+  (25,749,873 B, `application/wasm`). That is the user's dev server, which Vite restarted when its
+  config changed.
+- **null-graph's path in the dev server:** after the install, it was served from
+  `/.yalc/null-graph/dist/`, as source, with no `?v=` stamp (the junction). The yalc update then
+  reached the running server without a restart (`profiler.js?t=…`).
+- **The page loads as today.** `npm run drive` loaded `/dashboard/agents/herd-wolves-gpu` in Chrome
+  on the AMD iGPU three times: on the dev server through the junction, on the build
+  (`vite preview`, port 8091), and on the dev server after the yalc update. Each time:
+  - 4,096 agents on rules, at 60 fps;
+  - both species switched to Network and back;
+  - no error, in the page or the worker.
+
+  Screenshots, read by eye: the overlay names `network 24→64→64→64→2` for each species, then
+  rules again.
+
+**Not run:** ONNX Runtime in the site's own worker, and a build that serves it. Both arrive with
+10.3, when the worker first imports it.
