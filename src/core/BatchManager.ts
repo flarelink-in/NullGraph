@@ -185,6 +185,28 @@ export class BatchManager {
     }
 
     /**
+     * As createComputeStage, but the pipeline comes from createComputePipelineAsync: its compile
+     * does not hold the caller (agents-ort-design.md §12.1). A shader that does not compile rejects,
+     * naming the stage, with the device's message; it raises no uncaptured error.
+     */
+    public async createComputeStageAsync(config: ComputeStageConfig): Promise<ComputeStageNode> {
+        validateIndirectDispatch(config);
+        const stage = new ComputeStageNode(config), device = this.ctx.device;
+        // The scope catches the module's own error, which says what in the WGSL is wrong; the
+        // pipeline's rejection only says the module is invalid.
+        device.pushErrorScope('validation');
+        const module = device.createShaderModule({ label: config.name, code: config.shaderCode });
+        const pipeline = device.createComputePipelineAsync({ label: config.name, layout: 'auto', compute: { module, entryPoint: 'cs_main' } });
+        const scope = device.popErrorScope();
+        try {
+            stage.computePipeline = await pipeline;
+        } catch (error) {
+            throw new Error(`NullGraph: compute stage "${config.name}" did not compile: ${((await scope) ?? error as Error).message}`);
+        }
+        return stage;
+    }
+
+    /**
      * NEW: Attaches a bind group to a standalone compute stage.
      */
     public setComputePassBindGroup(stage: ComputeStageNode, entries: GPUBindGroupEntry[], groupIndex: number = 0): void {

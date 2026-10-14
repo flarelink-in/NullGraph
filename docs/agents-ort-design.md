@@ -54,7 +54,11 @@ read separate weight files."
   frames, no `mapAsync` outside the inspector and no GPU error; every frame acted on actions one
   frame old, except 1 of 300 in Chrome at the display's pace (three host/GPU pairs). A6 also found
   a fault of ONNX Runtime under graph capture, and a leak; capture is now off by default (item 6).
-- Phases 9.5–9.6 follow (§13).
+- **Phase 9.5 was built on 2026-10-14:** core's `createComputeStageAsync` and
+  `agents.prepareBrain`. On three host/GPU pairs, `setBrain` of a prepared brain takes 0.11–0.65
+  ms; compiled inside `setBrain`, the same MlpBrain pass froze a frame for 240 ms (Node/NVIDIA)
+  and 1,759 ms (Node/AMD), and prepared, it compiled while frames went on (A33).
+- Phase 9.6 follows (§13).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -533,7 +537,7 @@ location it was not given.
 | Not a brain (added in 9.3) | `AgentSystem: a brain is a stage brain, or an async brain with bind() and run().` (replaces "async brains are deferred to C2") |
 | Model name (added in 9.3) | `OrtBrain: the model has no <input\|output> "<n>"; it has <names>.` |
 | Preparation pending | `AgentSystem: this brain is still being prepared; await prepareBrain(brain) before setBrain(brain).` |
-| A pass that does not compile | `NullGraph: compute stage "<name>" did not compile: <the device's message>.` (from `createComputeStageAsync`; `prepareBrain` passes it on) |
+| A pass that does not compile | `NullGraph: compute stage "<name>" did not compile: <the device's message>` (from `createComputeStageAsync`; `prepareBrain` passes it on). As built in 9.5: the message is the shader module's own error, caught in a validation scope, else the pipeline's; nothing is added after it |
 | Data file not given | `mlpFromOnnx: initializer "<n>" is stored outside the file, in "<where>"; pass that file, { externalData: [{ path: '<where>', data }] }, or export with the weights inside it (PyTorch: external_data=False).` (Step 8's message, with the first way out added.) |
 | Outside the data file | `mlpFromOnnx: initializer "<n>" reads <length, or "the rest"> B at offset <offset> of "<where>", which holds <size> B.` (as built; the offset and length as the file writes them) |
 | Wrong length | `mlpFromOnnx: initializer "<n>" is [<dims>] but holds <m> values.` (as built: step 8's message for the same fault inside the file) |
@@ -603,7 +607,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 | 9.2 ✅ | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
 | 9.3 ✅ | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
 | 9.4 ✅ | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded. Added: capture off by default (§14, item 6), and faults 3 and 4 in `spike:ort-issues` | A6, U32 | one |
-| 9.5 | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
+| 9.5 ✅ | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
 | 9.6 | The guides: `docs/api/inference.md` gains ORT and external data, with checked examples; the agents guide gains `prepareBrain`; the parent's facts 15–16, §9.4, §11 and §12.3 | the examples' tests | one |
 
 Each phase leaves every suite green. Every new test is watched failing first.
@@ -1140,3 +1144,81 @@ condition); the reader 2,846 B, line 2,900 B; the agents entry 19,929 B, unchang
 15/15 on Node/NVIDIA, Node/AMD and Chrome/AMD.
 **Not run:** A6 with graph capture on (fault 3); the agents GPU suite and `onnx` (nothing they run
 changed); 1.30.0 in Chrome, on AMD, or through any suite but `inference`; Chrome on NVIDIA.
+
+## Phase 9.5 results — 2026-10-14: prepared brains
+
+**Built:**
+- **Core** (`src/core/BatchManager.ts`, `src/core/NullGraph.ts`):
+  `engine.createComputeStageAsync(config)`. The stage `createComputeStage` makes, with its pipeline
+  from `createComputePipelineAsync`, registered the same way. The shader module is made inside a
+  validation error scope: a shader that does not compile rejects with §11's message, carrying the
+  module's own error, and raises no uncaptured error. The indirect-dispatch checks reject.
+- **Agents** (`src/extras/agents/AgentSystem.ts`): `agents.prepareBrain(brain)`, as §8.6 has it.
+  - It checks the brain as `setBrain` does, binds an async brain, compiles the think pass with
+    `createComputeStageAsync`, then makes its species mask and bind groups, and keeps the pass,
+    disabled and in no chain, while the system lives.
+  - `setBrain` of a prepared brain compiles nothing: it puts the kept pass in the chains and
+    writes the mask. A prepared brain keeps its pass and mask when it serves no species.
+  - Preparing again returns the first promise; `setBrain` while it is pending is refused (§11).
+  - `attach` and `prepareBrain` share one check (`check`) and one way to make a pass
+    (`thinkPass`); a brain never prepared behaves as before.
+- **Tests:** U34, two tests in `test/core-compute.test.mjs`; U35, four tests in
+  `test/agents-system.test.mjs`; A33 in the `inference` GPU suite. `test/spikes/mlp-think-cost/size.mjs`
+  gains a line for core's entry.
+
+**Measured, A33** (Herd & Wolves, 4,096 agents, frames at the display's pace; `setBrain` compiling
+in a system with `thinkEvery: 4`, `prepareBrain` in one with `thinkEvery: 5`, so that every pass is
+new to the device's pipeline cache):
+
+| | Node · NVIDIA | Node · AMD | Chrome · AMD |
+|---|---|---|---|
+| `setBrain` compiling, the frame it ran in: MlpBrain; OrtBrain | 240 ms; 63 ms | 1,759 ms; 35 ms | 17 ms; 21 ms |
+| `prepareBrain` of the MlpBrain: call to resolution; frames meanwhile; the longest | 236 ms; 13; 39 ms | 1,896 ms; 90; 200 ms | 255 ms; 16; 20 ms |
+| `prepareBrain` of the OrtBrain: the same | 41 ms; 1; 41 ms | 15 ms; 1; 30 ms | 17 ms; 1; 26 ms |
+| `setBrain` of the prepared MlpBrain; OrtBrain; the MlpBrain again after a detach | 0.24; 0.65; 0.31 ms | 0.13; 0.52; 0.29 ms | 0.17; 0.17; 0.11 ms |
+| 3,840 prey against their network after the switch: MlpBrain; OrtBrain | 3.9e-5; 1.9e-5 | 2.5e-6; 6.9e-6 | 6.7e-6; 1.4e-5 |
+| GPU errors | 0 | 0 | 0 |
+
+- A frame is the time from its start to the next one's: about 31 ms under Node's 60 Hz timer and
+  16.7 ms in Chrome when nothing stalls.
+- **Under Node, `prepareBrain` removes the stall.** On AMD the MlpBrain's compile took 1.9 s
+  either way; prepared, frames went on, and the longest took 200 ms, once, against 1,759 ms in
+  `setBrain`. On NVIDIA the stall measured 240 ms here and 112 ms in another run.
+- **In Chrome the main thread never stalled:** Chrome compiles in its GPU process even for the
+  synchronous call, so `setBrain` compiling cost its frame 17 ms. What it costs the GPU's timeline
+  is not measured here.
+- The OrtBrain's pass is the small copy pass: tens of milliseconds either way.
+
+**Watched failing.** Nine mutations of the built entries, one at a time, each caught by the test
+meant for it:
+- U34: the pipeline made with the synchronous call; the module made outside the error scope.
+- U35: `setBrain` ignoring a kept pass; a detach releasing a kept mask; `setBrain` not refusing a
+  pending preparation; preparing again compiling again; a failed preparation never forgotten;
+  `prepareBrain` compiling synchronously.
+- A33, on Node/NVIDIA: `setBrain` ignoring a kept pass (the design's mutation, "setBrain
+  recompiling a prepared brain"): the prepared brains took 78 ms, 12 ms and 78 ms.
+
+**Differs from the design, or adds to it:**
+- `setBrain` binds an async brain again even when it was prepared: binding re-seeds its results
+  from the actions agents have, without which a species would act on the actions it had at
+  preparation until the first run lands. Binding is not compiling.
+- Preparing a brain already attached keeps its pass, and compiles nothing.
+- A preparation that fails is forgotten: `setBrain` then compiles as for any brain, and
+  `prepareBrain` may try again. One still pending at `agents.destroy()` resolves, and keeps
+  nothing.
+- `prepareBrain` is not an `async` function, so that it can return the first promise. Refusals
+  known at once (destroyed, device, dims, binding) throw at the call.
+- `createComputeStageAsync` makes its module inside a validation error scope (§11), so that the
+  message says what is wrong in the WGSL. A33 also checks the prepared passes' results.
+
+**Sizes, min+gzip** (`node test/spikes/mlp-think-cost/size.mjs`): core's entry 6,191 B, +126 B
+(estimate 60–100 B; the error scope is 31 B of it); the agents entry 20,209 B, +280 B (estimate
+150–250 B), of C2's 21,495 B; the rule path 14,464 B, +280 B. The inference entry is unchanged:
+5,626 B, the adapter with `OrtBrain` 2,988 B of its 3,000 B.
+
+**Also green:** headless core (compute and headless), agents (reference + 83), inference 21/21,
+agent-kit (4); the `inference` GPU suite 16/16 on Node/NVIDIA, Node/AMD and Chrome/AMD; the agents
+GPU suite 137/137 on all three (`AgentSystem` changed); every Node GPU suite, 14 of 14, on the
+default adapters (core changed).
+**Not run:** Chrome on NVIDIA; ONNX Runtime 1.30.0 for this phase's tests; the GPU timeline's
+cost of Chrome's compiles (A33 times the main thread only).

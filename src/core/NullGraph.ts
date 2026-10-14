@@ -131,6 +131,16 @@ export class NullGraph {
         return stage;
     }
 
+    /**
+     * The same stage as createComputeStage, compiled with createComputePipelineAsync: frames can go
+     * on while it compiles. A shader that does not compile rejects with an error naming the stage.
+     */
+    public async createComputeStageAsync(config: ComputeStageConfig): Promise<ComputeStageNode> {
+        const stage = await this.batchManager.createComputeStageAsync(config);
+        this.computeStages.push(stage);
+        return stage;
+    }
+
     public createBatch(pass: RenderPassNode, config: PipelineConfig): RenderBatch {
         const batch = this.batchManager.createBatch(pass, config);
         this.batches.push(batch);

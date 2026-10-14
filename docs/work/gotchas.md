@@ -152,3 +152,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   such as a fake session's run nobody settles, hangs the whole run with no output (2026-10-14, phase
   9.1). Run new tests with `--test-timeout=60000`, and make a fake's pending promise fail fast in
   the test itself (race it against a tick).
+- **A pipeline cache makes a second compile of the same WGSL almost free.** A brain's think WGSL
+  depends on the network's shape, not its weights, and on the system's definition and
+  `thinkEvery`: Herd & Wolves' prey and wolf networks compile to the same text, and an OrtBrain's
+  copy pass is the same text everywhere. To time a compile, give it WGSL the device has not seen;
+  A33 uses systems whose `thinkEvery` no other test uses.
+- **In Chrome, `createComputePipeline` does not hold the main thread.** Chrome compiles in its GPU
+  process even for the synchronous call, so main-thread frame times show no compile stall (17 ms
+  in A33). Under Node/Dawn the same compile froze a frame for 0.1 to 1.8 s. Time compile stalls
+  under Node, or look at the GPU's timeline.

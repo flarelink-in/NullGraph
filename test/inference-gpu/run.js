@@ -580,6 +580,103 @@ fn step(i: u32, tick: u32) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// A33 (phase 9.5): brains prepared in the background, with frames running
+// ---------------------------------------------------------------------------
+// Two Herd & Wolves systems, frames at the display's pace. In the first, setBrain compiles an
+// MlpBrain's think pass inside a frame, then an OrtBrain's: those frames are the stall prepareBrain
+// exists to remove. In the second, prepareBrain compiles the same two passes while frames go on,
+// and the longest frame meanwhile is reported beside the stall. Then setBrain of each prepared
+// brain, and of the MlpBrain again after it was detached, must take under 2 ms, and the prey must
+// act as their network says. A pipeline cache makes a second compile of the same WGSL free, so each
+// system has a thinkEvery no other test here uses (4 and 5): the WGSL of its passes is new.
+{
+    const frame = async (agents, before) => {
+        const t0 = performance.now();
+        before?.();
+        agents.advance(agents.definition.dt);
+        engine.render(agents.getComputeStages());
+        await nextFrame('display');
+        return performance.now() - t0;
+    };
+    const frames = async (agents, n) => { for (let f = 0; f < n; f++) await frame(agents); };
+    /** prepareBrain called inside a frame, then frames until it settles: the longest of them, and how long it took. */
+    const preparing = async (agents, brain) => {
+        let promise, done, t0;
+        const times = [await frame(agents, () => {
+            t0 = performance.now();
+            promise = agents.prepareBrain(brain);
+            promise.then(() => { done = performance.now(); }, () => { done = performance.now(); });
+        })];
+        while (done === undefined && times.length < 2000) times.push(await frame(agents));
+        await promise;
+        return { longest: Math.max(...times), frames: times.length, ms: done - t0 };
+    };
+    /** After thinkEvery lockstep steps every agent has thought: each prey must act as `network` says on its observations. */
+    const preyAs = async (herd, network) => {
+        for (let s = 0; s < herd.options.thinkEvery; s++) await within(herd.agents.step(), 'a lockstep step');
+        const { agents, definition: { obsDim, actDim, capacity } } = herd, PREY = herd.definition.speciesIndex('prey');
+        const [records, obsWords, actWords] = await readBuffers(device, [agents.buffer, agents.obs, agents.act]);
+        const obs = f32(obsWords), act = f32(actWords);
+        let worst = 0, rows = 0;
+        for (let i = 0; i < capacity; i++) {
+            if (!isAlive(records, i) || herd.speciesOf(i) !== PREY) continue;
+            rows++;
+            mlpForward(network, obs.subarray(i * obsDim, (i + 1) * obsDim)).forEach((v, j) => { worst = Math.max(worst, Math.abs(v - act[i * actDim + j])); });
+        }
+        return { worst, rows };
+    };
+    const timed = action => { const t0 = performance.now(); action(); return performance.now() - t0; };
+    const ms = v => `${v < 10 ? v.toFixed(2) : v.toFixed(0)} ms`;
+    const label = 'A33: brains prepared while frames run; setBrain of a prepared MlpBrain and OrtBrain, and of the MlpBrain again after a detach, takes under 2 ms; the prey act as their network says; no GPU error';
+    const errors = [], onError = ev => errors.push(String(ev.error?.message ?? ev.error).split('\n')[0]);
+    const herds = [], brains = [], models = [];
+    device.addEventListener('uncapturederror', onError);
+    try {
+        const [compiling, prepared] = [4, 5].map(thinkEvery => { const herd = createHerd(engine, { thinkEvery }); herds.push(herd); return herd; });
+        for (let k = 0; k < 2; k++) models.push(await within(runtime.load(onnxOf('prey')), 'load prey.onnx'));
+        const [mlpA, mlpB] = [0, 1].map(() => new MlpBrain(engine, networks.prey));
+        const [ortA, ortB] = models.map(model => new OrtBrain(model));
+        brains.push(mlpA, mlpB, ortA, ortB);
+        const prey = { species: 'prey' };
+
+        // setBrain compiling, inside a frame.
+        await frames(compiling.agents, 20);
+        const stallMlp = await frame(compiling.agents, () => compiling.agents.setBrain(mlpA, prey));
+        await frames(compiling.agents, 10);
+        const stallOrt = await frame(compiling.agents, () => compiling.agents.setBrain(ortA, prey));
+        await frames(compiling.agents, 10);
+
+        // prepareBrain while frames go on, then setBrain of the prepared brains.
+        await frames(prepared.agents, 20);
+        const prepMlp = await preparing(prepared.agents, mlpB);
+        const setMlp = timed(() => prepared.agents.setBrain(mlpB, prey));
+        const asMlp = await preyAs(prepared, networks.prey);
+        const prepOrt = await preparing(prepared.agents, ortB);
+        const setOrt = timed(() => prepared.agents.setBrain(ortB, prey));
+        await frames(prepared.agents, 10);
+        const asOrt = await preyAs(prepared, networks.prey);
+        const back = timed(() => prepared.agents.setBrain(mlpB, prey));
+        await frames(prepared.agents, 10);
+        await device.queue.onSubmittedWorkDone();
+
+        log(`   A33 setBrain compiling, the frame it ran in: MlpBrain ${ms(stallMlp)}, OrtBrain ${ms(stallOrt)}`);
+        log(`   A33 prepareBrain while frames ran: MlpBrain ${ms(prepMlp.ms)} over ${prepMlp.frames} frames, the longest ${ms(prepMlp.longest)}; ` +
+            `OrtBrain ${ms(prepOrt.ms)} over ${prepOrt.frames} frames, the longest ${ms(prepOrt.longest)}`);
+        check(label, setMlp < 2 && setOrt < 2 && back < 2 && asMlp.worst <= 1e-4 && asOrt.worst <= 1e-4 && asMlp.rows > 0 && errors.length === 0,
+            `setBrain of the prepared MlpBrain ${ms(setMlp)}, OrtBrain ${ms(setOrt)}, the MlpBrain again ${ms(back)}; ` +
+            `${asMlp.rows} prey against their network: ${asMlp.worst.toExponential(1)} on MlpBrain, ${asOrt.worst.toExponential(1)} on OrtBrain; ` +
+            `GPU errors: ${errors.length}${errors.length ? ` (${errors[0]})` : ''}`);
+    } catch (e) {
+        check(label, false, message(e));
+    } finally {
+        device.removeEventListener('uncapturederror', onError);
+        for (const herd of herds) herd.destroy();
+        for (const brain of brains) brain.destroy();
+        for (const model of models) await model.destroy();
+    }
+}
+
 // Only the runtime ends the device: its destroy releases model C, then the anchor. What ONNX
 // Runtime then does with its device is its own; it is reported, not checked.
 try {
