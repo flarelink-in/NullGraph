@@ -23,8 +23,8 @@ uncommitted unless the user says otherwise.
 
 **Status:** decided with the user, 2026-10-14 (§12). Phase 10.0 measured on 2026-10-14 (results at
 the end). After it the user revised two decisions (§12): D5, Vite serves ONNX Runtime's own files;
-D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14, and 10.3 on
-2026-10-15 (results at the end); phases 10.4 and 10.5 follow (§13).
+D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14, and 10.3 and
+10.4 on 2026-10-15 (results at the end); phase 10.5 follows (§13).
 
 ---
 
@@ -207,12 +207,12 @@ As built under B:
 | On screen | Measured as | Notes |
 |---|---|---|
 | Each group's GPU time per step: grid, neighbours, sense, think, act + rules | The overlay's timestamp passes between groups of the first step (fact 6), with sense and think in groups of their own | Think is every brain's pass, both species together; the overlay names who decides for each |
-| ONNX Runtime's run, GPU | A timestamp pass after the frame's work and another when the run resolves: the run is queued between them | Includes any time the GPU waits for ONNX Runtime's submission; phase 10.0 measures that against step 9's bracket |
-| ONNX Runtime's run, main thread | From `run()` to its resolution, as A6 measured | 0.6–0.8 ms in step 9 |
-| Latency | Stated: "acts on the frame before" (A6: 299 of 300 frames in Chrome) | Not measured live: it needs a marker the real network cannot carry |
+| ONNX Runtime's run, GPU | ~~A timestamp pass after the frame's work and another when the run resolves~~. **As built (phase 10.4):** each of ONNX Runtime's submissions during the runs, with a timestamp pass before and after it; a frame's runs summed, then divided by their number | Its own work only. The two marks first planned here counted the GPU idling while ONNX Runtime waits for its error check after each run (phase 10.4 results) |
+| ONNX Runtime's run, wall time | ~~From `run()` to its resolution~~. **As built:** from its start, at the end of the frame, or from its turn in ONNX Runtime's line, to its resolution | 0.6–0.8 ms in step 9, in a page; in the site's worker, several ms, mostly that error check |
+| Latency | ~~Stated: "acts on the frame before"~~. **As built:** measured, as the frames from the one that asked for the runs to the first one after ONNX Runtime's last submission for them | Not A6's marker method: it says when the results can first be acted on |
 | The last switch | `performance.now()` around `setBrain` | Under 1 ms when prepared |
-| ONNX Runtime's start-up | Its import, `OrtRuntime.create`, each model's load and warm-up run, shown once | The device switch's pause, broken down |
-| Runs per second | Runs started per wall second | With `thinkEvery: 3` at 60 steps a second, 20 |
+| ONNX Runtime's start-up | Its import, `OrtRuntime.create`, the switch, and each model's first load and first run, shown while a species runs on it | The device switch's pause, broken down |
+| Runs per second | Runs resolved per wall second, per species, over the last 2 s | With `thinkEvery: 3` at 60 steps a second, 20 |
 
 The page's performance widget keeps showing the frame's CPU and GPU time. An ORT run lands
 between two frames' measurements, so the widget's GPU time does not include it; the overlay's
@@ -303,7 +303,7 @@ copies from here: its rule, networks and `.onnx` files.
 | 10.1 ✅ | Plumbing: null-graph pushed to the site; `onnxruntime-web` 1.29.0 installed (D4), and left out of Vite's pre-bundling, so that Vite serves its files (D5); the two `.onnx` files exported and placed beside the `.mlp.json` (D2) | The site builds; the page loads as today |
 | 10.2 ✅ | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
 | 10.3 ✅ | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
-| 10.4 | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
+| 10.4 ✅ | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
 | 10.5 | The stress test with ORT at every count (D6), under the timeout guard (§9); the site's documentation page; the guides' pointer to the demo | Drive at each count; step 10 closed, and with it C2 |
 
 Each phase leaves the demo running. Every check is watched failing first, where a check can fail.
@@ -736,3 +736,119 @@ step 9 measured it at 240–1,759 ms (A33).
 - **counts above 16K with ORT** (phase 10.5). At 1M, the demo's guard refused the build on this
   iGPU: about 2.0 s per step predicted, over its 600 ms limit;
 - **Chrome on NVIDIA, and other browsers** (Deferred).
+
+## Phase 10.4 results — 2026-10-15: the timings
+
+**First, the library's line** (`work/plan.md` §5, item 14, decided B;
+[`agents-ort-design.md`](./agents-ort-design.md), "After step 9"):
+- **The site's null-graph:** updated alone to this repository's build with `OrtRuntime`'s line
+  (`yalc publish` here, `yalc update null-graph` there; signature `f89220ed…`, was `5fe8997d…`).
+  Its `.yalc` and `node_modules` copies equal the published build, file for file.
+- **The demo's own queue of 10.3 is gone:** its line, its wrapper of each model's `run`, and its
+  queued loads and releases.
+- **Checked:** both species picked for ORT at once, the case that broke ONNX Runtime in 10.3, ran
+  clean, and so did 10.3's whole script (12 switches compiled ahead, 0.0–0.5 ms).
+
+**What changed in the site:**
+
+| File | Now | Before |
+|---|---|---|
+| `HerdWolvesGPU/index.ts` | The step's groups: grid, neighbours, sense, think, act + rules. ONNX Runtime's runs timed (below), with four overlay lines while a species runs on it. The overlay has 16 lines; its last ones may be 60 em wide. Two console lines per brain set: the step's groups, and ONNX Runtime's runs | Four groups (sense and think together); runs untimed; 11 lines |
+| `HerdWolvesGPU/runProbe.ts` | New: `RunProbe`, timestamps around ONNX Runtime's submissions | — |
+| `…/controls/herd-gpu-controls.tsx` | The ONNX Runtime caption says the overlay shows what each run costs, and the start | 10.3's caption |
+
+**How ONNX Runtime's runs are timed** (§8, as built):
+- **The runs start at the end of the frame.** Each `OrtBrain`'s `run` is wrapped: the system asks
+  for a run in `advance()` as before, and the run starts in a microtask after the frame's task
+  (`afterRender`, then the engine's profiler). ONNX Runtime submits its GPU work only after that
+  task anyway, so the GPU's order and the actions do not change.
+- **ONNX Runtime's GPU work is bracketed.** While the runs being timed are under way, every
+  submission outside a frame's own code is ONNX Runtime's: the system starts no other run of a
+  brain while one is in flight. So the demo wraps the device queue's `submit` and puts a
+  timestamp pass before and after each of them. Their spans, summed over the frame's runs and
+  divided by their number, are one run's work. Each run is the same network shape over every
+  agent. A measurement may outlast its frame, at large counts; one open for 2 s is dropped. Then
+  the engine's profiler's small submission at the next frame's start, before the demo's code, is
+  bracketed with ONNX Runtime's.
+- **`run()`** is timed from its start, or from its turn in ONNX Runtime's line (the run ahead of
+  it resolving), to its resolution: the median of the last 20.
+- **Latency:** the frames from the one that asked for the runs to the first one after ONNX
+  Runtime's last submission for them. Not A6's marker method: it says when the results can first
+  be acted on.
+- **Runs per second:** resolutions per species over the last 2 s.
+- **The start:** `EngineCore`'s parts (import, `OrtRuntime.create`, the switch), and each species'
+  first model on the page: its load and prepare, and its first run.
+
+**The overlay,** read by eye (screenshots), at 16,384 agents with both species on ONNX Runtime, on
+the build:
+- `grid 0.78 · neighbours 2.52 · sense 0.34 · think 0.18 · act + rules 0.26 ms`;
+- `ONNX Runtime per run, outside the steps: 3.35 ms of GPU work · run() prey 3.00 ms, wolves 0.80 ms`;
+- `runs a second: prey 18, wolves 18 · actions 1 frame late · run(): its start to its end, waits included`;
+- `ONNX Runtime started in 664 ms: import 20 ms, create 583 ms (its WASM and device), engine moved 61 ms`;
+- `its first models: prey loaded in 102 ms, first run 145 ms · wolf loaded in 104 ms, first run 145 ms`;
+- then the last switch. On Network or the rules, the four lines are not shown. At 64K the second
+  line read `actions 2 frames late`.
+
+**Found in 10.4:**
+1. **ONNX Runtime 1.29 checks for GPU errors in every run.** A temporary probe of the worker's
+   calls during runs counted one `popErrorScope` per run, and no timer. Waiting for that answer, a
+   round trip to Chrome's GPU process, is the likely cause of what follows; it was not measured
+   apart. A run resolves several milliseconds after it starts at 4K and 16K, and 80–160 ms after at
+   64K, where the GPU is backlogged, while its own GPU work at 4K is 1.0–1.5 ms.
+2. **So §8's two marks measured mostly the GPU idling.** With a mark after the frame's work and
+   one when the run resolved, a run read 2.6–3.2 ms at 4K. Started at the frame's end, it read
+   5.9 ms, about its `run()` time, against 1.0–1.5 ms bracketed. At 16K the frame's own GPU work
+   kept the GPU busy for most of the run: 3.6–4.1 ms. The demo brackets ONNX Runtime's submissions
+   instead.
+3. **`run()` timed from its call in `advance()` counted the rest of the frame's code,** since ONNX
+   Runtime goes on only after the frame's task: 4.7–5.9 ms at 4K. It is now timed from its start.
+4. **With the line, a species' run waits for the other's whole call.** At 64K the second run's
+   work is queued up to two frames after the frame that asked: the actions land 2 to 3 frames
+   late. At 4K and 16K, 1 frame late.
+5. **The first `run()` of a frame takes longer than the second:** at 4K, 2.9–6.6 ms against
+   0.9–2.7 ms. The second starts when the first resolves; why it is quicker was not measured.
+
+**The numbers** (Chrome on the AMD iGPU; both species on one brain; GPU ms; dev server / build):
+
+| Agents | Think, rules | Think, network | Think, ORT (its copy pass) | ORT, GPU work per run | ORT, `run()`: prey; wolves | Actions late |
+|---|---|---|---|---|---|---|
+| 4,096 | 0.13 / 0.14 | 0.82 / 1.29 | 0.10–0.14 / 0.10–0.12 | 1.10–2.07 / 1.01–1.17 | 3.5–6.6 / 2.9–3.4; 1.0–2.7 / 0.9–1.1 | 1 |
+| 16,384 | 0.33 / 0.19 | 3.12 / 2.83 | 0.27 / 0.21 | 4.28 / 3.64 | 5.4 / 3.4; 2.0 / 1.0 | 1 |
+| 65,536 | 0.71 / 0.66 | 13.49 / 10.21 | 0.71 / 0.99 | 17.59 / 15.38 | 107 / 96; 133 / 149 | 3 / 2 |
+
+- **The start:** 961 ms on the dev server (import 51 ms, `OrtRuntime.create` 830 ms, the switch
+  81 ms) and 664 ms on the build (20 ms, 583 ms, 61 ms). The first models: 101–105 ms each to
+  load and prepare, and 145–218 ms for the first runs.
+- **ONNX Runtime's GPU work against phase 10.0's bracket** (991 µs, 3,271 µs and 12,648 µs, in a
+  spike with no simulation running): 1.0–2.1, 3.6–4.3 and 15.4–17.6 ms. Higher at 16K and 64K, by
+  11–39%; why was not measured.
+- **Per step, at `thinkEvery: 3`,** the network's passes compute a third of the agents each step,
+  and each ORT run computes every agent, every third step, once per species. So ORT's work per
+  step is two runs over three: 0.7–1.4, 2.4–2.9 and 10.3–11.7 ms, against the built-in kernel's
+  0.8–1.3, 2.8–3.1 and 10.2–13.5 ms. Per network evaluation, ORT took 235–268 ns at 64K and the
+  built-in kernel 467–617 ns. ORT's kernels do each evaluation for about half, and do twice as
+  many: each species' run covers every agent.
+- **The steps themselves at 64K:** the neighbours group takes 60–70 ms on every brain, the rules'
+  included. It is the demo's own query cost at that size on this iGPU, not ONNX Runtime's.
+
+**Checks:**
+- **The site's own:** `tsc` passes; ESLint reports nothing in the demo's folder and the controls;
+  Prettier: the new code is formatted as the site's (the older differences left as they were).
+- **`check-site.mjs`:** 16/16.
+- **The build** (`vite build`, 101 s): `null-graph/inference`'s chunk is 13,710 B (13,516 B before
+  the line); ONNX Runtime's chunk, its `.wasm` and the `.onnx` files as before.
+- **The drive,** in Chrome on the AMD iGPU, once on the dev server and once on the build: rules,
+  Network and ONNX Runtime for both species at 4K; ONNX Runtime, Network and the rules at 16K;
+  the rules, Network and ONNX Runtime at 64K; then 4K. Each stage waits for its console lines, so
+  every number above is a full window. Clean both times: 41 steps, 10 screenshots, no error in the
+  page or the worker.
+- **Watched failing:** the timing itself. The two marks of §8 read 2–5× ONNX Runtime's bracketed
+  work at 4K (finding 2). The probe that found why (finding 1) was removed after one run.
+- **Headless suites,** on this repository's build: agents 83/83, inference 24/24, core, profiler,
+  agent-kit 4/4.
+
+**Not run:**
+- **256K and 1M with ORT,** and the guard over ORT's run (phase 10.5);
+- **the site in another browser, or on the NVIDIA GPU** (Chrome on Windows takes the iGPU);
+- **why ONNX Runtime's runs cost more in the demo than in phase 10.0's spike;**
+- **latency by A6's marker method:** the real networks cannot carry a marker.

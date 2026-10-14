@@ -12,17 +12,21 @@ log, not here.
   - **10.0–10.3 committed** (`9320373`, `22b67f8`, `ab3d9e1`, `072224d`). After 10.0 the user
     revised D5 (Vite serves ONNX Runtime's files) and D6 (no cap; the timeout guard still covers it).
   - **`OrtRuntime` takes ONNX Runtime's calls one at a time** (`plan.md` §5, item 14, decided B;
-    this commit): U36; A34 on three host/GPU pairs; the adapter's line 3,100 B. The site has it;
-    the demo's own queue is gone.
-  - **10.4 is built in the site too;** its records follow in the next commit.
-- **Next action:** commit 10.4's records (the user asked for two commits); then 10.5: ORT at every
-  count under the timeout guard, the site's documentation page, the guides' pointer.
+    `f8c4935`): U36; A34 on three host/GPU pairs; the adapter's line 3,100 B. The site has it; the
+    demo's own queue is gone.
+  - **10.4 built, in the site, and recorded here** (the commit after `f8c4935`; "Phase 10.4
+    results"): sense and think apart; ONNX Runtime's own GPU work per run (its submissions
+    bracketed), its `run()` time, runs a second, the actions' lateness, its start. §8's two marks
+    counted the GPU idling while ONNX Runtime checks for errors after each run.
+- **Next action:** 10.5: ORT at every count under the timeout guard, the site's documentation
+  page, the guides' pointer. After C2, the user's direction for brains is in `plan.md` (scope
+  changes, 2026-10-15): keep ORT as the reference, widen `MlpBrain` for the 3D cases.
 
 ## State of the repositories
 
 - **null-graph** (`master`, not pushed).
 - **The site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, no commits). The design's
-  10.1–10.3 results list every change there and what it replaced:
+  10.1–10.4 results list every change there and what it replaced:
   - its null-graph is this repository's build with the queue (yalc signature `f89220ed…`), updated
     in the site alone (`yalc:push` reaches five projects); restart a dev server with `--force`;
   - `node_modules/null-graph` is a copy (`gotchas.md`);
@@ -35,6 +39,7 @@ log, not here.
   Remove its `node_modules` junction first with `cmd /c rmdir`, then `git worktree remove`.
 - **Green on 2026-10-15:** the headless suites (agents 83, inference 24, core, agent-kit 4,
   profiler); the `inference` GPU suite, 17/17 on Node/NVIDIA, Node/AMD and Chrome/AMD;
-  `check-site.mjs`, 16/16. The core GPU suite last ran on 2026-10-14 (8/8 on the same three pairs).
+  `check-site.mjs`, 16/16; the demo's drive, clean on the dev server and on a build. The core GPU
+  suite last ran on 2026-10-14 (8/8 on the same three pairs).
 - **Bundle:** core 6,191 B; agents 20,209 B (C2 ceiling 21,495 B); the inference entry: reader
   2,847 B (line 2,900 B), adapter with `OrtBrain` 3,064 B (line 3,100 B).

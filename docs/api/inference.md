@@ -364,6 +364,10 @@ frame. The message starts with the class that refused it.
   NVIDIA GPU and 1.5–1.7 ms on an AMD iGPU, 3× to 8× the built-in kernel's (up to 10× at 100,000
   agents). Run every frame, that is 8–10% of a 60 fps frame on the iGPU; `thinkEvery: 2` halves
   it. The main thread spends 0.6–0.8 ms per run.
+- **`run()` can resolve well after the GPU is done.** ONNX Runtime checks for GPU errors in every
+  run. In the test site's Herd & Wolves demo (Chrome, a worker, the trained 24→64→64→64→2
+  networks), `run()` took 3–7 ms at 4,096–16,384 agents for 1–4 ms of GPU work, and 80–160 ms at
+  65,536, where the GPU was busy. A timestamp written when `run()` resolves counts that wait.
 
 ## Current validation
 

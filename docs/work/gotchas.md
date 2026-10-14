@@ -233,6 +233,17 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
     Runtime directly, or through a second runtime, are outside that line: keep them apart.
   - **Cause, not verified:** Vite serves ONNX Runtime's asyncify build, which can suspend one call
     at a time.
+- **Timing ONNX Runtime's runs** (phase 10.4, the site's worker in Chrome):
+  - **A run resolves long after its GPU work is done.** ONNX Runtime 1.29 pops a GPU error scope
+    in every run (`popErrorScope`, counted by a probe of the worker's calls). A run took 3–7 ms of
+    wall time at 4K, 80–160 ms at 64K, for 1–18 ms of GPU work. Step 9 measured 0.6–1.0 ms in a
+    page.
+  - **So a timestamp at the run's resolution counts the GPU idling.** Bracket ONNX Runtime's own
+    submissions instead: while only its runs are under way, wrap the queue's `submit` and mark
+    before and after each (the demo's `runProbe.ts` and `index.ts`).
+  - **A run started inside a frame goes on only after the frame's task.** Timing `run()` from its
+    call there counts the rest of the frame's code: start it at the frame's end, or time it from
+    there.
 - **Herd & Wolves' overlay wraps a line wider than 44 em into the slot below** (`maxWidth: 44` in
   `refreshHud`; `TextSystem.setLabel` reports no line count). Phase 10.3 found ONNX Runtime's
   start-failure reason printed over the last-switch line. Keep text that can be long, such as
