@@ -17,8 +17,12 @@ const entry = (root + 'src/extras/agents/index.ts').replace(/\\/g, '/');
 // null-graph/inference. Its own line (2,600 B) is asserted by test/inference-onnx.test.mjs; the
 // two lines here report what an app pays for it.
 const inference = (root + 'src/extras/inference/index.ts').replace(/\\/g, '/');
+// Step 9, phase 9.5 (docs/agents-ort-design.md §12.1): core gains createComputeStageAsync; this line
+// reports what core's entry, null-graph's main import, weighs.
+const core = (root + 'src/core/index.ts').replace(/\\/g, '/');
 const RULES = 'AgentSystem, defineAgents, Sensors, Actions, RuleBrain';
 const sets = [
+    ['core entry', `export * from '${core}';`],
     ['whole agents entry', `export * from '${entry}';`],
     ['rule path', `export { ${RULES} } from '${entry}';`],
     ['rule path + MlpBrain', `export { ${RULES}, MlpBrain } from '${entry}';`],

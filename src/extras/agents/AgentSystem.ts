@@ -59,6 +59,12 @@ export class AgentSystem {
     private readonly brainOf: (Brain | undefined)[];
     /** One think pass per attached brain, in attachment order, gated by its species-mask uniform. */
     private readonly thinks = new Map<Brain, { stage: ComputeStageNode; mask: GPUBuffer; bits: number }>();
+    /**
+     * Step 9 (agents-ort-design.md §8.6): the think passes of prepared brains, with their masks,
+     * kept while this system lives, attached or not; and each preparation's promise.
+     */
+    private readonly kept = new Map<Brain, { stage: ComputeStageNode; mask: GPUBuffer }>();
+    private readonly preparing = new Map<Brain, Promise<void>>();
     private everySpecies = false;
     /**
      * Step 9 (agents-ort-design.md §8): each attached async brain's run in flight, the steps since
@@ -147,6 +153,13 @@ export class AgentSystem {
 
     private stage(name: string, shaderCode: string, buffers: GPUBuffer[], groups: number, extra: readonly GPUBuffer[] = []): ComputeStageNode {
         const stage = this.engine.createComputeStage({ name: `AgentSystem ${name}`, shaderCode, dispatchCount: [groups, 1, 1] });
+        this.bindGroups(stage, buffers, extra);
+        this.stages.push(stage);
+        return stage;
+    }
+
+    /** Group 0, and group 1 when there are extra buffers; a stage that cannot be bound is disabled. */
+    private bindGroups(stage: ComputeStageNode, buffers: GPUBuffer[], extra: readonly GPUBuffer[]): void {
         try {
             this.engine.setComputePassBindGroup(stage, buffers.map((buffer, binding) => ({ binding, resource: { buffer } })), 0);
             if (extra.length) this.engine.setComputePassBindGroup(stage,
@@ -155,8 +168,23 @@ export class AgentSystem {
             stage.enabled = false;
             throw error;
         }
-        this.stages.push(stage);
-        return stage;
+    }
+
+    /**
+     * A think pass and its species mask: the stage made now from `code`, or the one given (compiled
+     * by prepareBrain), bound to the system's buffers, the mask, and the brain's own buffers.
+     */
+    private thinkPass(code: string, extra: readonly GPUBuffer[], made?: ComputeStageNode): { stage: ComputeStageNode; mask: GPUBuffer } {
+        const mask = this.allocate('brain species', 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        const buffers = [this.buffer, this.obs, this.state, this.act, this.reason, this.species, mask];
+        try {
+            if (!made) return { stage: this.stage('think', code, buffers, Math.ceil(this.capacity / 64), extra), mask };
+            this.bindGroups(made, buffers, extra);
+            return { stage: made, mask };
+        } catch (error) {
+            this.release(mask);
+            throw error;
+        }
     }
 
     private rebuildChains(): void {
@@ -188,10 +216,14 @@ export class AgentSystem {
      * Phase 7.3 (agents-species-brains-design.md §6): `brain` thinks for the named species, or for
      * every species. Each attached brain is one think pass, gated to its species by a 16-byte mask;
      * moving species between attached brains rewrites masks and compiles nothing. A brain left
-     * serving no species leaves every chain, and may then be destroyed.
+     * serving no species leaves every chain, and may then be destroyed. A prepared brain
+     * (`prepareBrain`) compiles nothing here, and keeps its pass when it leaves.
      */
     public setBrain(brain: Brain, options: { readonly species?: string | readonly string[] } = {}): void {
         this.assertAlive();
+        if (this.preparing.has(brain) && !this.kept.has(brain)) {
+            throw new Error('AgentSystem: this brain is still being prepared; await prepareBrain(brain) before setBrain(brain).');
+        }
         const def = this.definition, named = options.species ?? def.species.map(s => s.name);
         const indices = (typeof named === 'string' ? [named] : named).map(name => {
             const s = def.species.find(sp => sp.name === name);
@@ -207,7 +239,7 @@ export class AgentSystem {
             if (!bits) {
                 t.stage.enabled = false;
                 this.stages.splice(this.stages.indexOf(t.stage), 1);
-                this.release(t.mask);
+                if (!this.kept.has(b)) this.release(t.mask);    // a prepared brain keeps its pass for its next attach
                 this.thinks.delete(b);
                 this.runs.delete(b);         // a run in flight lands in the brain's own buffer, which it keeps
             } else if (bits !== t.bits) {
@@ -220,11 +252,11 @@ export class AgentSystem {
     }
 
     /**
-     * Validates `brain` and builds its pass; nothing is assigned until this returns. An async brain
-     * (step 9) is bound first: its runs read `obs` and write a buffer of its own, which its pass,
-     * gated like any think pass, copies into `act`.
+     * Validates `brain` and returns its think WGSL. An async brain (step 9) is bound first: its runs
+     * read `obs` and write a buffer of its own, which its pass, gated like any think pass, copies
+     * into `act`. Binding again re-seeds that buffer from `act`.
      */
-    private attach(brain: Brain): void {
+    private check(brain: Brain): string {
         const async = brain.kind === 'async';
         if (async ? typeof brain.bind !== 'function' || typeof brain.run !== 'function' : brain.kind !== 'stage') {
             throw new Error('AgentSystem: a brain is a stage brain, or an async brain with bind() and run().');
@@ -233,22 +265,53 @@ export class AgentSystem {
         const def = this.definition;
         if (brain.dims) assertBrainDims(def, brain.dims.obs, brain.dims.act);
         if (async) brain.bind!({ obs: this.obs, act: this.act, capacity: this.capacity, obsDim: def.obsDim, actDim: def.actDim });
-        const code = buildAgentThinkWGSL(this.definition, brain.wgsl!, this.thinkEvery);
-        const extra = brain.buffers ?? [];
-        this.checkExtraBuffers('brain', extra);
-        const mask = this.allocate('brain species', 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-        let stage: ComputeStageNode;
-        try {
-            stage = this.stage('think', code,
-                [this.buffer, this.obs, this.state, this.act, this.reason, this.species, mask], Math.ceil(this.capacity / 64), extra);
-        } catch (error) {
-            this.release(mask);
-            throw error;
+        const code = buildAgentThinkWGSL(def, brain.wgsl!, this.thinkEvery);
+        this.checkExtraBuffers('brain', brain.buffers ?? []);
+        return code;
+    }
+
+    /** Validates `brain` and builds its pass, or takes its prepared one; nothing is assigned until this returns. */
+    private attach(brain: Brain): void {
+        const code = this.check(brain);
+        let pass = this.kept.get(brain);
+        if (pass) {
+            pass.stage.enabled = true;
+            this.stages.push(pass.stage);
+        } else {
+            pass = this.thinkPass(code, brain.buffers ?? []);
         }
-        this.thinks.set(brain, { stage, mask, bits: 0 });
+        this.thinks.set(brain, { ...pass, bits: 0 });
         // The first frame with a step starts its first run.
         // A run still in flight from an earlier attach is awaited like one started now.
-        if (async) this.runs.set(brain, { steps: this.thinkEvery, pending: [...this.inflight].find(([, b]) => b === brain)?.[0] });
+        if (brain.kind === 'async') this.runs.set(brain, { steps: this.thinkEvery, pending: [...this.inflight].find(([, b]) => b === brain)?.[0] });
+    }
+
+    /**
+     * Step 9 (agents-ort-design.md §8.6): compiles `brain`'s think pass ahead, with
+     * `engine.createComputeStageAsync`, and keeps it while this system lives, so that
+     * `setBrain(brain)` compiles nothing, now or after a detach. Checks the brain, and binds an async
+     * one, as `setBrain` does. Preparing again returns the first promise; `setBrain(brain)` before
+     * it settles is refused. A preparation that fails is forgotten, and may be tried again.
+     */
+    public prepareBrain(brain: Brain): Promise<void> {
+        this.assertAlive();
+        let prepared = this.preparing.get(brain);
+        if (prepared) return prepared;
+        const attached = this.thinks.get(brain);
+        if (attached) {
+            this.kept.set(brain, attached);                // compiled already: kept from now on
+            prepared = Promise.resolve();
+        } else {
+            const code = this.check(brain), extra = brain.buffers ?? [];
+            prepared = this.engine.createComputeStageAsync({ name: 'AgentSystem think', shaderCode: code,
+                dispatchCount: [Math.ceil(this.capacity / 64), 1, 1] }).then(stage => {
+                stage.enabled = false;                     // in no chain until setBrain
+                if (!this.destroyed) this.kept.set(brain, this.thinkPass(code, extra, stage));
+            });
+            prepared.catch(() => this.preparing.delete(brain));
+        }
+        this.preparing.set(brain, prepared);
+        return prepared;
     }
 
     /** Starts a run of an async brain; a failure is kept for the next advance() or step(). */

@@ -555,6 +555,25 @@ var BatchManager = class {
     return stage;
   }
   /**
+   * As createComputeStage, but the pipeline comes from createComputePipelineAsync: its compile
+   * does not hold the caller (agents-ort-design.md §12.1). A shader that does not compile rejects,
+   * naming the stage, with the device's message; it raises no uncaptured error.
+   */
+  async createComputeStageAsync(config) {
+    validateIndirectDispatch(config);
+    const stage = new ComputeStageNode(config), device = this.ctx.device;
+    device.pushErrorScope("validation");
+    const module = device.createShaderModule({ label: config.name, code: config.shaderCode });
+    const pipeline = device.createComputePipelineAsync({ label: config.name, layout: "auto", compute: { module, entryPoint: "cs_main" } });
+    const scope = device.popErrorScope();
+    try {
+      stage.computePipeline = await pipeline;
+    } catch (error) {
+      throw new Error(`NullGraph: compute stage "${config.name}" did not compile: ${(await scope ?? error).message}`);
+    }
+    return stage;
+  }
+  /**
    * NEW: Attaches a bind group to a standalone compute stage.
    */
   setComputePassBindGroup(stage, entries, groupIndex = 0) {
@@ -917,6 +936,15 @@ var NullGraph = class {
   }
   createComputeStage(config) {
     const stage = this.batchManager.createComputeStage(config);
+    this.computeStages.push(stage);
+    return stage;
+  }
+  /**
+   * The same stage as createComputeStage, compiled with createComputePipelineAsync: frames can go
+   * on while it compiles. A shader that does not compile rejects with an error naming the stage.
+   */
+  async createComputeStageAsync(config) {
+    const stage = await this.batchManager.createComputeStageAsync(config);
     this.computeStages.push(stage);
     return stage;
   }

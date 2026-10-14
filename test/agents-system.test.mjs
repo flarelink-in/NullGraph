@@ -593,3 +593,109 @@ test('U13: a brain attached again while its run is in flight starts no second ru
     await settle();
     s.destroy();
 });
+
+// U35 (step 9, phase 9.5; agents-ort-design.md §8.6): prepareBrain compiles a brain's think pass
+// with engine.createComputeStageAsync and keeps it while the system lives, so that setBrain, and a
+// re-attach after a detach, compile nothing. The mock's asynchronous compiles wait until the test
+// settles them; every compile, either way, is a stage the mock records.
+function compilesLater(m) {
+    const pending = [];
+    m.engine.createComputeStageAsync = o => new Promise((done, failed) => pending.push({
+        done() { const s = { ...o, enabled: true, preClearBuffers: [] }; m.stages.push(s); done(s); },
+        failed,
+    }));
+    return pending;
+}
+const STILL = /^Error: AgentSystem: this brain is still being prepared; await prepareBrain\(brain\) before setBrain\(brain\)\.$/;
+
+test('U35: prepareBrain compiles asynchronously and keeps the pass out of every chain; setBrain and a re-attach compile nothing', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), compiles = compilesLater(m);
+    const rules = tagged(1), brain = tagged(2);
+    s.setBrain(rules);
+    const prepared = s.prepareBrain(brain);
+    assert.equal(s.prepareBrain(brain), prepared, 'preparing again returns the first promise');
+    assert.equal(compiles.length, 1, 'one compile, and an asynchronous one');
+    assert.throws(() => s.setBrain(brain, { species: 'wolf' }), STILL);
+    compiles[0].done();
+    await prepared;
+    const pass = m.stages.at(-1), mask = pass.groups[0][6].resource.buffer;
+    assert.ok(pass.name === 'AgentSystem think' && pass.groups[0].length === 7 && !pass.enabled, 'bound, with its mask, and disabled');
+    assert.ok(!passesOf(s).includes(pass), 'in no chain before setBrain');
+    const built = m.stages.length;
+    s.setBrain(brain, { species: 'wolf' });
+    assert.equal(m.stages.length, built, 'setBrain compiled a prepared brain');
+    assert.ok(passesOf(s).includes(pass) && pass.enabled, 'the kept pass is in the chains');
+    assert.equal(maskOf(m, pass), 0b010);
+    // Detached, the prepared brain keeps its pass and mask; attached again, it compiles nothing.
+    s.setBrain(rules, { species: 'wolf' });
+    assert.ok(!pass.enabled && !passesOf(s).includes(pass) && !mask.destroyed, 'kept, out of the chains');
+    s.setBrain(brain, { species: ['wolf', 'deer'] });
+    assert.equal(m.stages.length, built, 're-attaching a prepared brain compiled');
+    assert.ok(passesOf(s).includes(pass));
+    assert.equal(maskOf(m, pass), 0b110);
+    // A brain never prepared behaves as before: dropped when it serves nobody, compiled again after.
+    const other = tagged(3);
+    s.setBrain(other, { species: 'deer' });
+    const otherMask = m.stages.at(-1).groups[0][6].resource.buffer;
+    s.setBrain(brain, { species: 'deer' });
+    assert.ok(otherMask.destroyed, 'a brain never prepared keeps nothing');
+    s.setBrain(other, { species: 'deer' });
+    assert.equal(m.stages.length, built + 2, 'a brain never prepared compiles at each attach');
+    s.destroy();
+    assert.ok(mask.destroyed, 'the kept mask goes with the system');
+});
+
+test('U35: an async brain is bound at prepareBrain and again at each setBrain, which re-seeds it; its pass compiles once', async () => {
+    const m = mock(), log = [], s = new A.AgentSystem(m.engine, threeSpecies()), compiles = compilesLater(m);
+    const { brain, settle } = asyncBrain(log);
+    s.setBrain(tagged(1));
+    const prepared = s.prepareBrain(brain);
+    assert.deepEqual(log, ['bind'], 'bound before its pass compiles');
+    compiles[0].done();
+    await prepared;
+    const built = m.stages.length;
+    s.setBrain(brain, { species: 'wolf' });
+    assert.deepEqual(log, ['bind', 'bind'], 'bound again: its results re-seeded from the actions agents have now');
+    assert.equal(m.stages.length, built);
+    s.advance(s.definition.dt);
+    assert.deepEqual(log, ['bind', 'bind', 'run'], 'and its runs start as for any async brain');
+    await settle();
+    s.destroy();
+});
+
+test('U35: preparing an attached brain keeps its pass, compiled already', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), compiles = compilesLater(m);
+    const rules = tagged(1), brain = tagged(2);
+    s.setBrain(rules);
+    s.setBrain(brain, { species: 'deer' });
+    const pass = m.stages.at(-1), built = m.stages.length;
+    await s.prepareBrain(brain);
+    assert.equal(compiles.length, 0, 'nothing compiles');
+    s.setBrain(rules, { species: 'deer' });
+    s.setBrain(brain, { species: 'deer' });
+    assert.equal(m.stages.length, built, 'kept across the detach');
+    assert.ok(passesOf(s).includes(pass) && pass.enabled);
+    s.destroy();
+});
+
+test('U35: a preparation that fails is forgotten; prepareBrain after destroy() is refused, and one pending keeps nothing', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), compiles = compilesLater(m);
+    const brain = tagged(2);
+    s.setBrain(tagged(1));
+    const prepared = s.prepareBrain(brain);
+    compiles[0].failed(new Error('NullGraph: compute stage "AgentSystem think" did not compile: error: unresolved identifier \'x\''));
+    await assert.rejects(prepared, /^Error: NullGraph: compute stage "AgentSystem think" did not compile: error: unresolved identifier 'x'$/);
+    await Promise.resolve();
+    const built = m.stages.length;
+    s.setBrain(brain, { species: 'wolf' });           // not refused: compiled as for any brain
+    assert.equal(m.stages.length, built + 1);
+    assert.notEqual(s.prepareBrain(tagged(3)), prepared);
+    // A preparation pending when the system is destroyed resolves, and keeps nothing.
+    const late = tagged(4), pending = s.prepareBrain(late), buffers = m.buffers.length;
+    s.destroy();
+    compiles.at(-1).done();
+    await pending;
+    assert.equal(m.buffers.length, buffers, 'a mask was made after destroy()');
+    assert.equal(m.stages.at(-1).enabled, false);
+    assert.throws(() => s.prepareBrain(tagged(5)), /^Error: AgentSystem: used after destroy\(\)\.$/);
+});

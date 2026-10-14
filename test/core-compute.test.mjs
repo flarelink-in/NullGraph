@@ -22,6 +22,10 @@ function check(name, fn) {
     try { fn(); console.log(`  ok    ${name}`); }
     catch (e) { failures++; console.log(`  FAIL  ${name}\n        ${e.message}`); }
 }
+async function checkAsync(name, fn) {
+    try { await fn(); console.log(`  ok    ${name}`); }
+    catch (e) { failures++; console.log(`  FAIL  ${name}\n        ${e.message}`); }
+}
 function assert(v, m) { if (!v) throw new Error(m); }
 function throws(fn, pattern, label) {
     let message = '';
@@ -229,6 +233,78 @@ check('createDispatchIndirectBuffer allocates a usable buffer, zeroed', () => {
 
     throws(() => buffers.createDispatchIndirectBuffer(0), /must be a positive integer/, 'zero count');
     throws(() => buffers.createDispatchIndirectBuffer(1.5), /must be a positive integer/, 'fractional count');
+});
+
+// U34 (step 9, phase 9.5; agents-ort-design.md §12.1): createComputeStageAsync makes the stage
+// createComputeStage makes, with its pipeline from createComputePipelineAsync, so that a compile
+// does not hold the caller. A shader that does not compile rejects, naming the stage, with what
+// the device said about the WGSL, caught in an error scope rather than left uncaptured.
+function asyncCtx({ moduleError = null, pipelineError = null } = {}) {
+    const { ctx, calls } = recordingCtx();
+    Object.assign(ctx.device, {
+        createShaderModule: (d) => { calls.push(['createShaderModule', d.label]); return { code: d.code }; },
+        createComputePipeline: (d) => { calls.push(['createComputePipeline', d.label]); return { getBindGroupLayout: () => ({}) }; },
+        createComputePipelineAsync: async (d) => {
+            calls.push(['createComputePipelineAsync', d.label, d.layout, d.compute.entryPoint]);
+            if (pipelineError) throw new Error(pipelineError);
+            return { getBindGroupLayout: (i) => ({ layoutOf: i }) };
+        },
+        pushErrorScope: (filter) => calls.push(['pushErrorScope', filter]),
+        popErrorScope: async () => { calls.push(['popErrorScope']); return moduleError && { message: moduleError }; },
+    });
+    return { ctx, calls };
+}
+
+await checkAsync('U34: createComputeStageAsync makes the stage createComputeStage makes, its pipeline from createComputePipelineAsync', async () => {
+    const config = {
+        name: 'same', shaderCode: '@compute @workgroup_size(64) fn cs_main() {}', dispatchCount: [7, 3, 1],
+        preClearBuffers: [{ buffer: buf(U.STORAGE | U.COPY_DST), offset: 0, data: new Uint32Array([0]) }],
+    };
+    const sync = asyncCtx(), later = asyncCtx();
+    const a = new BatchManager(sync.ctx).createComputeStage(config);
+    const manager = new BatchManager(later.ctx);
+    const pending = manager.createComputeStageAsync(config);
+    assert(pending instanceof Promise, 'createComputeStageAsync returns no promise');
+    const b = await pending;
+    for (const key of ['name', 'enabled', 'isIndirect', 'indirectOffset', 'preClearBuffers']) {
+        assert(JSON.stringify(a[key]) === JSON.stringify(b[key]), `${key}: ${JSON.stringify(a[key])} and ${JSON.stringify(b[key])}`);
+    }
+    const asyncCalls = later.calls.map(c => c[0]);
+    assert(asyncCalls.includes('createComputePipelineAsync') && !asyncCalls.includes('createComputePipeline'),
+        `the pipeline came from ${asyncCalls.join(', ')}`);
+    assert(JSON.stringify(later.calls.find(c => c[0] === 'createComputePipelineAsync')) === JSON.stringify(['createComputePipelineAsync', 'same', 'auto', 'cs_main']),
+        'the pipeline is not labelled with the stage, or not auto-laid-out from cs_main');
+    // A bind group set on it, and the same commands when it runs.
+    manager.setComputePassBindGroup(b, [], 0);
+    assert(b.customBindGroups[0], 'no bind group could be set on the stage');
+    new RenderPipeline(sync.ctx).render([a]);
+    new RenderPipeline(later.ctx).render([b]);
+    const commands = calls => calls.filter(c => ['dispatch', 'dispatchIndirect', 'writeBuffer', 'setBindGroup'].includes(c[0])).map(c => c.join(' '));
+    assert(JSON.stringify(commands(sync.calls).filter(c => c !== 'setBindGroup 0')) === JSON.stringify(commands(later.calls).filter(c => c !== 'setBindGroup 0')),
+        `the stages ran differently: ${commands(sync.calls)} and ${commands(later.calls)}`);
+});
+
+await checkAsync('U34: a shader that does not compile rejects, naming the stage and what was wrong in its WGSL', async () => {
+    const reject = async (ctx, config) => {
+        try { await new BatchManager(ctx).createComputeStageAsync(config); } catch (e) { return e.message; }
+        throw new Error('it resolved');
+    };
+    const code = '@compute @workgroup_size(1) fn cs_main() { x = 1; }';
+    let { ctx, calls } = asyncCtx({ moduleError: 'error: unresolved identifier \'x\'', pipelineError: '[Invalid ShaderModule "offender"] is invalid.' });
+    let m = await reject(ctx, { name: 'offender', shaderCode: code });
+    assert(m === 'NullGraph: compute stage "offender" did not compile: error: unresolved identifier \'x\'', `got "${m}"`);
+    const order = calls.map(c => c[0]).filter(c => c !== 'createComputePipelineAsync');
+    assert(JSON.stringify(order) === JSON.stringify(['pushErrorScope', 'createShaderModule', 'popErrorScope']),
+        `the module is not made inside a validation scope: ${order}`);
+    assert(calls[0][1] === 'validation', `the scope filters ${calls[0][1]}`);
+    // A pipeline that fails for another reason: the pipeline's own message.
+    ({ ctx } = asyncCtx({ pipelineError: 'the layout exceeds a limit' }));
+    m = await reject(ctx, { name: 'offender', shaderCode: code });
+    assert(m === 'NullGraph: compute stage "offender" did not compile: the layout exceeds a limit', `got "${m}"`);
+    // The same validation as createComputeStage, as a rejection.
+    ({ ctx } = asyncCtx());
+    m = await reject(ctx, { name: 'offender', shaderCode: code, indirectBuffer: buf(U.STORAGE) });
+    assert(/lacks GPUBufferUsage\.INDIRECT/.test(m) && /offender/.test(m), `got "${m}"`);
 });
 
 console.log(failures === 0 ? '\nAll core compute tests passed.' : `\n${failures} test(s) FAILED.`);
