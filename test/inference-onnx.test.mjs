@@ -45,8 +45,8 @@ const W = (name, rows, columns, options) => tensor(name, [rows, columns], Array.
 const B = (name, n, options) => tensor(name, [n], Array.from({ length: n }, (_, k) => k / 4), options);
 const gemm = (input, w, b, output, options) => node('Gemm', b ? [input, w, b] : [input, w], [output], { attributes: [attr('transB', 1)], ...options });
 
-test('the entry: null-graph/inference is built, declared and exports the reader alone', () => {
-    assert.deepEqual(Object.keys(inference), ['mlpFromOnnx']);
+test('the entry: null-graph/inference is built, declared and exports the reader and, since phase 9.1, the ONNX Runtime adapter', () => {
+    assert.deepEqual(Object.keys(inference).sort(), ['OrtModel', 'OrtRuntime', 'mlpFromOnnx']);
     const entry = JSON.parse(readFileSync(root + 'package.json', 'utf8')).exports['./inference'];
     assert.deepEqual(entry, { types: './dist/extras/inference/index.d.ts', import: './dist/inference.js' });
     for (const path of Object.values(entry)) assert.ok(existsSync(root + path), `${path} is missing: run npm run build:lib`);
