@@ -25,6 +25,9 @@ read separate weight files."
    `mlpFromOnnx` given the same files (§6.1). Step 8's refusal becomes the message for a file not
    given (`work/plan.md` §5, item 8).
 
+5. **Added after phase 9.2: graph capture is off for a model whose weights are in a second file,**
+   unless the app asks for it (§14, item 5; the user: "ok pick A").
+
 **Nothing is open** (§14).
 
 **Status:** design decided 2026-10-14.
@@ -35,7 +38,11 @@ read separate weight files."
 - **Phase 9.1 was built on 2026-10-14:** `OrtRuntime`, `OrtModel` and the anchor. A29 passes on
   three host/GPU pairs: the device outlives every model, and a captured model loaded after a release
   runs 100 times on AMD. The adapter is 1,925 B min+gzip, under its line of 3,000 B.
-- Phases 9.2–9.6 follow (§13).
+- **Phase 9.2 was built on 2026-10-14:** `mlpFromOnnx` reads weights stored in a second file, and
+  both paths read PyTorch's two-file exports (A32 on three host/GPU pairs). It found two faults of
+  ONNX Runtime: a rule for buffers (rounded up to 16 B) guards against one; against the other,
+  capture is off by default for models whose weights are in a second file (§14, item 5).
+- Phases 9.3–9.6 follow (§13).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -206,7 +213,7 @@ splits its submission around the run.
 | What | Size | Owner | Notes |
 |---|---|---|---|
 | `obs` | `capacity × obsDim × 4` B | `AgentSystem` (exists) | ORT reads it as the model's input, `[capacity, obsDim]`. |
-| results buffer | `capacity × actDim × 4` B, `STORAGE \| COPY_SRC \| COPY_DST` | `OrtBrain` | ORT writes it as the model's output; the copy pass reads it. Seeded from `act` at `bind`. 160,000 B at 20,000 agents × 2 actions. |
+| results buffer | `capacity × actDim × 4` B rounded up to 16 B (§6), `STORAGE \| COPY_SRC \| COPY_DST` | `OrtBrain` | ORT writes it as the model's output; the copy pass reads it. Seeded from `act` at `bind`. 160,000 B at 20,000 agents × 2 actions. |
 | `act` | exists | `AgentSystem` | Written only by think passes, as today. ORT never writes it. |
 | species mask | 16 B uniform | `AgentSystem` | The think pass's, unchanged (fact 3). |
 | two tensors | — | `OrtModel` | `ort.Tensor.fromGpuBuffer` over `obs` and over the results buffer, made once at `bind`. |
@@ -260,7 +267,8 @@ the user first picks ORT. That choice belongs to step 10's design (Deferred).
 runtime sets and the app cannot override:
 - `executionProviders: [{ name: 'webgpu' }]`, **an object, never the string** (fact 10);
 - `preferredOutputLocation: 'gpu-buffer'`: no output ever goes to the CPU;
-- `enableGraphCapture: capture`, on unless `capture: false` (§9);
+- `enableGraphCapture: capture`, on unless `capture: false`, and off by default for a model whose
+  weights are in a second file (`externalData`), unless `capture: true` (§9, §14 item 5);
 - `externalData`, passed through to ORT as it is (§6.1).
 
 `model.inputs` and `model.outputs` list each tensor's name, type and axes (numbers, or strings for
@@ -271,7 +279,10 @@ symbolic axes).
   and a captured session without pre-allocated outputs fails (Phase 9.0 results);
 - each tensor must be float32, of the model's rank; each fixed axis must equal the given one; a
   symbolic axis takes the given size, and the same symbol must get the same size everywhere;
-- each buffer must hold the tensor's bytes and have `STORAGE` usage;
+- each buffer must hold the tensor's values **rounded up to 16 B**, and have `STORAGE` usage. ONNX
+  Runtime's kernels read and write 16 B at a time; on NVIDIA, a write that ends past the buffer is
+  dropped whole, and the last values stay as they were, with no error (phase 9.2). The system's
+  `obs` is therefore allocated rounded up as well (phase 9.3);
 - the tensors (`ort.Tensor.fromGpuBuffer`) and the feeds and fetches objects are made here, once.
   A run allocates nothing on the app's side.
 
@@ -316,7 +327,7 @@ output; a model with several needs them named.
 - `kind: 'async'`; `wgsl` is the copy pass (§4); `buffers` is `[results]` once bound.
 - `assertDevice(device)` refuses any device but `runtime.device`, naming the fix (§11).
 - `bind({ obs, act, capacity, obsDim, actDim })`, called by `setBrain` before the pass is built:
-  - creates the results buffer;
+  - creates the results buffer, rounded up to 16 B;
   - **seeds it from `act`** with one copy, so a species keeps its last actions until the first
     run lands (S4: 0.14–0.46 s for the first run, which compiles ORT's pipelines);
   - binds the model: `obs` as `[capacity, obsDim]`, the results as `[capacity, actDim]`.
@@ -436,6 +447,7 @@ Phase 9.0 also found four traps in it. The design closes each by construction:
 | A captured session ignores a different buffer on a later run (parent fact 12). | `bind` once; a second, different binding is refused. |
 | A captured run without a pre-allocated output fails (`no overload matched for createBindGroup`). | Every output is bound to a buffer. |
 | On AMD, a captured session made on a re-made device failed on its second run (4 of 4). | The anchor: the device is never re-made while the runtime lives. |
+| Found in phase 9.2: a captured model whose weights are in a second file can fail from its second run with the same error, on every host, depending on the model and on what ran before it. | Not closed in ONNX Runtime; avoided by default: `load` leaves capture off for such a model unless asked (§14, item 5). |
 
 With those closed, captured sessions ran for hundreds of runs without a failure on all three
 hosts (S1, S2). **Decided** (§14, item 2): capture on by default, as the parent planned;
@@ -492,7 +504,7 @@ location it was not given.
 | Missing binding | `OrtModel: <input\|output> "<n>" has no buffer; every input and output is bound to one.` |
 | Shape | `OrtModel: <input\|output> "<n>" is [<model dims>]; it was given [<dims>].` |
 | Symbol | `OrtModel: the axis "<s>" is <a> in "<n>" and <b> in "<m>".` |
-| Buffer | `OrtModel: "<n>" needs <bytes> B with STORAGE usage; its buffer has <size> B<, without STORAGE>.` |
+| Buffer | `OrtModel: "<n>" needs <bytes> B with STORAGE usage: its values, rounded up to 16 B, as ONNX Runtime reads and writes 16 B at a time; its buffer has <size> B<, without STORAGE>.` (as built in 9.2) |
 | Bound twice | `OrtModel: bound already; buffers are fixed for life, because graph capture binds them once. Load the model again for other buffers.` |
 | Run before bind | `OrtModel: run() before bind().` |
 | Run in flight | `OrtModel: run() while a run is in flight; await it first.` |
@@ -505,8 +517,8 @@ location it was not given.
 | Preparation pending | `AgentSystem: this brain is still being prepared; await prepareBrain(brain) before setBrain(brain).` |
 | A pass that does not compile | `NullGraph: compute stage "<name>" did not compile: <the device's message>.` (from `createComputeStageAsync`; `prepareBrain` passes it on) |
 | Data file not given | `mlpFromOnnx: initializer "<n>" is stored outside the file, in "<where>"; pass that file, { externalData: [{ path: '<where>', data }] }, or export with the weights inside it (PyTorch: external_data=False).` (Step 8's message, with the first way out added.) |
-| Outside the data file | `mlpFromOnnx: initializer "<n>" is bytes <a>–<b> of "<where>", which holds <size> B.` |
-| Wrong length | `mlpFromOnnx: initializer "<n>" is [<dims>]; its <length> B in "<where>" hold <m> float32 values.` |
+| Outside the data file | `mlpFromOnnx: initializer "<n>" reads <length, or "the rest"> B at offset <offset> of "<where>", which holds <size> B.` (as built; the offset and length as the file writes them) |
+| Wrong length | `mlpFromOnnx: initializer "<n>" is [<dims>] but holds <m> values.` (as built: step 8's message for the same fault inside the file) |
 | Bad `externalData` | `mlpFromOnnx: externalData must be a list of { path, data }, with data a Uint8Array or an ArrayBuffer; a URL is for ONNX Runtime, which fetches it.` |
 
 All but "A run failed" are thrown at construction, load, bind, `setBrain`, `prepareBrain` or
@@ -570,7 +582,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 |---|---|---|---|
 | 9.0 ✅ | Spikes S1, S2, S4, S5 (`test/spikes/ort/`, `npm run spike:s1` … `spike:s5`); this design, with the user's decisions | — (measurements) | the spikes and the design |
 | 9.1 ✅ | `OrtRuntime`, `OrtModel`, the anchor, ORT's `externalData` passed through; the peer dependency; `OrtLike`; the adapter's size line | U32, A29, U14 (their errors) | one |
-| 9.2 | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
+| 9.2 ✅ | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
 | 9.3 | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
 | 9.4 | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded | A6 | one |
 | 9.5 | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
@@ -626,6 +638,24 @@ files."
    | A. ORT reads them; the reader keeps refusing | `runtime.load(bytes, { externalData })` passes ORT's own option through | About 20 B and A32 |
    | **B. Both read them** (taken) | A, and `mlpFromOnnx(bytes, { externalData })` with the same list | About +200 B on the reader, whose line moves to 2,900 B; a data file in the fixtures |
    | C. Neither | Both refuse | ORT users must re-export larger models too |
+
+### Decided by the user after phase 9.2, 2026-10-14
+
+5. **Graph capture for a model whose weights are in a second file: off unless asked** (option A;
+   the user: "ok pick A"). Item 2 was decided on the ground that every trap found was closed by
+   construction. Phase 9.2 found one that is not: under capture, ONNX Runtime 1.29 can fail such a
+   model from its second run (`Cannot set properties of undefined (setting
+   'Symbol(gpuBufferMetadata)')`), on Node/NVIDIA, Node/AMD and Chrome/AMD, depending on the model
+   and on what ran before it. The failure is loud: the run rejects.
+
+   | Option | What | Cost |
+   |---|---|---|
+   | **A. Off for such models** (taken) | `load` turns capture off when `externalData` is given, unless the app passes `capture: true` | 4 B as built. Those models pay 0.4–0.7 ms more of the main thread per run; every other model keeps capture |
+   | B. On for all, as decided | Nothing changes; the guide names the failure and `capture: false` | An app that loads a two-file model can see its second run fail |
+   | C. Off for all | Capture only on request | Every model pays the main-thread cost |
+
+   Built before phase 9.2's commit: U32 checks the default, the request and an empty list; A32
+   takes the default.
 
 **Nothing is open.**
 
@@ -807,3 +837,74 @@ belong to a destroyed device, and every run fails.
 Node/NVIDIA.
 **Not run:** `onnx` on AMD and in Chrome (its code did not change; the entry it imports grew); the
 agents GPU suite (nothing it runs changed).
+
+## Phase 9.2 results — 2026-10-14: weights in a second file, read both ways
+
+**Built:**
+- `mlpFromOnnx(bytes, { externalData })` (`src/extras/inference/mlpOnnx.ts`), with the types
+  `OnnxReadOptions` and `OnnxExternalData`. The list is ONNX Runtime's own shape, with bytes as
+  `data`. A tensor stored outside is found by its location exactly as written; its offset and
+  length are read as text, the length defaulting to the rest of the file; the memory budget grows
+  by the files given. Step 8's refusal now names both ways out.
+- `test/onnx-fixtures/make.py` keeps the files an export writes beside the `.onnx` file, as base64
+  with their size and SHA-256, and judges such a case with them in place. Two cases have one:
+  - `torch-outside`, step 8's case: `Linear(13, 5)`, a fixed batch of one, its weights (260 B) in
+    `model.onnx.data`;
+  - **`torch-outside-batch`, new and last in the list:** 13→17 tanh, 17→11 relu, 11→3, a free batch.
+    PyTorch put two weight tensors in `model.onnx.data`, at offsets 0 and 748, in the reverse of the
+    layers' order, and left the third, of 33 floats, inside.
+
+  Every other case is unchanged. PyTorch's default call also writes an empty `model.onnx.data`
+  when every tensor fits inside; such a file is not kept.
+- Tests: U36 (new, in `test/inference-onnx.test.mjs`); U31 reads both two-file cases bit for bit
+  and refuses each without its file; U14's message updated; the reader's line moved to 2,900 B.
+  On the GPU, A28 (`test/onnx-gpu`) reads both two-file cases into `MlpBrain` and runs them in ONNX
+  Runtime with the same list; A32 (`test/inference-gpu`) runs them through `OrtRuntime.load(bytes,
+  { externalData })`.
+- `test/spikes/ort/issues.js` (`npm run spike:ort-issues`): the two faults below in their smallest
+  form, for an upgrade of ONNX Runtime and for a report to its authors.
+- The guide's reader section (`docs/api/inference.md`): a second file is read when given; its
+  example takes `externalData`, and its test reads `torch-outside-batch` with its file.
+
+**Measured:**
+
+| | |
+|---|---|
+| Headless | `npm run test:inference` 17 of 17; U31: 15 files read with their makers' weights bit for bit (2 with their data files), `mlpForward` within 7.2e-7 of the makers' outputs |
+| A28 | 25 of 25 on Node/NVIDIA, Node/AMD and Chrome/AMD; both two-file cases agree with ONNX Runtime within 1e-4 |
+| A32 | 8 of 8 in the `inference` suite on the same three pairs, zero WebGPU errors: against PyTorch 4.8e-7 (`torch-outside`) and 3.7e-8 (`torch-outside-batch`); against the reader 6.0e-7 and 8.9e-8 |
+| Sizes, min+gzip | `mlpFromOnnx` 2,848 B, line 2,900 B (the estimate was +200 B; it took +321 B); the adapter 1,984 B, line 3,000 B (+55 B for the 16 B rule, +4 B for item 5's default); the whole inference entry 4,635 B; agents unchanged at 19,323 B |
+
+**Two faults of ONNX Runtime 1.29, found by A32:**
+1. **Its kernels read and write 16 B at a time.** Bound to an app's buffer of exactly its values'
+   size, a model whose last write ends past the buffer loses it on NVIDIA: a 13→5 `Gemm` and
+   `Tanh` left the fifth value as it was, on every run, with no error, with graph capture on or
+   off. AMD wrote it. Buffers rounded up to 16 B are right everywhere. **Guarded:** `OrtModel.bind`
+   asks for the values rounded up to 16 B (§6). A28, S1 and S2 never met it: their buffers were
+   multiples of 16 B.
+2. **Under graph capture, a model whose weights are in a second file can fail from its second run**
+   with `Cannot set properties of undefined (setting 'Symbol(gpuBufferMetadata)')`, the error spike
+   S5 saw on AMD on a re-made device. ONNX Runtime's JavaScript recognises a pre-allocated output
+   only while binding, on the first run; on later captured runs it gets back an output that is not
+   one of the registered buffers (`onnxruntime-web/lib/wasm/wasm-core-impl.ts:781,800,876,954`).
+   - Seen with one `Gemm` 13→5 whose weights are in the second file: in a fresh process, with a
+     fixed batch on Node (both GPUs), with a free batch in Chrome. With a node after the `Gemm`, or
+     with the weights inside the file, it ran everywhere.
+   - In the `inference` suite, after other models, the same files ran under capture; the probe at
+     its end reports which happened. **Avoided by default,** decided by the user after the phase
+     (§14, item 5): `load` leaves capture off for a model given `externalData`, unless asked. A32
+     takes that default; U32 checks it, and a mutation back to "always on" fails U32.
+
+**Watched failing.** Seven mutations of the built reader and adapter, each caught: the offset
+ignored (U36, and U31 through PyTorch's offset 748); any file taken for a location not given; no
+bounds check; the budget not counting the files; a missing length read as zero; `externalData` not
+checked; buffers not rounded up to 16 B (U32).
+
+**Differs from the design:**
+- The reader's "wrong length" refusal is step 8's message for the same fault; §11 updated.
+- `OrtModel.bind`'s rule for sizes (§6, §11) and the results buffer's (§4, §7) are new: fault 1.
+- Capture's default for two-file models (§14, item 5) is new. The guide's reader section changed
+  in this phase rather than in 9.6, because the behaviour it described changed here.
+
+**Also green:** headless agents (reference + 73), core, agent-kit (4).
+**Not run:** the agents GPU suite (nothing it runs changed).

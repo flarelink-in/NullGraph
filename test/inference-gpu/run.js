@@ -6,6 +6,9 @@
 //        engine's stages. A captured model loaded after that release runs 100 times, right at runs
 //        1, 2 and 100 (without an anchor, spike S5 saw the second run fail on AMD). A model
 //        without graph capture runs too. Only runtime.destroy() ends the device.
+//   A32  (phase 9.2) PyTorch's two-file exports, through the runtime with ONNX Runtime's own
+//        externalData: their outputs equal PyTorch's, and the reader's from the same two files.
+//        The other half, the reader's MlpBrain against ONNX Runtime, is A28 in test/onnx-gpu.
 //
 // The runtime's own session is the only one alive across the release, so the device survives
 // only if the anchor holds it.
@@ -14,7 +17,7 @@
 // asyncify WASM with one thread), `npm run test:gpu:browser -- --only inference`.
 import { NullGraph } from '../../dist/index.js';
 import { mlpForward, rand01 } from '../../dist/agents.js';
-import { OrtRuntime } from '../../dist/inference.js';
+import { OrtRuntime, mlpFromOnnx } from '../../dist/inference.js';
 import { onnxFromNetwork } from '../../tools/agents/onnx.mjs';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
@@ -190,6 +193,73 @@ try {
     check('A29: a model without graph capture runs too', w <= 1e-4 && !c.capture, `worst ${w.toExponential(1)}`);
 } catch (e) {
     check('A29: a model without graph capture runs too', false, message(e));
+}
+
+// ---------------------------------------------------------------------------
+// A32: two files, given to ONNX Runtime as its own externalData, through the runtime
+// ---------------------------------------------------------------------------
+const readJson = async path => {
+    const url = new URL(path, import.meta.url);
+    return inBrowser ? (await fetch(url)).json() : JSON.parse((await import('node:fs')).readFileSync(url, 'utf8'));
+};
+const base64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+const fixtures = (await readJson('../onnx-fixtures/fixtures.json')).cases;
+const padded = bytes => Math.ceil(bytes / 16) * 16;     // OrtModel's rule: ONNX Runtime reads and writes 16 B at a time
+// Under capture, ONNX Runtime 1.29 can fail a model whose weights are in a second file from its
+// second run on, depending on the model, the host and what ran before (phase 9.2's results;
+// `npm run spike:ort-issues`). So `load` leaves capture off for such a model unless asked (decided
+// with the user, the design's §14, item 5): A32 takes that default. Capture is probed after the
+// checks, and reported.
+const TWO_FILES = ['torch-outside', 'torch-outside-batch'];
+async function twoFiles(name, capture) {
+    const fixture = fixtures.find(c => c.name === name), bytes = base64(fixture.onnx);
+    const externalData = Object.entries(fixture.externalData).map(([path, file]) => ({ path, data: base64(file.base64) }));
+    const { inputs, outputs: { maker } } = fixture, width = inputs[0].length, outWidth = maker[0].length;
+    const rows = fixture.holds.inputs[0].dims[0] === 1 ? 1 : inputs.length;   // a fixed batch of one runs row by row
+    const model = await within(runtime.load(bytes, { externalData, ...(capture === undefined ? {} : { capture }) }), `load ${name}`);
+    const input = device.createBuffer({ size: padded(rows * width * 4), usage: STORAGE }), output = device.createBuffer({ size: padded(rows * outWidth * 4), usage: STORAGE });
+    try {
+        model.bind({ inputs: { [model.inputs[0].name]: { buffer: input, dims: [rows, width] } },
+            outputs: { [model.outputs[0].name]: { buffer: output, dims: [rows, outWidth] } } });
+        const got = [];
+        for (let r = 0; r < inputs.length; r += rows) {
+            device.queue.writeBuffer(input, 0, Float32Array.from(inputs.slice(r, r + rows).flat()));
+            await within(model.run(), `${name}, rows from ${r}`);
+            got.push(...(await read(output, rows * outWidth)));
+        }
+        return { fixture, bytes, externalData, inputs, maker, outWidth, rows, got, captured: model.capture };
+    } finally {
+        await within(model.destroy(), `${name} destroy`);
+    }
+}
+for (const name of TWO_FILES) {
+    const label = `A32: ${name}, two files: through the runtime with ONNX Runtime's externalData, without graph capture by default, its outputs equal PyTorch's, and the reader's from the same files, within 1e-4`;
+    try {
+        const { bytes, externalData, inputs, maker, outWidth, rows, got, captured } = await twoFiles(name);
+        if (captured) throw new Error('load captured a model whose weights are in a second file');
+        const { network } = mlpFromOnnx(bytes, { externalData });
+        let againstMaker = 0, againstReader = 0;
+        inputs.forEach((row, r) => {
+            const reader = mlpForward(network, Float32Array.from(row));
+            for (let j = 0; j < outWidth; j++) {
+                againstMaker = Math.max(againstMaker, Math.abs(got[r * outWidth + j] - maker[r][j]));
+                againstReader = Math.max(againstReader, Math.abs(got[r * outWidth + j] - reader[j]));
+            }
+        });
+        check(label, againstMaker <= 1e-4 && againstReader <= 1e-4 && got.length === inputs.length * outWidth,
+            `${inputs.length} rows${rows === 1 ? ', one run each' : ''}; against PyTorch ${againstMaker.toExponential(1)}, against mlpFromOnnx and mlpForward ${againstReader.toExponential(1)}`);
+    } catch (e) {
+        check(label, false, message(e));
+    }
+}
+// The known failure, probed with capture asked for: reported, never checked.
+for (const name of TWO_FILES) {
+    try {
+        await twoFiles(name, true);
+        log(`   probe: ${name} under graph capture ran its runs this time`);
+    } catch (e) {
+        log(`   probe: ${name} under graph capture failed, as ONNX Runtime 1.29 can: ${message(e)}`);
+    }
 }
 
 // Only the runtime ends the device: its destroy releases model C, then the anchor. What ONNX

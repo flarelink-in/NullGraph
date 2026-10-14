@@ -76,8 +76,14 @@ test('inference guide: the example type-checks, bundles, loads the committed net
         const fixtures = JSON.parse(readFileSync(join(root, 'test/onnx-fixtures/fixtures.json'), 'utf8')).cases;
         const bytesOf = name => Uint8Array.from(Buffer.from(fixtures.find(fixture => fixture.name === name).onnx, 'base64'));
         assert.throws(() => useOnnxNetwork(engine, agents, bytesOf('torch-chain'), 'prey'), /the brain maps 5→3; the layout is 24→2\./);
-        // PyTorch's default export of anything but a tiny network: refused by the reader, with the fix.
-        assert.throws(() => useOnnxNetwork(engine, agents, bytesOf('torch-outside'), 'prey'), /^Error: mlpFromOnnx: initializer "0\.weight" is stored outside the file, in "model\.onnx\.data"; export with the weights inside it \(PyTorch: external_data=False\)\.$/);
+        // PyTorch's default export of anything but a tiny network is two files. The first alone is
+        // refused by the reader, naming both ways out; with the second, it is read, and here setBrain
+        // refuses its widths (step 9, phase 9.2).
+        assert.throws(() => useOnnxNetwork(engine, agents, bytesOf('torch-outside'), 'prey'),
+            /^Error: mlpFromOnnx: initializer "0\.weight" is stored outside the file, in "model\.onnx\.data"; pass that file, \{ externalData: \[\{ path: 'model\.onnx\.data', data \}\] \}, or export with the weights inside it \(PyTorch: external_data=False\)\.$/);
+        const twoFiles = fixtures.find(fixture => fixture.name === 'torch-outside-batch');
+        const externalData = Object.entries(twoFiles.externalData).map(([path, file]) => ({ path, data: Uint8Array.from(Buffer.from(file.base64, 'base64')) }));
+        assert.throws(() => useOnnxNetwork(engine, agents, bytesOf('torch-outside-batch'), 'prey', externalData), /the brain maps 13→3; the layout is 24→2\./);
         assert.equal(stages.length, built, 'a refused file builds no stage');
         assert.equal(alive(), held, 'a refused file leaves no buffer behind: the brain made for it is destroyed');
 
@@ -87,7 +93,7 @@ test('inference guide: the example type-checks, bundles, loads the committed net
         assert.deepEqual(again.dims, { obs: 24, act: 2 });
         agents.destroy();
         for (const brain of [...brains, again]) brain.destroy();
-        console.log('inference guide: the example type-checks, bundles, loads both committed networks from .onnx bytes, and refuses other names, other widths and weights outside the file.');
+        console.log('inference guide: the example type-checks, bundles, loads both committed networks from .onnx bytes, reads a second file when it is given, and refuses other names, other widths and weights outside the file without it.');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

@@ -22,20 +22,25 @@ export const node = (op, inputs, outputs, { name = '', attributes = [], domain }
 
 /**
  * A tensor. `as` says how its values are stored: 'raw' bytes, a packed float 'list', or an
- * 'unpacked' list of one field per value. `type` 1 is float32. `external` names the file that
- * would hold the values, and then none are written here.
+ * 'unpacked' list of one field per value. `type` 1 is float32. `external` says where the values
+ * are stored instead, and then none are written here: the location (a file name), or ONNX's entries
+ * as an object, `{ location, offset, length }`, written as text in that order (step 9, phase 9.2).
  */
 export function tensor(name, dims, values, { as = 'raw', packedDims = false, type = 1, external } = {}) {
     const floats = values.flatMap(f32);
+    const entries = typeof external === 'string' ? { location: external } : external ?? {};
     return [
         ...(packedDims ? msg(1, dims.flatMap(d => varint(d))) : dims.flatMap(d => int(1, d))),
         ...int(2, type),
         ...(external || as === 'raw' ? [] : as === 'list' ? msg(4, floats) : values.flatMap(v => [0x25, ...f32(v)])),
         ...str(8, name),
         ...(!external && as === 'raw' ? msg(9, floats) : []),
-        ...(external ? [...msg(13, [...str(1, 'location'), ...str(2, external)]), ...int(14, 1)] : []),
+        ...(external ? [...Object.entries(entries).flatMap(([key, value]) => msg(13, [...str(1, key), ...str(2, String(value))])), ...int(14, 1)] : []),
     ];
 }
+
+/** The bytes of float32 values, little-endian: what a data file beside an .onnx file holds. */
+export const floatBytes = values => new Uint8Array(values.flatMap(f32));
 
 /** The bytes of a model. `extra` is appended as it is: fields the reader must skip, or damage. */
 export function model({ nodes = [], initializers = [], inputs = [['obs', ['batch', 5]]], outputs = [['act', ['batch', 3]]],

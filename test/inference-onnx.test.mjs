@@ -4,6 +4,8 @@
 //   U29  every form of the dense subset gives the same network
 //   U30  no file hangs the reader or breaks it: prefixes, changed bytes, named cases
 //   U31  the files other exporters wrote (test/onnx-fixtures/fixtures.json) behave as listed here
+//   U36  weights stored outside the file are read from the files given, and only from them
+//        (step 9, phase 9.2: docs/agents-ort-design.md §6.1)
 //   U14  every refusal of the design's §11 fires and names the offender
 //
 // Imports dist/: run `npm run build:lib` first.
@@ -17,7 +19,7 @@ import { build } from 'esbuild';
 import * as A from '../dist/agents.js';
 import * as inference from '../dist/inference.js';
 import { int, msg, onnxFromNetwork } from '../tools/agents/onnx.mjs';
-import { attr, chain, model, node, tensor, transposed } from './onnx-fixtures/build.mjs';
+import { attr, chain, floatBytes, model, node, tensor, transposed } from './onnx-fixtures/build.mjs';
 
 const { mlpFromOnnx } = inference;
 const root = fileURLToPath(new URL('../', import.meta.url)).replace(/\\/g, '/');
@@ -35,8 +37,15 @@ function same(got, want, label = '') {
     });
 }
 /** Every refusal is an Error that says who refused. */
-const refused = (bytes, pattern, label) => assert.throws(() => mlpFromOnnx(bytes),
+const refused = (bytes, pattern, label, options) => assert.throws(() => mlpFromOnnx(bytes, options),
     error => error instanceof Error && error.message.startsWith('mlpFromOnnx: ') && pattern.test(error.message), `${label ?? pattern}`);
+/** A fixture's data files, as `externalData`, each checked against its recorded size and SHA-256. */
+const dataFiles = fixture => Object.entries(fixture.externalData ?? {}).map(([path, file]) => {
+    const data = Uint8Array.from(Buffer.from(file.base64, 'base64'));
+    assert.equal(data.length, file.bytes, `${fixture.name}: ${path}`);
+    assert.equal(createHash('sha256').update(data).digest('hex'), file.sha256, `${fixture.name}: ${path} is not the file that was recorded`);
+    return { path, data };
+});
 
 // A middle layer that is square: a transpose that is forgotten keeps every shape and is still wrong.
 const BASE = [layer(5, 7, 'tanh', 10), layer(7, 7, 'relu', 11), layer(7, 3, 'identity', 12)];
@@ -239,12 +248,13 @@ test('U31: files written by other exporters read as their makers hold them, or a
     // What the reader should do with each file is stated here, not stored with the file.
     const reads = ['helper-gemm0', 'sklearn-mlp', 'torch-acts', 'torch-chain', 'torch-flatten', 'torch-nobias', 'torch-shared', 'torch-vector',
         'torchscript-chain', 'torchscript-flatten', 'torchscript-nobias', 'torchscript-shared', 'torchscript-vector'];
+    // PyTorch's default call puts tensors over 256 B in a second file: read with it (phase 9.2), refused without it.
+    const twoFiles = { 'torch-outside': '0.weight', 'torch-outside-batch': '0.weight' };          // the first tensor the reader decodes
     const refuses = {
         'torch-double': /^mlpFromOnnx: initializer "0\.weight" has data type 11; only float32 \(1\) is read\. Export the model as float32\.$/,
         'torch-heads': /^mlpFromOnnx: the graph has 1 inputs and 2 outputs; a dense network has one of each\.$/,
-        'torch-outside': /^mlpFromOnnx: initializer "0\.weight" is stored outside the file, in "model\.onnx\.data"; export with the weights inside it \(PyTorch: external_data=False\)\.$/,
     };
-    assert.deepEqual(document.cases.map(c => c.name).sort(), [...reads, ...Object.keys(refuses)].sort(), 'every fixture is listed here, and nothing else');
+    assert.deepEqual(document.cases.map(c => c.name).sort(), [...reads, ...Object.keys(twoFiles), ...Object.keys(refuses)].sort(), 'every fixture is listed here, and nothing else');
     let worst = 0;
     for (const fixture of document.cases) {
         const bytes = Uint8Array.from(Buffer.from(fixture.onnx, 'base64'));
@@ -254,8 +264,15 @@ test('U31: files written by other exporters read as their makers hold them, or a
             refused(bytes, refuses[fixture.name], fixture.name);
             continue;
         }
+        const externalData = dataFiles(fixture);
+        assert.equal(externalData.length, twoFiles[fixture.name] ? 1 : 0, `${fixture.name}: the data files kept with it`);
+        if (twoFiles[fixture.name]) {
+            const tensor = twoFiles[fixture.name].replace('.', '\\.');
+            refused(bytes, new RegExp(`^mlpFromOnnx: initializer "${tensor}" is stored outside the file, in "model\\.onnx\\.data"; pass that file, ` +
+                `\\{ externalData: \\[\\{ path: 'model\\.onnx\\.data', data \\}\\] \\}, or export with the weights inside it \\(PyTorch: external_data=False\\)\\.$`), `${fixture.name} without its data file`);
+        }
         const maker = fixture.network.map(l => ({ ...l, weights: Float32Array.from(l.weights), biases: Float32Array.from(l.biases) }));
-        const { network } = mlpFromOnnx(bytes);
+        const { network } = mlpFromOnnx(bytes, { externalData });
         same(network, maker, fixture.name);
         A.mlpLayout(network);                                    // and MlpBrain would run it
         fixture.inputs.forEach((input, row) => {
@@ -272,8 +289,81 @@ test('U31: files written by other exporters read as their makers hold them, or a
     const shared = mlpFromOnnx(Uint8Array.from(Buffer.from(document.cases.find(c => c.name === 'torch-shared').onnx, 'base64'))).network;
     assert.deepEqual(bits(shared[1].weights), bits(shared[2].weights));
     assert.notEqual(shared[1].weights, shared[2].weights);
-    console.log(`U31: ${reads.length} files read with their makers' weights bit for bit, mlpForward within ${worst.toExponential(1)} of the makers' outputs; ${Object.keys(refuses).length} refused as listed`);
+    console.log(`U31: ${reads.length + Object.keys(twoFiles).length} files read with their makers' weights bit for bit (${Object.keys(twoFiles).length} with their data files), ` +
+        `mlpForward within ${worst.toExponential(1)} of the makers' outputs; ${Object.keys(refuses).length} refused as listed`);
 });
+
+test('U36: weights stored outside the file are read from the files given, by their exact path, and checked against them', () => {
+    // A 5-3-2 network whose tensors lie three ways: w1 and w2 at stated offsets of one data file, b2
+    // at the end of it with no length written (the rest of the file), b1 inside the .onnx file.
+    const [first, second] = [layer(5, 3, 'tanh', 30), layer(3, 2, 'identity', 31)];
+    const values = l => [...l.weights];
+    const data = floatBytes([...values(first), ...values(second), ...second.biases]);            // 60 + 24 + 8 = 92 bytes
+    const at = (offset, length) => ({ location: 'weights.bin', offset, ...(length === undefined ? {} : { length }) });
+    const file = (w1 = at(0, 60), w2 = at(60, 24), b2 = at(84)) => model({
+        nodes: [gemm('obs', 'w1', 'b1', 'h'), node('Tanh', ['h'], ['t']), gemm('t', 'w2', 'b2', 'act', { name: 'second' })],
+        initializers: [tensor('w1', [3, 5], [], { external: w1 }), tensor('b1', [3], [...first.biases]),
+            tensor('w2', [2, 3], [], { external: w2 }), tensor('b2', [2], [], { external: b2 })],
+        outputs: [['act', ['batch', 2]]] });
+    const given = (bytes = data, path = 'weights.bin') => ({ externalData: [{ path, data: bytes }] });
+    same(mlpFromOnnx(file(), given()).network, [first, second], 'three tensors of one data file');
+    same(mlpFromOnnx(file(), given(data.slice().buffer)).network, [first, second], 'the data file as an ArrayBuffer');
+    const inside = new Uint8Array(200);
+    inside.set(data, 50);
+    same(mlpFromOnnx(file(), given(inside.subarray(50, 142))).network, [first, second], 'a view into a larger buffer: its own bytes only');
+    const others = { externalData: [{ path: 'other.bin', data: new Uint8Array(4) }, { path: 'weights.bin', data }] };
+    same(mlpFromOnnx(file(), others).network, [first, second], 'the right file among several');
+    // A location alone: the whole file, from its start.
+    const alone = model({ nodes: [gemm('obs', 'w', null, 'act')], initializers: [tensor('w', [3, 5], [], { external: 'w.bin' })] });
+    assert.deepEqual(bits(mlpFromOnnx(alone, given(floatBytes(values(first)), 'w.bin')).network[0].weights), bits(first.weights));
+
+    const outside = /^mlpFromOnnx: initializer "w1" is stored outside the file, in "weights\.bin"; pass that file, \{ externalData: \[\{ path: 'weights\.bin', data \}\] \}, or export with the weights inside it \(PyTorch: external_data=False\)\.$/;
+    refused(file(), outside, 'no files given');
+    refused(file(), outside, 'another name', given(data, './weights.bin'));
+    refused(file(), outside, 'an empty list', { externalData: [] });
+    const escape = file(at(0, 60), at(60, 24), { location: '../weights.bin', offset: 84 });
+    refused(escape, /^mlpFromOnnx: initializer "b2" is stored outside the file, in "\.\.\/weights\.bin"; pass that file/, 'a location that climbs out reaches only a path given as such', given());
+    refused(file(at(40, 60)), /^mlpFromOnnx: initializer "w1" reads 60 B at offset 40 of "weights\.bin", which holds 92 B\.$/, 'past the end', given());
+    refused(file(at(0, 60), at(60, 24), at(93)), /^mlpFromOnnx: initializer "b2" reads the rest B at offset 93 of "weights\.bin", which holds 92 B\.$/, 'an offset past the end', given());
+    refused(file(at('4x', 60)), /initializer "w1" reads 60 B at offset 4x of "weights\.bin"/, 'an offset that is not a number', given());
+    refused(file(at(0, -60)), /initializer "w1" reads -60 B at offset 0 of "weights\.bin"/, 'a negative length', given());
+    refused(file(at(0, '1e3')), /initializer "w1" reads 1e3 B at offset 0/, 'a length in another notation', given());
+    refused(file(at(0, 56)), /^mlpFromOnnx: initializer "w1" is \[3,5\] but holds 14 values\.$/, 'a length that is not the tensor\'s', given());
+    refused(file(at(0, 58)), /initializer "w1" is \[3,5\] but holds 14\.5 values/, 'a length that is not whole floats', given());
+    const bad = /^mlpFromOnnx: externalData must be a list of \{ path, data \}, with data a Uint8Array or an ArrayBuffer; a URL is for ONNX Runtime, which fetches it\.$/;
+    for (const [label, externalData] of [['a URL as data', [{ path: 'weights.bin', data: 'https://example.com/weights.bin' }]],
+        ['no path', [{ data }]], ['a number as data', [{ path: 'weights.bin', data: 92 }]], ['an object, not a list', { 'weights.bin': data }],
+        ['a list of bytes', [data]], ['null in the list', [null]]]) {
+        refused(file(), bad, label, { externalData });
+    }
+    refused(MODEL_WITHOUT_EXTERNAL(), bad, 'checked even when nothing is stored outside', { externalData: 'weights.bin' });
+
+    // The memory budget counts the files given: one tensor of 4,096 values, used by four layers, is
+    // 16,384 values from a data file of 16,384 B. Forty uses outgrow it.
+    const tied = count => model({ nodes: Array.from({ length: count }, (_, k) => gemm(k ? `h${k - 1}` : 'obs', 'w', null, k === count - 1 ? 'act' : `h${k}`, { name: `layer${k}` })),
+        initializers: [tensor('w', [64, 64], [], { external: 'w.bin' })], inputs: [['obs', ['batch', 64]]], outputs: [['act', ['batch', 64]]] });
+    const square = given(floatBytes(Array.from({ length: 4096 }, (_, k) => k / 4096)), 'w.bin');
+    assert.equal(mlpFromOnnx(tied(4), square).network.length, 4, 'four layers of one tensor fit');
+    refused(tied(40), /^mlpFromOnnx: initializer "w" is used so often that the layers hold more values than the file has bytes\.$/, 'forty do not', square);
+
+    // Every prefix of the data file, and changed bytes in it: refused by name, or read; never broken.
+    let named = 0;
+    for (let n = 0; n < data.length; n++) {
+        try { mlpFromOnnx(file(), given(data.subarray(0, n))); } catch (error) {
+            assert.ok(error.message.startsWith('mlpFromOnnx: '), `a data file of ${n} bytes: ${error.message}`);
+            named++;
+        }
+    }
+    assert.equal(named, data.length, 'a data file cut short is always refused');
+    for (let k = 0; k < 200; k++) {
+        const copy = data.slice();
+        copy[Math.floor(A.rand01(k, 3, 90) * copy.length)] ^= 1 + Math.floor(A.rand01(k, 4, 90) * 255);
+        assert.equal(mlpFromOnnx(file(), given(copy)).network.length, 2, `change ${k}: other values, the same network`);
+    }
+});
+
+/** A file with every tensor inside, for checks of the options alone. */
+const MODEL_WITHOUT_EXTERNAL = () => model({ nodes: [gemm('obs', 'w', 'b', 'act')], initializers: [W('w', 3, 5), B('b', 3)] });
 
 test('U14: every refusal fires and names the offender', () => {
     const good = chain(BASE.slice(0, 2));
@@ -322,8 +412,8 @@ test('U14: every refusal fires and names the offender', () => {
             /^mlpFromOnnx: node "spare" \(Identity\) is not on the chain from the input to the output\.$/],
         ['float64 weights', one([gemm('obs', 'w', 'b', 'act')], [W('w', 3, 5, { type: 11 }), B('b', 3)]),
             /^mlpFromOnnx: initializer "w" has data type 11; only float32 \(1\) is read\. Export the model as float32\.$/],
-        ['weights outside the file', one([gemm('obs', 'w', 'b', 'act')], [W('w', 3, 5, { external: 'weights.bin' }), B('b', 3)]),
-            /^mlpFromOnnx: initializer "w" is stored outside the file, in "weights\.bin"; export with the weights inside it \(PyTorch: external_data=False\)\.$/],
+        ['weights outside the file, and no file given', one([gemm('obs', 'w', 'b', 'act')], [W('w', 3, 5, { external: 'weights.bin' }), B('b', 3)]),
+            /^mlpFromOnnx: initializer "w" is stored outside the file, in "weights\.bin"; pass that file, \{ externalData: \[\{ path: 'weights\.bin', data \}\] \}, or export with the weights inside it \(PyTorch: external_data=False\)\.$/],
         ['too few values', one([gemm('obs', 'w', 'b', 'act')], [tensor('w', [3, 5], new Array(14).fill(1)), B('b', 3)]), /^mlpFromOnnx: initializer "w" is \[3,5\] but holds 14 values\.$/],
         ['a float list that is too long', one([gemm('obs', 'w', 'b', 'act')], [tensor('w', [3, 5], new Array(16).fill(1), { as: 'list' }), B('b', 3)]), /initializer "w" is \[3,5\] but holds 16 values/],
         ['raw bytes that are not whole floats', one([gemm('obs', 'w', 'b', 'act')], [[...int(1, 1), ...int(1, 1), ...int(2, 1), ...msg(9, [1, 2, 3, 4, 5, 6]), ...msg(8, [119])], B('b', 1)]),
@@ -345,7 +435,8 @@ test('size: the reader keeps its line, copies none of MlpBrain, and no other ent
         format: 'esm', platform: 'browser', external: ['gl-matrix'], write: false, logLevel: 'silent' })).outputFiles[0];
     const reader = await bundle(`export { mlpFromOnnx } from '${root}src/extras/inference/index.ts';`), gzip = gzipSync(reader.contents).length;
     assert.ok(reader.text.includes('mlpFromOnnx: '), 'the bundle is the reader');
-    assert.ok(gzip <= 2600, `the reader is ${gzip} B min+gzip; its line is 2,600 B (the design's §12)`);
+    // 2,600 B for step 8; 2,900 B since step 9 reads weights stored outside the file (agents-ort-design.md §6.1).
+    assert.ok(gzip <= 2900, `the reader is ${gzip} B min+gzip; its line is 2,900 B`);
     // Types only: MlpBrain validates what it runs, and none of that is copied here.
     assert.ok(!/affine layers|MlpBrain/.test(reader.text), 'the reader holds agents code');
     const agents = await bundle(`export * from '${root}src/extras/agents/index.ts';`);
@@ -353,5 +444,5 @@ test('size: the reader keeps its line, copies none of MlpBrain, and no other ent
     // An app that imports the entry and uses nothing of it carries nothing.
     const unused = await bundle(`import '${root}src/extras/inference/index.ts';`);
     assert.equal(unused.text.trim(), '', `an unused import leaves ${unused.contents.length} B behind`);
-    console.log(`size: mlpFromOnnx is ${reader.contents.length} B min, ${gzip} B min+gzip, of 2,600 B; the agents entry is ${gzipSync(agents.contents).length} B min+gzip and holds none of it`);
+    console.log(`size: mlpFromOnnx is ${reader.contents.length} B min, ${gzip} B min+gzip, of 2,900 B; the agents entry is ${gzipSync(agents.contents).length} B min+gzip and holds none of it`);
 });

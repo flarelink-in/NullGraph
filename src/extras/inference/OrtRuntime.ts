@@ -42,7 +42,11 @@ export interface OrtExternalData {
 }
 
 export interface OrtModelOptions {
-    /** ONNX Runtime's graph capture: on unless `false` (agents-ort-design.md §9). */
+    /**
+     * ONNX Runtime's graph capture (agents-ort-design.md §9): on, unless `false`, or unless the
+     * model's weights are in a second file (`externalData`). Under capture ONNX Runtime 1.29 can
+     * fail such a model from its second run; `true` asks for capture all the same.
+     */
     readonly capture?: boolean;
     /** Weights stored outside the .onnx file, passed to ONNX Runtime as they are (§6.1). */
     readonly externalData?: readonly OrtExternalData[];
@@ -102,13 +106,15 @@ export class OrtRuntime {
 
     /**
      * Creates a session for the model on the runtime's device: the WebGPU provider, outputs kept on
-     * the GPU, graph capture unless `capture: false`. Bind its buffers with `model.bind`.
+     * the GPU, graph capture unless `capture: false` or weights in a second file. Bind its buffers
+     * with `model.bind`.
      */
     public async load(model: Uint8Array | ArrayBuffer, options: OrtModelOptions = {}): Promise<OrtModel> {
         this.assertAlive();
         const bytes = model instanceof Uint8Array ? model : model instanceof ArrayBuffer ? new Uint8Array(model)
             : fail('OrtRuntime', 'expected the model\'s bytes, as a Uint8Array or an ArrayBuffer.');
-        const capture = options.capture ?? true;
+        // Decided with the user, 2026-10-14 (agents-ort-design.md §14, item 5).
+        const capture = options.capture ?? !options.externalData?.length;
         let session: OrtSessionLike;
         try {
             // An object, never the string 'webgpu': given a string, ONNX Runtime captures halfway (spike S2).
@@ -192,9 +198,13 @@ export class OrtModel {
                         symbols.set(d, seen ?? [dims[k], t.name]);
                     }
                 });
-                const bytes = dims.reduce((a, d) => a * d, 4), { buffer } = binding;
+                // ONNX Runtime's kernels read and write 16 B at a time: past the values, up to the next
+                // 16 B. On NVIDIA a write that ends beyond the buffer is dropped whole (phase 9.2).
+                const bytes = Math.ceil(dims.reduce((a, d) => a * d, 4) / 16) * 16, { buffer } = binding;
                 const storage = (buffer.usage & GPUBufferUsage.STORAGE) !== 0;
-                if (buffer.size < bytes || !storage) fail('OrtModel', `"${t.name}" needs ${bytes} B with STORAGE usage; its buffer has ${buffer.size} B${storage ? '' : ', without STORAGE'}.`);
+                if (buffer.size < bytes || !storage) {
+                    fail('OrtModel', `"${t.name}" needs ${bytes} B with STORAGE usage: its values, rounded up to 16 B, as ONNX Runtime reads and writes 16 B at a time; its buffer has ${buffer.size} B${storage ? '' : ', without STORAGE'}.`);
+                }
                 out[t.name] = this.ort.Tensor.fromGpuBuffer(buffer, { dataType: 'float32', dims });
             }
             return out;
