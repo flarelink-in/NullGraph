@@ -190,8 +190,8 @@ await agents.step();                         // render(grid, sense) → await ru
 | 12 | Graph capture is WebGPU-only, needs every input and output to be an external GPU buffer, and binds them once.                         | `inference-session.d.ts:135-139`; `onnxruntime-web/lib/wasm/wasm-core-impl.ts:599-603,781,1061` | Fixed buffers for life (§9.4). `OrtBrain` refuses a rebind, because ORT would ignore it silently.                                                           |
 | 13 | `run()` awaits input preparation before dispatching.                                                                                  | `wasm-core-impl.ts:747,760,841`                                                                 | An ORT run lands after the frame that started it (§1, §9.4).                                                                                                |
 | 14 | A session reports input/output shapes; symbolic dims are strings.                                                                     | `inference-session.d.ts:452-468,520-524`                                                        | `OrtBrain` checks `[N or symbol, dim]` float32 at construction.                                                                                             |
-| 15 | `env.webgpu.device` can be **set** to an app-created device before the first session.                                                 | `onnxruntime-common/dist/esm/env.d.ts:211-222`                                                  | An engine created first (the site's worker) can hand its device to ORT — pending S5. **Does not hold for ORT 1.29 (S5, 2026-10-14):** every run on an app-made device fails, so the engine adopts ORT's device ([`agents-ort-design.md`](./agents-ort-design.md)). |
-| 16 | ORT, creating its own device, requests the adapter's maximum compute/storage limits; NullGraph negotiates features and, since 2026-10-12, three storage limits (`PROGRESSION_LIMITS`), not compute limits. | `onnxruntime-web/lib/wasm/jsep/backend-webgpu.ts:231-257`; `WebGPUContext.requestDevice` (`PROGRESSION_LIMITS`)           | An engine-created device has raised storage limits but default compute limits; S5 checks ORT's dense kernels run on it.                                                                     |
+| 15 | `env.webgpu.device` can be **set** to an app-created device before the first session.                                                 | `onnxruntime-common/dist/esm/env.d.ts:211-222`                                                  | An engine created first (the site's worker) can hand its device to ORT — pending S5. **Does not hold for ORT 1.29 (S5, 2026-10-14):** every run on an app-made device fails. As built in step 9, ORT makes the device and the engine adopts it: `OrtRuntime.create(ort)`, then `engine.init(canvas, { device: runtime.device })` ([`agents-ort-design.md`](./agents-ort-design.md) §1, §5). |
+| 16 | ORT, creating its own device, requests the adapter's maximum compute/storage limits; NullGraph negotiates features and, since 2026-10-12, three storage limits (`PROGRESSION_LIMITS`), not compute limits. | `onnxruntime-web/lib/wasm/jsep/backend-webgpu.ts:231-257`; `WebGPUContext.requestDevice` (`PROGRESSION_LIMITS`)           | An engine-created device has raised storage limits but default compute limits; S5 checks ORT's dense kernels run on it. **Moot since S5:** the engine adopts the device ORT makes, with ORT's own limits, and the agents read their binding budget from the adopted device's limits. |
 | 17 | The test-engine host runs `update()`, the camera update and `render()` in one synchronous task.                                       | site `src/workers/engine/EngineCore.ts:223-244`                                                 | With fact 13: an ORT run started in `update()` lands between frames.                                                                                        |
 | 18 | Readback is forbidden in the frame loop, legal in tests.                                                                              | [`design-principles.md`](./design-principles.md) §13                                            | The inspector and dataset recording read back off the frame path, like `Picker`.                                                                            |
 | 19 | Compute stages do not spend the fragment bind-group budget.                                                                           | [`roadmap.md`](./roadmap.md) §6.1                                                               | Agents add no fragment bindings; the instance-tier draw is unchanged.                                                                                       |
@@ -539,6 +539,32 @@ dependency**: listed, never auto-installed, never bundled. An app that imports o
   [`agents-ort-design.md`](./agents-ort-design.md), replaces this section's device, session and
   schedule details.
 
+**As built in step 9** (2026-10-14; the guide: [`api/inference.md`](./api/inference.md#onnx-runtime)).
+The bullets above are superseded where they differ:
+- **Three classes in `null-graph/inference`:** `OrtRuntime.create(ort, { adapter })` starts the
+  WebGPU provider and keeps a one-node anchor session for its life, because ORT destroys its
+  device with its last session. `runtime.load(bytes, { capture, externalData })` is an
+  `OrtModel`, bound once to GPU buffers. `new OrtBrain(model, { input, output })` makes it a
+  brain; there is no `OrtBrain.create`, and the app's `ort` is passed to the runtime only.
+- **ORT never writes `act`.** Its runs write a results buffer of the brain's own, seeded from
+  `act` at each attach; the brain's think pass copies its species' rows into `act`, gated like any
+  pass. Per-species brains and `thinkEvery` hold for it as for every brain.
+- **Session options:** the provider as an object, `{ name: 'webgpu' }`, never the string (which
+  captures halfway); outputs on the GPU; **graph capture off unless `capture: true`**. ORT 1.29
+  and 1.30 can fail a captured model from its second run, and leak memory on every captured run
+  (step 9's design §9 and §14, item 6).
+- **Buffers handed to ORT are rounded up to 16 B:** its kernels write 16 B at a time, and a
+  write past a buffer is lost on NVIDIA. `obs` is allocated that way.
+- **The schedules, measured:** interactively, `advance()` starts a run when the brain has none in
+  flight and `thinkEvery` steps have passed, and every frame acted on actions one frame old (299 of
+  300 in Chrome; A6). In lockstep, `step()` waits for an interactive run, senses, awaits the run,
+  then acts: exact (A5, A30). The "mixed schedules" refusal is gone. A failed run is thrown by the
+  next `advance()` or `step()`, naming the species.
+- **`agents.prepareBrain(brain)`** compiles a brain's pass ahead through core's new
+  `engine.createComputeStageAsync`, so that `setBrain` compiles nothing (A33).
+- **Size:** the adapter with `OrtBrain` is 2,988 B min+gzip; ORT itself is 0 B in every bundle,
+  an optional peer dependency.
+
 ### 9.5 Training without ML experience — `tools/agents/` (in the repo, not in the package)
 
 1. **`record.mjs`** runs the population headless (Node + Dawn) in lockstep with the `RuleBrain`,
@@ -623,8 +649,8 @@ are what make the later rows research rather than animation.
 | A2 | `obs` equals the CPU mirror for 10,000 agents (≤ 1e-5 absolute; counts exact) |
 | A3 | One step of act equals the CPU mirror. WGSL only requires `sin`/`cos` to within 2⁻¹¹ absolute on [−π, π], so the bound is derived, not guessed: the heading to f32 rounding, velocity and position to `speed × 2⁻¹¹` per step. The measured maximum is reported per GPU |
 | A4 | `MlpBrain` on the GPU equals the CPU forward pass (≤ 1e-5 relative) |
-| A5 | The same `.onnx` through `OrtBrain` (graph capture on) equals `MlpBrain` (≤ 1e-4 absolute) |
-| A6 | Across 300 interactive frames with ORT, **zero** `mapAsync` outside the inspector (instrumented) |
+| A5 | The same `.onnx` through `OrtBrain` (graph capture on) equals `MlpBrain` (≤ 1e-4 absolute). As built in step 9: with graph capture on and off, prey on `OrtBrain` and wolves on `MlpBrain`, within 1.1e-5 |
+| A6 | Across 300 interactive frames with ORT, **zero** `mapAsync` outside the inspector (instrumented). As built in step 9: 600 frames at two paces, with the frames' latency: one frame, on three host/GPU pairs |
 | A7 | Two lockstep runs of 600 steps from one seed produce byte-identical agent buffers (same device, no overflow) |
 | A8 | Cloning quality: held-out action MAE ≤ 0.05, and prey survival after 30 s within 10% of the teacher |
 | A9 | Step 5 characterizes full rule-step scaling, density/query quality and proven bottlenecks on available GPU targets; report conditional limits, not a population/timing pass target. Original 20K / ≤2 ms NVIDIA goal is historical (scope amended 2026-10-12); network measurements follow in C2 |
@@ -647,13 +673,15 @@ are what make the later rows research rather than animation.
 | Foreign `VisibilitySystem` | `AgentSystem: that VisibilitySystem belongs to a different engine.` |
 | Index out of range | `AgentSystem: index <i> is outside capacity <n>.` |
 | Used after destroy | `AgentSystem: used after destroy().` |
-| Network too wide | `MlpBrain: layer <k> is <w> wide; the built-in kernel takes ≤ 64. Use OrtBrain.` |
+| Network too wide | `MlpBrain: layer <k> is <w> wide; the built-in kernel takes ≤ 64. Use OrtBrain.` As built in step 6: `MlpBrain: layer <k> input must be 1–<128 or 64>.` and `MlpBrain: layer <k> output must be 1–<limit>.`, which do not name `OrtBrain` |
 | Unsupported ONNX op | `MlpBrain.fromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid. Use OrtBrain.` As built in step 8: `mlpFromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid.`, with the reader's other refusals in [`agents-onnx-reader-design.md`](./agents-onnx-reader-design.md) §11 |
-| ORT on another device | `OrtBrain: ONNX Runtime uses a different device. Set ort.env.webgpu.device = engine.device before creating the session, or init the engine with { device: await ort.env.webgpu.device }.` **Replaced in step 9** (S5: the first fix does not work): [`agents-ort-design.md`](./agents-ort-design.md) §11 |
-| Model shape | `OrtBrain: input "<n>" is [<dims>] <type>; expected [N, <obsDim>] float32.` |
-| Mixed schedules | `OrtBrain: step() while an interactive run is in flight — await it first.` |
+| ORT on another device | `OrtBrain: ONNX Runtime uses a different device. Set ort.env.webgpu.device = engine.device before creating the session, or init the engine with { device: await ort.env.webgpu.device }.` **Replaced in step 9** (S5: the first fix does not work): `OrtBrain: this system's engine has another device. ONNX Runtime 1.29 runs only on a device it made: init the engine with { device: runtime.device }.` |
+| Model shape | `OrtBrain: input "<n>" is [<dims>] <type>; expected [N, <obsDim>] float32.` As built in step 9: `OrtBrain: <input\|output> "<n>" is [<dims>] <type>; expected [N, <obsDim\|actDim>] float32.`; a width that is not the definition's is `setBrain`'s "Brain dimensions" refusal |
+| Mixed schedules | `OrtBrain: step() while an interactive run is in flight — await it first.` **Gone in step 9:** `step()` waits for the run in flight instead |
+| Step 9's other refusals | `OrtRuntime`, `OrtModel` and `OrtBrain` refuse wrong namespaces, models, bindings and systems; a run that fails is thrown by the next `advance()` or `step()`, naming the species; `setBrain` refuses a brain still being prepared: [`agents-ort-design.md`](./agents-ort-design.md) §11 |
 
-All are thrown at construction or registration, never per frame ([design-principles](./design-principles.md) §2).
+All are thrown at construction or registration, never per frame ([design-principles](./design-principles.md) §2),
+except a failed ONNX Runtime run, which is thrown once, by the first `advance()` or `step()` after it.
 
 ---
 
@@ -663,6 +691,10 @@ All are thrown at construction or registration, never per frame ([design-princip
 
 Compute stages, storage buffers, `atomic<u32>`, `preClearBuffers`, `enabled` and adopted devices all
 ship. Core bundle: **+0 B**.
+
+**As built:** step 9 added one core method, `engine.createComputeStageAsync`, so that
+`agents.prepareBrain` compiles a brain's pass off the frame (decided with the user, 2026-10-14;
+phase 9.5): +126 B min+gzip on core's entry.
 
 ### 12.2 Visibility — required for the 20,000-agent target: `vis.setInstanceCount(n)`
 
@@ -677,7 +709,9 @@ a full CPU array that mirrors nothing.
 ### 12.3 Core — optional: `EngineInitOptions.requiredLimits`
 
 **Withdrawn 2026-10-14:** S5 found that ORT 1.29 fails on a device asked for with exactly its own
-limits, so no limit helps; the engine adopts ORT's device (decision 6).
+limits, so no limit helps; the engine adopts ORT's device (decision 6). Nothing below was built:
+an app makes `OrtRuntime` first and inits its engine on `runtime.device`, and an engine-first host
+must initialise its engine again to use ORT. The original text follows.
 
 Only if S5 shows ORT's dense kernels fail or crawl on an engine-created device with default limits.
 **Since 2026-10-12** core raises three storage limits (`PROGRESSION_LIMITS`) on every device it

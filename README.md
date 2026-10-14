@@ -78,7 +78,7 @@ depends on the imported features and the application's bundler.
 | `null-graph/picking`     | On-demand GPU picking for supported batches and visibility instances, returning source instance index, depth and world position                                                     | [Picking](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/picking.md)                                                                                                                           |
 | `null-graph/text`        | GPU-culled SDF/MSDF labels, halos, depth modes, atlas generation/loading and labels following GPU-buffer positions                                                                  | [Text](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/text.md)                                                                                                                                 |
 | `null-graph/agents`      | GPU fixed-step sense → think → act simulation, spatial neighbour queries, WGSL rule policies, small dense-network inference, custom sensors/actions, inspection and instance output | [Agents](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md) · [Spatial grid](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agent-grid.md)                              |
-| `null-graph/inference`   | Networks trained elsewhere: reads a small dense network from an `.onnx` file (PyTorch, scikit-learn, the repository's trainer) for the agents' network brain; no ONNX Runtime       | [Inference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/inference.md)                                                                                                                         |
+| `null-graph/inference`   | Networks trained elsewhere: reads a small dense network from an `.onnx` file for the agents' network brain, and runs other models through ONNX Runtime Web on GPU buffers           | [Inference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/inference.md)                                                                                                                         |
 | `null-graph/cameras`     | Orbit, fly, follow and path controllers with DOM-independent state and optional input proxies                                                                                       | [Cameras](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/cameras.md)                                                                                                                           |
 | `null-graph/debug-ui`    | Debug views and telemetry, including grid and agent visualization                                                                                                                   | [Debug UI](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/debug-ui.md)                                                                                                                         |
 | `null-graph/profiler`    | WebGPU timestamp-query profiling on devices that support it                                                                                                                         | [Profiler](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/profiler.md)                                                                                                                         |
@@ -103,13 +103,15 @@ Additional environment APIs are documented by feature rather than implementation
 `AgentSystem` keeps live simulation state on the GPU and exposes explicit frame and lockstep
 scheduling. `RuleBrain` runs application WGSL; `MlpBrain` evaluates a supplied dense network.
 Each species can run its own brain (`setBrain(brain, { species })`), so rules and networks of
-different shapes can share one system. Neither policy is restricted to predator/prey or flocking
-behaviour. Applications define their
-observations, action semantics and additional simulation stages.
+different shapes can share one system, and `prepareBrain` compiles a brain ahead so that a
+switch compiles nothing. Neither policy is restricted to predator/prey or flocking behaviour.
+Applications define their observations, action semantics and additional simulation stages.
 
-The built-in movement and neighbour-query model is currently planar (XZ). Neural inference is
-limited to small dense networks; adding a network does not train it. Training tooling, general
-ONNX import and an ONNX Runtime brain adapter are not currently part of the agents API.
+The built-in movement and neighbour-query model is currently planar (XZ). The built-in network
+kernel runs small dense networks; adding a network does not train it. Larger models run through
+ONNX Runtime Web as an `OrtBrain`, from `null-graph/inference`: the app installs ONNX Runtime, an
+optional peer dependency, and its actions arrive one frame late in interactive frames. Training
+tooling is in the repository, not in the package.
 Neighbour scans have a configurable per-cell budget: crowded cells can omit candidates, and
 overflow-free operation is required for the documented same-device deterministic replay guarantee.
 See the [agents guide](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md)

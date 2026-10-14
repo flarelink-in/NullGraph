@@ -1,6 +1,7 @@
-// A stand-in for an engine, for tests that run a guide's example without a GPU: buffers and uploads
-// are inert, and what an example builds is recorded. `stages` holds every compute stage that was
-// created; `buffers` every buffer, each with a `destroyed` flag.
+// A stand-in for an engine, for tests that run a guide's example without a GPU: buffers, uploads
+// and copies are inert, and what an example builds is recorded. `stages` holds every compute stage
+// that was created, those created asynchronously marked `async`; `buffers` every buffer, each with
+// a `destroyed` flag.
 globalThis.GPUBufferUsage ??= { STORAGE: 128, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64 };
 
 export function standIn() {
@@ -14,8 +15,10 @@ export function standIn() {
             buffers.push(buffer);
             return buffer;
         },
-        queue: { writeBuffer() {} } },
+        createCommandEncoder: () => ({ copyBufferToBuffer() {}, finish: () => ({}) }),
+        queue: { writeBuffer() {}, submit() {} } },
         createComputeStage(o) { const s = { ...o, enabled: true, preClearBuffers: [] }; stages.push(s); return s; },
+        async createComputeStageAsync(o) { const s = { ...o, enabled: true, preClearBuffers: [], async: true }; stages.push(s); return s; },
         setComputePassBindGroup() {},
         render() {},
     };

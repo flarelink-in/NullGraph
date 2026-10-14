@@ -2,11 +2,12 @@
 
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
 entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
-which runs a small dense network you supply, per-species brains, and loading a trained network
-(C2 step 7). Training, ONNX Runtime brains, camera eyes and a replay/rewind UI are not implemented
-by this API. Training is done by tools in the repository, outside the package
-([a trained network](#a-trained-network)). An `.onnx` file is read by another entry,
-`null-graph/inference` ([inference.md](./inference.md)).
+which runs a small dense network you supply, per-species brains, switching brains without a
+compile in the frame, and loading a trained network (C2 steps 7 and 9). Training, camera eyes and
+a replay/rewind UI are not implemented by this API. Training is done by tools in the repository,
+outside the package ([a trained network](#a-trained-network)). An `.onnx` file is read, and
+ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
+([inference.md](./inference.md)).
 
 ## Minimal rule simulation
 
@@ -244,8 +245,9 @@ Render it with the same frame function as the rule example: `advance`, `upload`,
   submitted afterwards uses it. A different shape needs a new brain and `setBrain`.
 - **A new brain costs a compile:** `setBrain` builds a think pipeline for a brain the system does
   not run yet. For a 24→32→32→2 network that took 76 ms in Chrome on an AMD iGPU and about 1.1 s
-  under Node/Dawn on an NVIDIA GPU. Swap brains at a moment that can absorb a hitch, not every
-  frame. Moving species to a brain the system already runs compiles nothing.
+  under Node/Dawn on an NVIDIA GPU. Prepare the brain at load instead
+  ([switching brains without a hitch](#switching-brains-without-a-hitch)), or swap at a moment
+  that can absorb a hitch. Moving species to a brain the system already runs compiles nothing.
 - **Reasons:** an `MlpBrain` writes reason 0. Inspection shows its observations and actions, not
   a rationale.
 - **Ownership:** the caller owns the brain, and it belongs to its engine's device: `setBrain`
@@ -340,7 +342,9 @@ fn think(i: u32, species: u32, tick: u32) {
   - Moving species to a brain that already has a pass uploads one 16-byte mask per changed brain
     and compiles nothing.
   - A brain left with no species leaves the chain, and may then be destroyed. Giving it species
-    again compiles its pass again, from identical shader text, which a pipeline cache can reuse.
+    again compiles its pass again, from identical shader text, which a pipeline cache can reuse,
+    unless the brain was [prepared](#switching-brains-without-a-hitch): a prepared brain keeps its
+    pass.
 - **Mixing kinds and shapes:** each pass runs its own brain's code, so rule brains, networks and
   networks of different shapes mix freely. Every network still maps `obsDim` to `actDim`.
   Passes write only their own agents' actions, so their order cannot change results.
@@ -364,6 +368,48 @@ fn think(i: u32, species: u32, tick: u32) {
   - Spawn each species in one contiguous index block when you can.
 - **Cost for one brain:** a system with one brain reads one more uniform per thinking agent than
   before.
+
+## Switching brains without a hitch
+
+`await agents.prepareBrain(brain)` compiles a brain's think pass ahead, while frames go on, and
+the system keeps it. `setBrain(brain)` then compiles nothing, now or after the brain served no
+species for a while.
+
+```ts
+import type { AgentSystem, Brain } from 'null-graph/agents';
+
+/**
+ * Compiles each brain's pass at load, off the frame. Afterwards `use(brain)` compiles nothing,
+ * however often `species` switches between them.
+ */
+export async function preparedSwitch(agents: AgentSystem, species: string, brains: readonly Brain[]) {
+    await Promise.all(brains.map(brain => agents.prepareBrain(brain)));
+    return {
+        use(brain: Brain) { agents.setBrain(brain, { species }); },
+    };
+}
+```
+
+- **What it does:** it checks the brain as `setBrain` does, binds an ONNX Runtime brain to the
+  system's buffers, compiles the pass with `engine.createComputeStageAsync`, and keeps the pass,
+  out of every chain, until `agents.destroy()`. A kept pass costs a pipeline, its bind groups and
+  a 16-byte buffer.
+- **What it saves,** measured with Herd & Wolves' 24→64→64→64→2 networks and frames running:
+  - `setBrain` of a prepared brain took 0.11–0.65 ms on every host.
+  - Compiled inside `setBrain`, the same network's pass held its frame for 240 ms under Node/Dawn
+    on an NVIDIA GPU and 1,759 ms on an AMD iGPU. Prepared, it compiled while frames went on; the
+    longest frame meanwhile took 39 ms and 200 ms.
+  - In Chrome, `setBrain`'s compile did not hold the main thread (frames of 17 ms): Chrome
+    compiles in its GPU process. What it costs the GPU is not measured here.
+- **Preparing again** returns the first promise. Preparing a brain the system already runs keeps
+  its pass, and compiles nothing.
+- **`setBrain` before the preparation settles is refused:** `AgentSystem: this brain is still
+  being prepared; await prepareBrain(brain) before setBrain(brain).`
+- **A pass that does not compile** rejects the promise with `NullGraph: compute stage "AgentSystem
+  think" did not compile: <what the device said about the WGSL>`. The failed preparation is
+  forgotten: `setBrain` then compiles as for any brain.
+- **Ownership:** destroy a prepared brain only after the system, or once no species uses it; its
+  kept pass then never runs. An ONNX Runtime brain stays bound to this system's buffers.
 
 ## A trained network
 
@@ -485,13 +531,18 @@ and on an NVIDIA GPU, and in Chrome. A4's networks, from one affine layer to the
 shape, agree with `mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found
 3.8e-7 on an NVIDIA GPU.
 
-`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's four TypeScript
+`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's five TypeScript
 examples:
 - each one type-checks and bundles, and its generated think WGSL parses;
 - the network example's numbers match its comment;
 - the per-species example runs on a stand-in engine that checks its passes and compiles;
+- the switching example prepares a network and a rule brain on a stand-in engine, each compiled
+  once, asynchronously, and its switches compile nothing;
 - the trained-network example loads the two committed files on a stand-in engine, and refuses a
   file with other names.
+
+Prepared brains are measured on the GPU by the `inference` suite (A33), on the same three host
+and GPU pairs, with an `MlpBrain` and an ONNX Runtime brain.
 
 The `agent-tools` GPU suite covers the training tools and the committed networks: the label pass
 (A25), repeatable recordings (A24), the networks as `MlpBrain`s against `mlpForward` (A26), and

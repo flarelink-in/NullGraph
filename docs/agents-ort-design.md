@@ -58,7 +58,10 @@ read separate weight files."
   `agents.prepareBrain`. On three host/GPU pairs, `setBrain` of a prepared brain takes 0.11–0.65
   ms; compiled inside `setBrain`, the same MlpBrain pass froze a frame for 240 ms (Node/NVIDIA)
   and 1,759 ms (Node/AMD), and prepared, it compiled while frames went on (A33).
-- Phase 9.6 follows (§13).
+- **Phase 9.6 was built on 2026-10-14:** the guides. `docs/api/inference.md` covers ONNX Runtime,
+  with an example type-checked against the real `onnxruntime-web` and run on stand-ins;
+  `docs/api/agents.md` covers `prepareBrain`, with a checked example; the parent design's facts
+  15–16, §9.4, §11, §12.1 and §12.3 say what was built. **Every phase of step 9 is built.**
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -608,7 +611,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 | 9.3 ✅ | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
 | 9.4 ✅ | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded. Added: capture off by default (§14, item 6), and faults 3 and 4 in `spike:ort-issues` | A6, U32 | one |
 | 9.5 ✅ | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
-| 9.6 | The guides: `docs/api/inference.md` gains ORT and external data, with checked examples; the agents guide gains `prepareBrain`; the parent's facts 15–16, §9.4, §11 and §12.3 | the examples' tests | one |
+| 9.6 ✅ | The guides: `docs/api/inference.md` gains ORT and external data, with checked examples; the agents guide gains `prepareBrain`; the parent's facts 15–16, §9.4, §11 and §12.3 | the examples' tests | one |
 
 Each phase leaves every suite green. Every new test is watched failing first.
 
@@ -1222,3 +1225,37 @@ GPU suite 137/137 on all three (`AgentSystem` changed); every Node GPU suite, 14
 default adapters (core changed).
 **Not run:** Chrome on NVIDIA; ONNX Runtime 1.30.0 for this phase's tests; the GPU timeline's
 cost of Chrome's compiles (A33 times the main thread only).
+
+## Phase 9.6 results — 2026-10-14: the guides
+
+**Built:**
+- **`docs/api/inference.md`** covers both ways the entry runs a network. Its new section, "ONNX
+  Runtime", has an example: `startWithOrt` makes the runtime, then the engine on its device;
+  `useOrtBrain` loads a model, prepares its brain and gives it a species. Then: the device and the
+  anchor; models, binding and the 16 B rule; `OrtBrain`, its shape, its two schedules with A6's
+  and A5's numbers, its seeding and its failures; graph capture, off by default, and its two
+  faults; the refusals; what ONNX Runtime costs. The reader's sections stand, its refusal table
+  now points at ONNX Runtime, and its validation section covers both halves.
+- **`docs/api/agents.md`** gains "Switching brains without a hitch": `prepareBrain`, with an
+  example, A33's numbers, its refusals and its ownership rule. The introduction, the cost of a
+  new brain and the per-species compiles point at it, and at `OrtBrain`.
+- **`docs/api/core.md`:** ONNX Runtime allows only the adoption direction, and destroys its
+  device with its last session (with `OrtRuntime` as the way out); `createComputeStageAsync` in
+  the API table.
+- **The parent design** (`agents-design.md`): facts 15–16, §9.4 (as built in step 9), §10's A5
+  and A6, §11 (each row as built; the "mixed schedules" refusal gone; step 9's other refusals
+  pointed at), §12.1 (core's one method) and §12.3 (withdrawn, nothing built).
+- **`README.md`:** the inference entry's row and the agents paragraph name ONNX Runtime brains and
+  `prepareBrain`.
+- **Tests:** `test/inference-api-example.test.mjs` type-checks both of its guide's examples
+  together, against the real `onnxruntime-web`, and runs `useOrtBrain` against a stand-in for
+  ONNX Runtime on the stand-in engine (bundled with `onnxruntime-web/webgpu` replaced by an empty
+  module). `test/agents-api-example.test.mjs` runs the switching example. The stand-in engine
+  (`test/stand-in-engine.mjs`) gains `createComputeStageAsync`, a command encoder and `submit`.
+
+**Watched failing.** Three edits of the guides, one at a time, each caught: the ORT example's
+`runtime.device` misspelt (the type check); its `prepareBrain` removed (the run: the pass then
+compiles at `setBrain`); the agents switching example without `prepareBrain` (its run).
+
+**Measured:** headless agents (reference + 83), inference 23/23, core, agent-kit (4).
+**Not run:** the GPU suites: no source changed in this phase.

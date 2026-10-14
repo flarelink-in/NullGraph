@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
-import { AgentSystem, defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
+import { AgentSystem, MlpBrain, RuleBrain, defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
 import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
 import { standIn } from './stand-in-engine.mjs';   // runs an example's setup without a GPU
 
@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 test('API guide: every example type-checks, bundles and generates a valid think module', async () => {
     const guide = readFileSync(join(root, 'docs/api/agents.md'), 'utf8');
     const examples = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map(match => match[1]);
-    assert.equal(examples.length, 4, 'validate every TypeScript example in the guide');
+    assert.equal(examples.length, 5, 'validate every TypeScript example in the guide');
     const dir = mkdtempSync(join(root, 'test/.agents-api-'));
     try {
         const files = examples.map((source, n) => {
@@ -40,16 +40,44 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             assert.ok(declaration, 'every example declares its definition');
             return Function('defineAgents', 'Sensors', `return defineAgents(${declaration[1]});`)(defineAgents, Sensors);
         };
-        let rules = 0, networks = 0, perSpecies = 0, trained = 0;
+        let rules = 0, networks = 0, perSpecies = 0, trained = 0, switching = 0;
         for (const [n, source] of examples.entries()) {
             const result = await build({ stdin: { contents: source, loader: 'ts', resolveDir: root },
                 bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
             assert.ok(result.outputFiles[0].contents.length > 0);
-            const loads = /interface TrainedNetwork/.test(source);
-            const definition = loads ? herdDefinition() : definitionOf(source);
+            const loads = /interface TrainedNetwork/.test(source), prepares = /prepareBrain\(/.test(source);
+            const definition = loads || prepares ? herdDefinition() : definitionOf(source);
             const brain = source.match(/new RuleBrain\(`([\s\S]*?)`\)/);
             let wgsl;
-            if (loads) {
+            if (prepares) {
+                // The switching example (step 9, phase 9.5): prepare a network and a rule brain on a
+                // stand-in engine. Each compiles once, asynchronously; switching compiles nothing.
+                switching++;
+                const module = join(dir, `example${n}.mjs`);
+                writeFileSync(module, result.outputFiles[0].text);
+                const { preparedSwitch } = await import(pathToFileURL(module).href);
+                const { engine, stages } = standIn(), agents = new AgentSystem(engine, definition);
+                agents.setBrain(new RuleBrain('fn think(i: u32, species: u32, tick: u32) {}'));
+                const network = new MlpBrain(engine, [{ input: definition.obsDim, output: definition.actDim, activation: 'tanh',
+                    weights: new Float32Array(definition.obsDim * definition.actDim), biases: new Float32Array(definition.actDim) }]);
+                const rules = new RuleBrain('fn think(i: u32, species: u32, tick: u32) { setReason(i, 9u); }');
+                const before = stages.length;
+                const { use } = await preparedSwitch(agents, 'wolf', [network, rules]);
+                const prepared = stages.slice(before);
+                assert.deepEqual(prepared.map(s => s.async === true), [true, true], 'two passes, each compiled asynchronously');
+                const thinks = () => {
+                    agents.advance(definition.dt);
+                    return agents.getComputeStages().filter(s => s.name === 'AgentSystem think');
+                };
+                for (const [k, next] of [network, rules, network].entries()) {
+                    use(next);
+                    assert.equal(stages.length, before + 2, `switch ${k + 1} compiled`);
+                    assert.ok(thinks().includes(prepared[next === network ? 0 : 1]), `switch ${k + 1} does not run the prepared pass`);
+                }
+                wgsl = prepared[0].shaderCode;
+                agents.destroy();
+                network.destroy();
+            } else if (loads) {
                 // The trained-network example: load the two committed files as it says, on a stand-in engine.
                 trained++;
                 const module = join(dir, `example${n}.mjs`);
@@ -112,10 +140,10 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             }
             assert.equal(new WgslReflect(wgsl).entry.compute[0].name, 'cs_main');
         }
-        assert.deepEqual([rules, networks, perSpecies, trained], [1, 1, 1, 1],
-            'one rule example, one network example, one per-species example, one trained-network example');
+        assert.deepEqual([rules, networks, perSpecies, trained, switching], [1, 1, 1, 1, 1],
+            'one rule example, one network example, one per-species example, one trained-network example, one switching example');
         console.log('API examples: TypeScript, browser bundles, the network example\'s numbers, the per-species example\'s passes, ' +
-            'the trained-network example\'s loading and generated WGSL passed.');
+            'the switching example\'s prepared passes, the trained-network example\'s loading and generated WGSL passed.');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
