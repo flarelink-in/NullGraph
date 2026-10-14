@@ -211,3 +211,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   1. here: `npm run build:lib:prod && yalc publish`;
   2. in the site: `yalc update null-graph`;
   3. here: `npm run build:lib`, before committing.
+- **On the site, Chrome's `performance.now()` steps by 0.1 ms,** in the page and in the worker:
+  the site is not cross-origin isolated (no COOP/COEP headers). Phase 10.2's switches read 0.00,
+  0.10, 0.20 or 0.30 ms. Anything under a millisecond is a count of 0.1 ms steps there; time many
+  calls together, or say so beside the number.
+- **A brain that no species runs loses its think pass, unless it was prepared.** `setBrain` moves
+  species off a brain and releases its pass. A later `setBrain` of the same brain compiles it again,
+  even the rules brain the system started with. `agents.prepareBrain(brain)` of a brain the system
+  runs keeps its pass and compiles nothing (phase 10.2: the demo's return to the rules logged
+  "compiled now" without it).

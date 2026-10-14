@@ -23,8 +23,8 @@ uncommitted unless the user says otherwise.
 
 **Status:** decided with the user, 2026-10-14 (§12). Phase 10.0 measured on 2026-10-14 (results at
 the end). After it the user revised two decisions (§12): D5, Vite serves ONNX Runtime's own files;
-D6, no cap on the agents ORT runs over. Phase 10.1 built on 2026-10-14 (results at the end); phases
-10.2–10.5 follow (§13).
+D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14 (results at the
+end); phases 10.3–10.5 follow (§13).
 
 ---
 
@@ -264,10 +264,11 @@ takes it):
 - **screenshots** of the overlay at each brain, read by eye: what a check cannot judge;
 - **the numbers** go into this document's results, as in every step.
 
-In this repository nothing changes: the agents suites keep checking the committed networks and the
-teacher's hash they carry (step 7). The demo's own checks, the `.onnx` against the `.mlp.json` and
-its rules against the teacher, are watched failing in the site with a changed file and a changed
-rule.
+In this repository the suites do not change: the agents suites keep checking the committed networks
+and the teacher's hash they carry (step 7). The demo's own checks, the `.onnx` against the
+`.mlp.json` and its rules against the teacher, are watched failing in the site with a changed file
+and a changed rule. Since phase 10.2, `test/spikes/live-switch/check-site.mjs` checks the site's
+copies from here: its rule, networks and `.onnx` files.
 
 ## 12. Decisions (the user, 2026-10-14)
 
@@ -294,7 +295,7 @@ rule.
 |---|---|---|
 | 10.0 ✅ | Spikes, no demo change: ONNX Runtime in the site's worker through Vite; the device switch over one `OffscreenCanvas` (D1); ONNX Runtime's time and memory at 4K–1M agents (D6); the run bracket's bias (§8) | Measurements, recorded here |
 | 10.1 ✅ | Plumbing: null-graph pushed to the site; `onnxruntime-web` 1.29.0 installed (D4), and left out of Vite's pre-bundling, so that Vite serves its files (D5); the two `.onnx` files exported and placed beside the `.mlp.json` (D2) | The site builds; the page loads as today |
-| 10.2 | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
+| 10.2 ✅ | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
 | 10.3 | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
 | 10.4 | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
 | 10.5 | The stress test with ORT at every count (D6), under the timeout guard (§9); the site's documentation page; the guides' pointer to the demo | Drive at each count; step 10 closed, and with it C2 |
@@ -503,9 +504,9 @@ file held before.
 
 **Checks:**
 - **The `.onnx` files hold the `.mlp.json` networks,** as 10.3's check will read them.
-  `mlpFromOnnx` reads each `.onnx` back as its `.mlp.json`'s layers, bit for bit (a scratch
-  script). The files are also byte for byte an export of the committed networks, and the site's
-  `.mlp.json` files equal those (SHA-256).
+  `mlpFromOnnx` reads each `.onnx` back as its `.mlp.json`'s layers, bit for bit. The files are
+  also byte for byte an export of the committed networks, and the site's `.mlp.json` files equal
+  those (SHA-256). Checked by `test/spikes/live-switch/check-site.mjs` (written in 10.2).
 - **The site builds:** `tsc` passes (35 s), and `vite build` passes into a scratch folder, so the
   site's `dist/` was left alone. The build holds no ONNX Runtime: nothing imports it yet.
 - **The dev server serves ONNX Runtime's files from `node_modules`:**
@@ -527,3 +528,62 @@ file held before.
 
 **Not run:** ONNX Runtime in the site's own worker, and a build that serves it. Both arrive with
 10.3, when the worker first imports it.
+
+## Phase 10.2 results — 2026-10-14: switches that compile nothing, and the rules checked against the networks
+
+**What changed in the site,** all in `src/data/engine-demos/demos/AgentsExperiments/HerdWolvesGPU/`:
+
+| File | Now | Before |
+|---|---|---|
+| `brain.ts` | A copy of `tools/agents/scenario/herd-wolves.mjs`'s texts (D3): the rule's four functions, `herdRule(seams)`, `DRIVER` and `LABEL`. `HERD_BRAIN` is `herdRule(DRIVER)`; `HERD_LABEL` is `herdRule(LABEL)`, the text the networks copy. `HERD_CATCHES` and `herdRespawnWGSL` unchanged: they already were the scenario's | `HERD_BRAIN`, the rule as one text, which decides what `herdRule(DRIVER)` decides |
+| `networks.ts` | `trainedOn.teacher` read from each file; `sha256Hex(text)`, which is null on a page that is not secure (no `crypto.subtle`) | — |
+| `index.ts` | The networks load with the rule check. Each system builds both networks and compiles their passes with `prepareBrain` once the files have loaded, and keeps the rule's pass from its build. A species switches only to a compiled pass. Every switch is timed and logged. The overlay gains a line | The network's pass compiled inside `setBrain`, at the first switch |
+
+- **The overlay:**
+  - each species' line says `compiling network…` until its network's pass is ready, `network failed`
+    if it does not compile, and `trained on another rule` when the check fails;
+  - a new last line: `last switch: wolf → network in 0.30 ms · compiled ahead` (or `compiled in the
+    switch`).
+- **The console:**
+  - `[HerdWolvesGPU] networks loaded; this rule 9518de56…: prey copies it, wolf copies it`;
+  - `… prey network compiled ahead in 212 ms`;
+  - `… switch: prey → network in 0.10 ms, compiled ahead` (or `compiled now`).
+- **One addition to §7: the rule's pass is kept.** `AgentSystem` releases the pass of a brain that
+  no species runs, unless the brain was prepared. So with both species on networks, a return to the
+  rules compiled the rule's pass again. `prepareBrain` of the rules brain, which the system already
+  runs, keeps its pass and compiles nothing.
+- **"Compiled ahead" is computed as `setBrain` decides it:** the brain is kept (prepared), or still
+  runs for the other species. The phrase is not a constant.
+
+**Checks:**
+- **The copy is exact.** `node test/spikes/live-switch/check-site.mjs` transpiles `brain.ts` with
+  the site's esbuild and compares it with the scenario. Every text was equal, byte for byte: both
+  rules, the catches, and the respawn at five flash rates. `HERD_LABEL`'s SHA-256 is `9518de56…`,
+  the `trainedOn.teacher` of both committed networks. The same script checks 10.1's files: 16
+  checks in all.
+- **The script, watched failing** on a scratch copy of the demo's folder with three changes (a
+  changed rule, one byte of `prey.onnx`, one weight of `wolf.mlp.json`): 9 checks failed, and each
+  change was named.
+- **The site's checks:** `tsc` passes, and ESLint reports nothing in the demo's folder. Prettier: the
+  new code is formatted as the site's; two older differences in `index.ts` were left alone.
+- **The drive,** in Chrome on the AMD iGPU, on the dev server and on a build (`vite preview`). The
+  script: prey to Network, wolf to Network, both back to Rules, both to Network again, then 16K
+  agents and back to 4K:
+  - **10 switches, every one compiled ahead, in 0.0–0.3 ms.** Chrome steps `performance.now()` by
+    0.1 ms on this page, which is not cross-origin isolated;
+  - **the networks' passes compiled in the background:** 209–281 ms for both species at once (four
+    page loads), 266–366 ms on the 16K system (three runs), and 27–36 ms back at 4K, a WGSL the
+    device had compiled before;
+  - **the rule check:** prey and wolf copy this rule;
+  - no error, in the page or the worker.
+- **Watched failing,** each change made and then reverted:
+  - **a changed rule** (the prey's base throttle 0.1 → 0.12): the log said `prey copies another
+    (9518de56…)`, and the overlay said `trained on another rule` for both species;
+  - **the rule's pass not kept** (`prepareBrain(rules)` removed): the first species back on the
+    rules logged `compiled now` (0.60 ms).
+
+  After both reverts, the copy check and the whole drive ran clean again.
+
+**Not measured:** the hitch that preparing removes, as Chrome shows it. Chrome compiles in its GPU
+process (`docs/work/gotchas.md`), so the worker's thread showed no stall either way. Under Node,
+step 9 measured it at 240–1,759 ms (A33).

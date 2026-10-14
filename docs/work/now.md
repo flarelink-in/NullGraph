@@ -11,13 +11,15 @@ log, not here.
   design `2b8f689`): Rules / Network / ONNX Runtime per species in the site's Herd & Wolves demo.
   - **10.0 committed** (`9320373`). After it, the user revised two decisions: D5, Vite serves ONNX
     Runtime's files; D6, no cap on ORT's agents (the timeout guard still covers its run).
-  - **10.1 built, in the site, and recorded here** (this commit): ORT 1.29.0 pinned and left out of
-    Vite's pre-bundling; the two `.onnx` files beside the `.mlp.json`. The site builds, and the
-    page loads as before.
-  - **10.2 is built in the site too;** its records follow in the next commit.
-- **Next action:** commit 10.2's records (the user asked for 10.1 and 10.2 as two commits); then
-  10.3: the device switch in the site's `EngineCore`, ORT as the third choice, its brains prepared
-  and warmed up, failures handled.
+  - **10.1 built, in the site:** ORT 1.29.0 pinned and left out of Vite's pre-bundling; the two
+    `.onnx` files beside the `.mlp.json`. The site builds, and the page loads as before.
+  - **10.2 built, in the site:** the rule is a byte-exact copy of the scenario, checked against the
+    networks' teacher hash; both networks are compiled ahead, so every switch takes 0.0–0.3 ms;
+    the overlay shows the last switch.
+  - Their records here are committed: 10.1's in `22b67f8`, 10.2's (with
+    `test/spikes/live-switch/check-site.mjs`) in the commit after it.
+- **Next action:** 10.3: the device switch in the site's `EngineCore`, ORT as the third choice, its
+  brains prepared and warmed up, failures handled.
 
 ## State of the repositories
 
@@ -25,7 +27,7 @@ log, not here.
   (`GPUProfiler` drops a read that fails because its device was destroyed; C8 and
   `npm run test:profiler`) and `38c905c` (`.gitattributes`: a fresh checkout passes U26).
 - **The site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, no commits). The design's
-  10.1 results list every change there and what it replaced:
+  10.1 and 10.2 results list every change there and what it replaced:
   - its null-graph is this repository's build at `a8d0107`, updated in the site alone (yalc
     publish, then update; `yalc:push` reaches five projects);
   - `node_modules/null-graph` is a copy (`gotchas.md`);
@@ -39,6 +41,7 @@ log, not here.
 - **Green on 2026-10-14:**
   - headless suites: agents (reference + 83), inference (23), core, agent-kit (4), profiler (3);
   - the core GPU suite, 8/8 on Node/NVIDIA, Node/AMD and Chrome/AMD;
+  - `check-site.mjs`, 16/16;
   - the demo's drive, clean on the dev server and on a build.
 - **Bundle:** core 6,191 B; agents 20,209 B (C2 ceiling 21,495 B); the inference entry: reader
   2,846 B (line 2,900 B), adapter with `OrtBrain` 2,988 B (line 3,000 B).
