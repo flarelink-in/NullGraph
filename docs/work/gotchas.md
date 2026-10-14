@@ -164,3 +164,31 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
 - **`docs/agents-demo-design.md` is step 5's design** (scaling limits), not a design for the demo.
   On 2026-10-14 a new design was written over it by that name and restored from git; step 10's
   design is `docs/agents-live-switch-design.md`. Look before writing a file by a new name.
+- **A fresh checkout fails U26 here** ("prey.mlp.json is what the writer writes"). `core.autocrlf`
+  is `true` and there is no `.gitattributes`, so git writes the two committed `.mlp.json` files with
+  CRLF, and the test compares them byte for byte with the writer's LF. The main tree has LF because
+  the files were written there. Seen when validating 9.6 alone in a temporary worktree (2026-10-14):
+  82 of 83, the other suites green. It is not the commit under test.
+- **ONNX Runtime Web through Vite** (5.4, the site's; phase 10.0):
+  - **In the dev server, ONNX Runtime cannot import its loader from `public/`.** With
+    `wasmPaths: '/vendor/…/'`, Vite adds `?import` to ONNX Runtime's import of
+    `ort-wasm-simd-threaded.asyncify.mjs` and refuses a public file "imported from source code".
+    The run fails with "no available backend found".
+  - **Pre-bundled by Vite, ONNX Runtime looks for its `.wasm` in Vite's cache.** Vite answers with
+    its HTML page: "expected magic word 00 61 73 6d, found 3c 21 44 4f" (`<!DO`).
+  - **What works in both modes:** `onnxruntime-web` in `optimizeDeps.exclude` with no `wasmPaths`;
+    or `wasmPaths: { wasm: <the .wasm's URL> }`, which uses the loader built into the bundle.
+  - **A production build always emits the `.wasm` (25.7 MB) as a hashed asset,** from the bundle's
+    `new URL(…, import.meta.url)`, whatever `wasmPaths` says.
+  - `test/spikes/live-switch/run.mjs` tries each way with the site's Vite.
+- **`GPUProfiler.end` has no `catch` on its read.** Destroying its device while a frame's timestamps
+  are being mapped rejects that read: an uncaught `AbortError` (phase 10.0's device switch). Stop the
+  frames, `await device.queue.onSubmittedWorkDone()` and let one task pass, then destroy the device.
+- **The site's install is not what its `package.json` says** (2026-10-14):
+  - `package.json` asks for `null-graph` from `file:.yalc/null-graph`, whose `dist` is from
+    2026-10-12;
+  - `node_modules/null-graph/dist` is a newer hand copy, from 2026-10-13;
+  - `package-lock.json` still names the registry's 1.0.5.
+
+  Any `npm install` there would likely install the older build. Push with `npm run yalc:push` here
+  first, then install, then check `node_modules/null-graph/dist` against this repository's.
