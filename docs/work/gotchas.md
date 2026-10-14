@@ -189,11 +189,25 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   `npm run test:profiler`). Any other `mapAsync` needs its own rejection handler. Before destroying a
   device whose frames you stopped, `await device.queue.onSubmittedWorkDone()` and let one task pass,
   so that the last reads land.
-- **The site's install is not what its `package.json` says** (2026-10-14):
-  - `package.json` asks for `null-graph` from `file:.yalc/null-graph`, whose `dist` is from
-    2026-10-12;
-  - `node_modules/null-graph/dist` is a newer hand copy, from 2026-10-13;
-  - `package-lock.json` still names the registry's 1.0.5.
+- **The site's `node_modules/null-graph` is a copy or a junction, depending on what ran last**
+  (2026-10-14, phase 10.1). Its `package.json` asks for `file:.yalc/null-graph`:
+  - **after an `npm install`** (npm 11), it is a junction to `.yalc/null-graph`;
+  - **after a yalc push or update,** it is a copy: yalc deletes the link (not its target) and copies
+    the package into `node_modules`.
 
-  Any `npm install` there would likely install the older build. Push with `npm run yalc:push` here
-  first, then install, then check `node_modules/null-graph/dist` against this repository's.
+  The dev server resolves null-graph when it starts:
+  - through the junction, it serves `/.yalc/null-graph/dist/` as source and watches it. A push then
+    reaches the page without a restart (a `?t=` stamp, seen 2026-10-14);
+  - through a copy, it serves `node_modules`, and needs `npm run dev -- --force` after a push (the
+    first entry above).
+
+  Both shapes ran the demo in phase 10.1. Before 2026-10-14 the install did not match
+  `package.json` (a hand copy in `node_modules`, the registry's 1.0.5 in the lock); the user's push
+  and phase 10.1's `npm install` put that right. Compare `.yalc/null-graph/dist` with this
+  repository's `dist/` before trusting either one.
+- **`npm run yalc:push` reaches every project in yalc's list of installations,** not only the site:
+  five on 2026-10-14 (`%LOCALAPPDATA%/Yalc/installations.json`). **To update the site alone**
+  (done 2026-10-14; the other four kept their copy):
+  1. here: `npm run build:lib:prod && yalc publish`;
+  2. in the site: `yalc update null-graph`;
+  3. here: `npm run build:lib`, before committing.
