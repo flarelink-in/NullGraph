@@ -5,7 +5,13 @@ export interface Brain {
     readonly dims?: { obs: number; act: number };
     /** Optional resource-owner check, performed before creating a consuming stage. */
     assertDevice?(device: GPUDevice): void;
+    /**
+     * Async brains (step 9): called by setBrain before the brain's pass is built. The brain's runs
+     * read `obs` and write a buffer of its own, which its `wgsl` (a think pass) and `buffers` then
+     * copy into `act`. It may read `act` here, to start from the actions agents have; never write it.
+     */
     bind?(io: { obs: GPUBuffer; act: GPUBuffer; capacity: number; obsDim: number; actDim: number }): void;
+    /** Async brains: one run over the bound buffers. Resolves once its GPU work is queued. */
     run?(): Promise<void>;
     destroy(): void;
 }

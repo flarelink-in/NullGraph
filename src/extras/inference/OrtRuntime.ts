@@ -152,11 +152,11 @@ const describe = (m: OrtValueMetadataLike): OrtTensorInfo =>
 
 /** One ONNX Runtime session, bound once to GPU buffers, run over them. */
 export class OrtModel {
-    public readonly inputs: readonly OrtTensorInfo[];
-    public readonly outputs: readonly OrtTensorInfo[];
-    private feeds?: Record<string, unknown>;
-    private fetches?: Record<string, unknown>;
-    private pending?: Promise<unknown>;
+    declare public readonly inputs: readonly OrtTensorInfo[];
+    declare public readonly outputs: readonly OrtTensorInfo[];
+    declare private feeds?: Record<string, unknown>;
+    declare private fetches?: Record<string, unknown>;
+    declare private pending?: Promise<unknown>;
     private destroyed = false;
 
     /** @internal Made by `OrtRuntime.load`. */
