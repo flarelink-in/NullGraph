@@ -1,10 +1,11 @@
-// Step 9, phases 9.1 and 9.3 (docs/agents-ort-design.md §5–§7, §10): OrtRuntime, OrtModel and
-// OrtBrain, against a fake onnxruntime-web that records every call in order.
+// Step 9, phases 9.1, 9.3 and 9.4 (docs/agents-ort-design.md §5–§7, §10): OrtRuntime, OrtModel
+// and OrtBrain, against a fake onnxruntime-web that records every call in order.
 //
 //   U32  the runtime makes ORT's device through an anchor session, created first and released
-//        last; every session gets [{ name: 'webgpu' }], 'gpu-buffer' and the capture setting, and
-//        the app cannot override them; bind checks names, types, ranks, fixed axes, named axes,
-//        sizes and usage, once; one run at a time; destroy releases after a run in flight
+//        last; every session gets [{ name: 'webgpu' }], 'gpu-buffer', and graph capture only if
+//        asked (phase 9.4), and the app cannot override them; bind checks names, types, ranks,
+//        fixed axes, named axes, sizes and usage, once; one run at a time; destroy releases after
+//        a run in flight
 //   U33  OrtBrain (phase 9.3): dims and names from the model; a fixed first axis refused with
 //        the fix; its results buffer seeded from act before the model is bound; the same buffers
 //        re-bound, others refused; its copy pass parses inside the think module
@@ -83,30 +84,31 @@ test('U32: the runtime starts ONNX Runtime with an anchor session, and takes its
     assert.equal(second.ort.env.webgpu.adapter, adapter, 'a given adapter is set before the anchor is created');
 });
 
-test('U32: load sets the provider as an object, outputs on the GPU and graph capture, and the app cannot change them', async () => {
+test('U32: load sets the provider as an object, outputs on the GPU and graph capture only if asked, and the app cannot change them', async () => {
     const { ort, log, sessions } = fakeOrt();
     const runtime = await OrtRuntime.create(ort);
     const optionsOf = id => log.find(entry => entry[0] === 'create' && entry[1] === id)[2];
     const forced = capture => ({ executionProviders: [{ name: 'webgpu' }], preferredOutputLocation: 'gpu-buffer', enableGraphCapture: capture });
 
+    // Under capture ONNX Runtime can fail a model from its second run, and its memory grows with
+    // every run (phases 9.2 and 9.4): capture is off unless the app asks for it (decided with the
+    // user, the design's §14, item 6).
     const model = await runtime.load(MODEL);
-    assert.deepEqual(optionsOf(1), forced(true), 'graph capture is on by default');
-    assert.equal(model.capture, true);
+    assert.deepEqual(optionsOf(1), forced(false), 'graph capture is off by default');
+    assert.equal(model.capture, false);
     assert.equal(sessions[1].bytes, MODEL, 'the bytes go to ONNX Runtime as they are');
-    assert.equal((await runtime.load(MODEL, { capture: false })).capture, false);
-    assert.deepEqual(optionsOf(2), forced(false), 'capture: false turns it off');
-    await runtime.load(MODEL, { capture: true, executionProviders: ['webgpu'], preferredOutputLocation: 'cpu', enableGraphCapture: false });
-    assert.deepEqual(optionsOf(3), forced(true), 'other session options are not taken from the app');
+    assert.equal((await runtime.load(MODEL, { capture: true })).capture, true);
+    assert.deepEqual(optionsOf(2), forced(true), 'capture: true turns it on');
+    await runtime.load(MODEL, { capture: false, executionProviders: ['webgpu'], preferredOutputLocation: 'cpu', enableGraphCapture: true });
+    assert.deepEqual(optionsOf(3), forced(false), 'other session options are not taken from the app');
     const externalData = [{ path: 'model.onnx.data', data: new Uint8Array(4) }];
     const twoFiles = await runtime.load(MODEL, { externalData });
     assert.equal(optionsOf(4).externalData, externalData, 'externalData goes to ONNX Runtime as it is');
-    // Under capture ONNX Runtime 1.29 can fail a model whose weights are in a second file (phase 9.2):
-    // capture is off for it unless asked for (decided with the user, the design's §14, item 5).
-    assert.equal(optionsOf(4).enableGraphCapture, false, 'weights in a second file: capture off by default');
+    assert.equal(optionsOf(4).enableGraphCapture, false, 'weights in a second file: capture off, as for any model');
     assert.equal(twoFiles.capture, false);
     assert.equal((await runtime.load(MODEL, { externalData, capture: true })).capture, true, 'unless the app asks for it');
     assert.equal(optionsOf(5).enableGraphCapture, true);
-    assert.equal((await runtime.load(MODEL, { externalData: [] })).capture, true, 'an empty list is no second file');
+    assert.equal((await runtime.load(MODEL, { capture: false })).capture, false, 'capture: false is the default, said');
     await runtime.load(MODEL.buffer.slice(0));
     assert.deepEqual([...sessions[7].bytes], [...MODEL], 'an ArrayBuffer is taken as the same bytes');
     await assert.rejects(runtime.load([8, 8]), refusal('OrtRuntime', /^OrtRuntime: expected the model's bytes, as a Uint8Array or an ArrayBuffer\.$/));
@@ -299,7 +301,7 @@ test('U33: bind makes a results buffer rounded up to 16 B, seeds it from act, th
     await last;
     await Promise.resolve();
     assert.ok(results.destroyed);
-    assert.ok(!session.released && model.capture === true);
+    assert.ok(!session.released, 'the model stays the app\'s');
     assert.throws(() => brain.assertDevice(device), refusal('OrtBrain', /used after destroy/));
     await assert.rejects(brain.run(), refusal('OrtBrain', /used after destroy/));
 });

@@ -17,7 +17,8 @@ creates the device, graph capture on, prepare at load compiled in the background
 read separate weight files."
 1. **ORT creates the device; the engine adopts it.** The parent's engine-first direction and its
    §12.3 are withdrawn (decision 6 of the parent, settled by S5).
-2. **Graph capture is on by default;** `capture: false` turns it off for one model.
+2. ~~**Graph capture is on by default;** `capture: false` turns it off for one model.~~
+   Superseded by item 6.
 3. **Brains are prepared at load, compiled in the background:** `await agents.prepareBrain(brain)`,
    over a new core method that creates a compute stage asynchronously (§8.6, §12.1). The parent's
    brain-swap stall (`work/plan.md` §5, item 3) is settled by it.
@@ -26,7 +27,10 @@ read separate weight files."
    given (`work/plan.md` §5, item 8).
 
 5. **Added after phase 9.2: graph capture is off for a model whose weights are in a second file,**
-   unless the app asks for it (§14, item 5; the user: "ok pick A").
+   unless the app asks for it (§14, item 5; the user: "ok pick A"). Superseded by item 6.
+6. **Added after phase 9.4's A6: graph capture is off by default for every model;** `capture: true`
+   turns it on for one model (§14, item 6; the user chose option A). Under capture ONNX Runtime can
+   fail a model from its second run, and it leaks memory with every run.
 
 **Nothing is open** (§14).
 
@@ -46,7 +50,11 @@ read separate weight files."
   lockstep, prey on `OrtBrain` and wolves on `MlpBrain` act within 1.1e-5 of `MlpBrain` on the same
   step, with graph capture on and off; two runs of 120 steps are byte-identical (A5, A30, A31 on
   three host/GPU pairs).
-- Phases 9.4–9.6 follow (§13).
+- **Phase 9.4 was built on 2026-10-14:** A6, the interactive schedule on the GPU. Across 600
+  frames, no `mapAsync` outside the inspector and no GPU error; every frame acted on actions one
+  frame old, except 1 of 300 in Chrome at the display's pace (three host/GPU pairs). A6 also found
+  a fault of ONNX Runtime under graph capture, and a leak; capture is now off by default (item 6).
+- Phases 9.5–9.6 follow (§13).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -157,7 +165,7 @@ import { OrtRuntime, OrtBrain } from 'null-graph/inference';
 const runtime = await OrtRuntime.create(ort);                   // ORT makes the device; the anchor keeps it
 await engine.init(canvas, { device: runtime.device });          // the engine adopts it (Cycle A's direction)
 const agents = new AgentSystem(engine, definition);
-const model = await runtime.load(bytes);                        // a session: WebGPU, GPU outputs, capture
+const model = await runtime.load(bytes);                        // a session: WebGPU, GPU outputs, no capture
 agents.setBrain(new OrtBrain(model), { species: 'prey' });      // binds obs and its results buffer once
 
 // Interactive: the frame code does not change.
@@ -271,8 +279,8 @@ the user first picks ORT. That choice belongs to step 10's design (Deferred).
 runtime sets and the app cannot override:
 - `executionProviders: [{ name: 'webgpu' }]`, **an object, never the string** (fact 10);
 - `preferredOutputLocation: 'gpu-buffer'`: no output ever goes to the CPU;
-- `enableGraphCapture: capture`, on unless `capture: false`, and off by default for a model whose
-  weights are in a second file (`externalData`), unless `capture: true` (§9, §14 item 5);
+- `enableGraphCapture: capture`, off unless `capture: true` (§9, §14 item 6; until phase 9.4 it
+  was on unless `capture: false`, and off for a model whose weights are in a second file);
 - `externalData`, passed through to ORT as it is (§6.1).
 
 `model.inputs` and `model.outputs` list each tensor's name, type and axes (numbers, or strings for
@@ -451,11 +459,15 @@ Phase 9.0 also found four traps in it. The design closes each by construction:
 | A captured session ignores a different buffer on a later run (parent fact 12). | `bind` once; a second, different binding is refused. |
 | A captured run without a pre-allocated output fails (`no overload matched for createBindGroup`). | Every output is bound to a buffer. |
 | On AMD, a captured session made on a re-made device failed on its second run (4 of 4). | The anchor: the device is never re-made while the runtime lives. |
-| Found in phase 9.2: a captured model whose weights are in a second file can fail from its second run with the same error, on every host, depending on the model and on what ran before it. | Not closed in ONNX Runtime; avoided by default: `load` leaves capture off for such a model unless asked (§14, item 5). |
+| Found in phase 9.2: a captured model whose weights are in a second file can fail from its second run with the same error, on every host, depending on the model and on what ran before it. | Phase 9.4 found the cause, the next row: this is very likely one of its cases. |
+| Found in phase 9.4: from a captured session's second run on, ONNX Runtime looks up its output buffer through a handle it released after the first run. The run fails unless the allocator has since put another buffer's handle at that address: after another session was created and released, or created, run and kept, between the first two runs (1.29, every host, depending on the case); with nothing in between (1.30.0 on NVIDIA). | Not closed in ONNX Runtime; avoided by default: capture is off unless asked (§14, item 6). |
+| Found in phase 9.4: every captured run from the second keeps an output tensor that `InferenceSession.run` drops: ONNX Runtime's memory grows with every run. | The same default. |
 
-With those closed, captured sessions ran for hundreds of runs without a failure on all three
-hosts (S1, S2). **Decided** (§14, item 2): capture on by default, as the parent planned;
-`capture: false` turns it off for one model.
+With the first four closed, captured sessions ran for hundreds of runs without a failure on all
+three hosts (S1, S2), and capture was decided on by default (§14, item 2). **Decided again after
+phase 9.4** (§14, item 6): capture is off by default, since the last two cannot be closed from
+outside ONNX Runtime; `capture: true` turns it on for one model, for an app that measured its gain
+and accepts the faults.
 
 Left to the app: `ort.env.wasm.numThreads` (1 unless the page is cross-origin isolated), the WASM's
 location, and ORT's log level.
@@ -480,7 +492,7 @@ location, and ORT's log level.
 | # | Asserts |
 |---|---|
 | A5 | (parent) The Herd & Wolves networks as `.onnx`, through `OrtBrain`, equal `MlpBrain` on the same observations within 1e-4, in lockstep, with capture on and off. Also with prey on `OrtBrain` and wolves on `MlpBrain`: each species' rows come from its own brain. |
-| A6 | (parent) 300 interactive frames with `OrtBrain`: zero `mapAsync` outside the inspector (counted by wrapping it), zero GPU errors, and actions one frame old (S2's marker method). |
+| A6 | (parent) 300 interactive frames with `OrtBrain`: zero `mapAsync` outside the inspector (counted by wrapping it), zero GPU errors, and actions one frame old (S2's marker method). As built (phase 9.4): 300 frames at the display's pace and 300 as fast as they come, with the default settings. |
 | A29 | The anchor: with the runtime alive, a model loaded, released and loaded again runs; the device answers a read-back afterwards; a captured session made after the release runs 100 times on AMD (the case that failed without an anchor). |
 | A30 | Two lockstep runs of 120 steps from one seed, with `OrtBrain` serving prey, give byte-identical agent buffers on one device (the parent's A7, extended). |
 | A31 | Swaps: rules → `OrtBrain` → `MlpBrain` → the same `OrtBrain` again, interactive, with zero GPU errors; until the first run lands, prey act on their last actions (the seed), not on zeros. |
@@ -590,7 +602,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 | 9.1 ✅ | `OrtRuntime`, `OrtModel`, the anchor, ORT's `externalData` passed through; the peer dependency; `OrtLike`; the adapter's size line | U32, A29, U14 (their errors) | one |
 | 9.2 ✅ | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
 | 9.3 ✅ | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
-| 9.4 | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded | A6 | one |
+| 9.4 ✅ | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded. Added: capture off by default (§14, item 6), and faults 3 and 4 in `spike:ort-issues` | A6, U32 | one |
 | 9.5 | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
 | 9.6 | The guides: `docs/api/inference.md` gains ORT and external data, with checked examples; the agents guide gains `prepareBrain`; the parent's facts 15–16, §9.4, §11 and §12.3 | the examples' tests | one |
 
@@ -617,7 +629,8 @@ files."
    S5 had settled the question: ORT 1.29 runs only on its own device. The parent's engine-first
    direction and its §12.3 are withdrawn; its fact 15 and its device error are rewritten (§11,
    phase 9.6).
-2. **Graph capture: on by default** (option A, the parent's plan).
+2. **Graph capture: on by default** (option A, the parent's plan). *Superseded after phase 9.4 by
+   item 6: off by default.*
 
    | Option | For | Against |
    |---|---|---|
@@ -661,7 +674,34 @@ files."
    | C. Off for all | Capture only on request | Every model pays the main-thread cost |
 
    Built before phase 9.2's commit: U32 checks the default, the request and an empty list; A32
-   takes the default.
+   takes the default. *Superseded after phase 9.4 by item 6.*
+
+### Decided by the user after phase 9.4, 2026-10-14
+
+6. **Graph capture: off by default for every model** (option A, which the user chose from the
+   options below). A6 failed inside the `inference` suite: the marker model's second run threw
+   item 5's error, after a second session had been created, run and released between its first
+   two runs. Phase 9.4 traced it into ONNX Runtime's JavaScript (Phase 9.4 results, fault 3):
+   under capture, every run from the second looks up the output buffer through a handle released
+   after the first, so any captured model can fail, depending on what ONNX Runtime did in between.
+   On 1.30.0, which the peer range `^1.29.0` admits, the smallest case failed with nothing in
+   between (Node/NVIDIA). Capture also leaks memory with every run (fault 4). Item 5's carve-out
+   treated a symptom.
+
+   | Option | What | Cost |
+   |---|---|---|
+   | **A. Off for every model** (taken) | `capture: true` stays as the app's choice, documented with the faults; item 5's special case goes | 0.3–0.5 ms more of the main thread per run under Node, about 0.7 ms in Chrome (S1); the same GPU time. −6 B as built |
+   | B. On, and ONNX Runtime pinned to 1.29.x | Avoids 1.30.0's failure with nothing in between | Apps still meet the fault on 1.29 when they load or release a second model, as step 10's live switch will; the leak stays |
+   | C. On, as decided | Nothing changes | A captured model can fail from its second run on 1.30.0, and on 1.29 after ordinary steps of an app |
+
+   One statement in the question was too strong: it said 1.30.0 fails "always". Measured, the
+   smallest case failed with nothing in between on Node/NVIDIA (3 of 3 processes) and not on
+   Node/AMD (2 of 2), and captured models ran inside the `inference` suite on 1.30.0 (Phase 9.4
+   results). The choice does not rest on it: B and C keep a fault that 1.29 shows as well.
+
+   Built in phase 9.4: `load` captures only with `capture: true`; U32 checks the default and the
+   request; A29's two captured models ask for capture, and its third takes the default; A6, A30,
+   A31 and A32 take the default; A5 runs both.
 
 **Nothing is open.**
 
@@ -900,6 +940,9 @@ agents GPU suite (nothing it runs changed).
      its end reports which happened. **Avoided by default,** decided by the user after the phase
      (§14, item 5): `load` leaves capture off for a model given `externalData`, unless asked. A32
      takes that default; U32 checks it, and a mutation back to "always on" fails U32.
+   - **Phase 9.4 found the cause** (its fault 3): the lookup above uses a handle ONNX Runtime
+     released after the first run, so the second-file models were very likely one case of a fault
+     that any captured model can meet. Capture is now off for every model (§14, item 6).
 
 **Watched failing.** Seven mutations of the built reader and adapter, each caught: the offset
 ignored (U36, and U31 through PyTorch's offset 748); any file taken for a location not given; no
@@ -969,3 +1012,131 @@ of A5's checks; no seeding fails A31.
   user sees: fields without a value of their own are declared only (no code is emitted for them),
   the copy pass's WGSL lost its indentation, and the seed copy's command encoder its label. No
   message was shortened. The margin is 6 B.
+
+## Phase 9.4 results — 2026-10-14: the interactive schedule on the GPU, and two faults of graph capture
+
+**Built:**
+- **A6** in `test/inference-gpu/run.js` (the GPU suite `inference`): spike S2's marker method,
+  through `AgentSystem` and `OrtBrain`.
+  - 20,000 agents of one species, `thinkEvery: 1`. A custom sensor `marker` writes 1,000 + the
+    step's tick into every agent's first observation. The marker network (24 → 32 → 32 → 2, relu,
+    relu and identity, one weight of 1 per layer: Herd & Wolves' shape) carries a first
+    observation to the first action unchanged. A step stage `probe`, after act, records for the
+    first and the last agent what they act on and what sense wrote. A value under 1,000 is a seed.
+  - One lockstep step first: its run compiles ONNX Runtime's pipelines. Then 300 frames at the
+    display's pace (`requestAnimationFrame` in Chrome; a 60 Hz timer under Node, 31 ms frames) and
+    300 as fast as they come (`setTimeout(0)`). In each half the inspector reads an agent back at
+    frames 50, 150 and 250.
+  - For the frames, `GPUBuffer.prototype.mapAsync` is wrapped. The inspector's staging buffer is
+    counted apart; any other call is a fault. First, a direct ONNX Runtime session with its output
+    on the CPU runs once under the wrapper: the control, which shows that the count sees ONNX
+    Runtime's own calls. `uncapturederror` is counted on the device, and each run's starting frame
+    is recorded by wrapping the brain's `run()`.
+  - Three checks. No `mapAsync` outside the inspector and no GPU error, with the inspector's six
+    and the control's one counted. Then, per pace: no frame acts on its own or a later frame's
+    observations, nor on a seed; the first and the last agent act on the same run (no tearing);
+    every run read the observations of the frame that started it; and frames act on actions one
+    frame old, 90% of them at least at the display's pace, more than half as fast as they come.
+- **The capture default** (§14, item 6): `OrtRuntime.load` captures only with `capture: true`.
+  U32 checks the default and the request. A29's two captured models ask for capture; its third
+  takes the default.
+- **`npm run spike:ort-issues`** (`test/spikes/ort/issues.js`) gains faults 3 and 4: fault 3's
+  four cases, run first in a fresh runtime, or one alone with `NG_SPIKE_CASE`; fault 4 with
+  `NG_SPIKE_LEAK=1`.
+- **`NG_ORT_DIST`** (Node): the `inference` suite reads another ONNX Runtime build's `dist`
+  folder. Used for 1.30.0.
+
+**Measured, A6, ONNX Runtime 1.29.0:**
+
+| | Node · NVIDIA | Node · AMD | Chrome · AMD |
+|---|---|---|---|
+| `mapAsync` outside the inspector; GPU errors | 0; 0 | 0; 0 | 0; 0 |
+| Counted: the inspector's; the control's | 6; 1 | 6; 1 | 6; 1 |
+| Display's pace: a frame (median) | 31.7 ms | 31.6 ms | 16.7 ms |
+| Frames by the age of their actions | 1: 300 | 1: 300 | 1: 299, 2: 1 |
+| Runs in 300 frames; `run()` resolved in (median, most) | 300; 1.72, 3.26 ms | 300; 1.58, 2.46 ms | 299; 0.91, 4.65 ms |
+| As fast as they come: a frame (median) | 1.4 ms | 1.3 ms | 4.6 ms |
+| Frames by the age of their actions | 1: 300 | 1: 300 | 1: 295; 2, 3, 4, 5, 6: 1 each |
+| Runs in 300 frames; `run()` resolved in (median, most) | 300; 1.01, 4.88 ms | 300; 0.85, 34.95 ms | 295; 0.58, 1.84 ms |
+
+- Every run a frame acted on had read the observations of the frame that started it. No frame
+  acted on its own frame's observations, and the first and the last agent always acted on the
+  same run.
+- In Chrome, as fast as frames come, A6 met S2's stall again: one run spanned 6 frames, which
+  acted on actions 2 to 6 frames old, and the next run caught up. An earlier Chrome run showed the
+  same with 7 frames.
+- **ONNX Runtime 1.30.0** (Node/NVIDIA, `NG_ORT_DIST`): the `inference` suite 15/15; A6 1: 300 at
+  both paces.
+
+**Two faults of ONNX Runtime under graph capture, found by A6:**
+
+3. **From a captured session's second run on, its output is looked up through a handle ONNX
+   Runtime has released.** On the first run, ONNX Runtime's JavaScript registers the bound buffers
+   in a handle table, binds them, and releases the handles at the run's end; the binding keeps
+   them. On every later run it reads the output tensor's data pointer, that handle, and looks the
+   buffer up with it (`webgpuGetBuffer(dataOffset)`, `lib/wasm/wasm-core-impl.ts:939-954`; the
+   table in `ort-wasm-simd-threaded.asyncify.mjs`). The lookup finds a buffer only when the
+   allocator has put another buffer's handle at that address since. Otherwise the run rejects
+   with `Cannot set properties of undefined (setting 'Symbol(gpuBufferMetadata)')`, after its GPU
+   work was queued: only the bookkeeping fails.
+   - **How A6 met it:** inside the suite, with capture on (the default then), the marker model's
+     second run failed. Between its first two runs the control session had been created, run and
+     released. The same sequence in a fresh process ran.
+   - **When it does not fail,** the lookup finds the session's input buffer: after a second run,
+     `obs` carried ONNX Runtime's registration and the output buffer none. Harmless for the
+     results; wrong all the same.
+   - **The cases** (1.29.0; five runs, the case between the first two; each in a fresh process
+     with `NG_SPIKE_CASE`):
+
+     | Between the first two runs | Node · NVIDIA | Node · AMD | Chrome · AMD |
+     |---|---|---|---|
+     | 1. Nothing | ran | ran | ran |
+     | 2. Another session created and released | run 2 failed | ran | runs 2–5 failed |
+     | 3. Another session created, run and kept | ran | runs 2–5 failed | runs 2–5 failed |
+     | 4. Case 3, capture off | ran | ran | ran |
+
+     In one process, in that order: cases 2 and 3 failed runs 2–5 on Node/NVIDIA and in Chrome;
+     none failed on Node/AMD. Fault 2's cases, run after them, all ran.
+   - **On 1.30.0,** which has the same code at both places, a temporary probe of the same model
+     (with an anchor session of its own) failed run 2 with nothing between the runs on Node/NVIDIA
+     in 3 processes of 3, and ran on Node/AMD in 2 of 2. Inside the `inference` suite, its
+     captured models ran. Capture off ran every case on both versions.
+4. **Every captured run from the second keeps an output tensor that `InferenceSession.run` drops,**
+   with the function that would release it (`session-handler-inference.ts`: a fetch given wins
+   over the tensor returned). ONNX Runtime's WASM memory over a million runs (`NG_SPIKE_LEAK=1`,
+   Node/NVIDIA): with capture, from 16.78 MB to 29.10 MB in 177 s; without, unchanged in 363 s.
+   At 60 runs a second that is at least 2.7 MB an hour, never given back while the page lives.
+
+Both went to the user, who chose to turn capture off for every model (§14, item 6).
+
+**Watched failing.** Five mutations of the built entries, one at a time, each caught by the test
+meant for it:
+- A6, on Node/AMD: `advance()` starting no run (both paces fail; actions 1 to 300 frames old,
+  then 301 to 600); a run every second step (both paces fail); a read-back in `OrtBrain.run`
+  (365 `mapAsync` outside the inspector; the fast pace fails as well, its runs slowed); the copy
+  pass writing zeros (300 frames on a seed, both paces).
+- U32: the capture default back to on.
+
+The first of them at first failed A6 only through a crash of its own report line (the median of
+no runs); the line now handles it, and the checks fail as meant. The same mutation showed that
+the fast pace's checks passed with no runs at all, so the fast pace gained its floor: more than
+half of its frames one frame old.
+
+**Differs from the design, or adds to it:**
+- Graph capture is off by default for every model (§14, item 6): not on (item 2), nor off for
+  two-file models only (item 5).
+- A6 checks more than §10's row: that each run read its own frame's observations, no tearing, a
+  second pace, and a control showing the count sees ONNX Runtime's own `mapAsync`.
+- Fault 2 of phase 9.2 is very likely a case of fault 3.
+- S2 measured the schedule with stand-in passes; A6 measured it through `AgentSystem` and
+  `OrtBrain`, and found the same latency.
+- The parent's §9.4 still says `enableGraphCapture: true`; phase 9.6 rewrites it.
+
+**Sizes, min+gzip:** the adapter with `OrtBrain` 2,988 B, line 3,000 B (−6 B: the default lost its
+condition); the reader 2,846 B, line 2,900 B; the agents entry 19,929 B, unchanged since phase
+9.3's commit (its "about 19,932 B" was an estimate; this is the size test's measure).
+
+**Also green:** headless agents (reference + 79), inference 21/21, core, agent-kit (4); `inference`
+15/15 on Node/NVIDIA, Node/AMD and Chrome/AMD.
+**Not run:** A6 with graph capture on (fault 3); the agents GPU suite and `onnx` (nothing they run
+changed); 1.30.0 in Chrome, on AMD, or through any suite but `inference`; Chrome on NVIDIA.

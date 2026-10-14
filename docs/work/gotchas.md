@@ -107,7 +107,8 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   buffer for every output.
 - **On AMD, a captured session on a re-made ORT device fails its second run** with `Cannot set
   properties of undefined (setting 'Symbol(gpuBufferMetadata)')`. ORT makes a new device after its
-  last session was released (the entry on its device above). Keep one session alive.
+  last session was released (the entry on its device above). Keep one session alive. Phase 9.4
+  found the cause: it is one case of the graph-capture fault below.
 - **GPU work that cannot hold timestamps (ORT's passes) is timed by a bracket,** and the bracket
   has a bias. The spikes submit a long WGSL pass first and time from its end to the work's end;
   on the WGSL kernel that reads 12–45 µs (NVIDIA) to 56–147 µs (AMD) above direct timestamps.
@@ -123,11 +124,28 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   write on NVIDIA: the last values keep what they held, with no error. AMD writes them. Round every
   buffer handed to ORT up to a multiple of 16 B; `OrtModel.bind` refuses one that is not.
   `npm run spike:ort-issues` shows it.
-- **Under graph capture, ONNX Runtime 1.29 can fail a model whose weights are in a second file,**
-  from its second run on: `Cannot set properties of undefined (setting
-  'Symbol(gpuBufferMetadata)')`. Which model fails depends on the host and on what ran before it
-  in the process, so a passing run proves little. `OrtRuntime.load` leaves capture off for a model
-  given `externalData` (decided 2026-10-14); a direct ORT session needs `enableGraphCapture: false`.
+- **Under graph capture, ONNX Runtime can fail any model from its second run, and it leaks memory**
+  (phase 9.4; phase 9.2 first met it on models whose weights are in a second file).
+  - **Symptom:** the second run, or every run from the second, rejects with `Cannot set properties
+    of undefined (setting 'Symbol(gpuBufferMetadata)')`. Whether it does depends on the host and on
+    what ONNX Runtime allocated and freed between the first two runs: another session created and
+    released, or created, run and kept. On 1.30.0 the smallest case failed with nothing in between
+    (Node/NVIDIA). A passing run proves little: A6 failed inside the `inference` suite and passed
+    alone.
+  - **Cause:** from the second run, ORT's JavaScript looks up the session's output buffer through
+    a handle it released after the first (`webgpuGetBuffer(dataOffset)`, in
+    `onnxruntime-web/lib/wasm/wasm-core-impl.ts`). It works only while the allocator has put
+    another buffer's handle at that address.
+  - **The leak:** every captured run keeps an output tensor that `InferenceSession.run` then drops,
+    with the function that frees it. ORT's WASM memory grew from 16.8 MB to 29.1 MB over a million
+    captured runs, and not at all without capture.
+  - **What to do:** leave capture off. `OrtRuntime.load` does unless `capture: true` (decided
+    2026-10-14); a direct session needs `enableGraphCapture: false`. `npm run spike:ort-issues`
+    shows both faults.
+- **`process.memoryUsage()` does not show ONNX Runtime's WASM memory.** Its `arrayBuffers` held our
+  own copy of ORT's 25.7 MB `.wasm` file and never moved. ORT neither exports its
+  `WebAssembly.Memory` nor names it: wrap `WebAssembly.instantiate` before the first session and
+  find the `Memory` among the imports, as `test/spikes/ort/issues.js` does.
 - **PyTorch's default export writes `model.onnx.data` even when it is empty** (every tensor fitting
   inside). Only a file that an initializer names belongs to the model (`make.py` keeps only those).
 - **`node --test` has no time limit by default.** A test that awaits a promise that never settles,

@@ -50,7 +50,7 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
 | 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2: design decided 2026-10-13 (`f1244cb`, [cloning](../agents-cloning-design.md), phases 7.6–7.10); 7.6 ✅ (the scenario, the label pass, the recorder, `c2608d7`); 7.7 ✅ (the trainer; round-0 students, `0d3fb9f`); 7.8 ✅ (the copy in the running simulation: catches within 1% of the rule without wander, no drift, no round of correction, `8afc6fa`); 7.9 ✅ (the two networks committed in `tools/agents/models/herd-wolves`, U26, A26, A8, the guide's "A trained network", the tools' README, `cd76a25`); 7.10 ✅ (the `.onnx` writer, U12, A27: ONNX Runtime within 4.5e-6 of `mlpForward`, `834b360`). **Part 2 is built and committed** |
 | 8 | C2 | Reading ONNX: `mlpFromOnnx` in a new entry, `null-graph/inference` (the parent's `MlpBrain.fromOnnx`; [design](../agents-onnx-reader-design.md), phases 8.0–8.3) | Load models trained anywhere | Design decided 2026-10-14 (`a8778ce`; §5, item 8). 8.0 ✅ (`7829f4f`): 16 files from PyTorch, scikit-learn and `onnx.helper`, with what each maker computed. 8.1 ✅ (`8aa243a`): the entry and `mlpFromOnnx` (2,525 B; 13 foreign files read bit for bit, 3 refused as listed; 34 of 34 mutations caught). 8.2 ✅ (`874488d`; A28: the reader's `MlpBrain` and ONNX Runtime agree within 4.5e-6 on 17 files, on three host/GPU pairs). 8.3 ✅ (the commit after `874488d`; the guide `docs/api/inference.md` with a checked example, the README row, the parent's wording). **Every phase is built** |
-| 9 | C2 | `OrtBrain` and the generic ONNX Runtime adapter, in `null-graph/inference` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Design decided 2026-10-14 ([design](../agents-ort-design.md), phases 9.0–9.6; §5, item 9). 9.0 ✅ (the spikes and the design, `a57cd76`). 9.1 ✅ (`OrtRuntime`, `OrtModel`, the anchor; A29 on three host/GPU pairs; `e2ac9a4`). 9.2 ✅ (weights in a second file, read both ways; A32 on three pairs; capture off for such models, §5 item 10; `a4f4035`). 9.3 ✅ (`OrtBrain`, async brains in `AgentSystem`; A5, A30, A31 on three pairs; the commit after `a4f4035`). Next: 9.4 |
+| 9 | C2 | `OrtBrain` and the generic ONNX Runtime adapter, in `null-graph/inference` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Design decided 2026-10-14 ([design](../agents-ort-design.md), phases 9.0–9.6; §5, item 9). 9.0 ✅ (the spikes and the design, `a57cd76`). 9.1 ✅ (`OrtRuntime`, `OrtModel`, the anchor; A29 on three host/GPU pairs; `e2ac9a4`). 9.2 ✅ (weights in a second file, read both ways; A32 on three pairs; capture off for such models, §5 item 10; `a4f4035`). 9.3 ✅ (`OrtBrain`, async brains in `AgentSystem`; A5, A30, A31 on three pairs; `e1344ca`). 9.4 ✅ (A6 on three pairs; graph capture off by default, §5 item 11; the commit after `e1344ca`). Next: 9.5 |
 | 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
 
 **C1 is a product on its own:** crowds, herds and RTS units with no ML.
@@ -150,7 +150,7 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
    paths read separate weight files."
    1. **Device ownership** (the parent's decision 6): ORT creates the device and the engine
       adopts it; ORT 1.29 runs on no device the app made (S5). The parent's §12.3 is withdrawn.
-   2. **Graph capture on by default.**
+   2. **Graph capture on by default.** *Superseded by item 11: off by default.*
    3. **The brain-swap stall** (item 3 above): `agents.prepareBrain(brain)` compiles at load, in
       the background, over a new core method, `createComputeStageAsync` (a core addition).
    4. **Weights outside the `.onnx` file** (item 8 above): both paths read them, ORT and
@@ -161,7 +161,17 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
     ([`../agents-ort-design.md`](../agents-ort-design.md) §14, item 5). Under capture, ONNX Runtime
     1.29 can fail such a model from its second run, on every host, depending on what ran before.
     **Capture is off for such models unless the app asks for it;** every other model keeps it, as
-    decided in item 9.
+    decided in item 9. *Superseded by item 11.*
+11. ~~**Step 9: graph capture for every model**~~ **Decided 2026-10-14** (the user chose option A),
+    raised by phase 9.4 ([`../agents-ort-design.md`](../agents-ort-design.md) §14, item 6). A6
+    found that under capture ONNX Runtime looks up a model's output, from its second run on,
+    through a handle it freed after the first: on 1.29 the second run can fail when another session
+    is created, run or released between the first two runs; on 1.30.0, which `^1.29.0` admits, the
+    smallest case failed with nothing in between (Node/NVIDIA, 3 of 3; not on AMD). Which case
+    fails depends on the host and on what ran before. Capture also leaks memory on every run.
+    **Capture is off by
+    default for every model; `capture: true` stays as the app's choice.** Item 9's second point and
+    item 10 are superseded.
 
 ## 6. Constraints that hold for every step
 
@@ -212,3 +222,6 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - 2026-10-14: graph capture is off by default for a model whose weights are in a second file,
   unless the app asks (§5, item 10), after phase 9.2 found that ONNX Runtime 1.29 can fail such a
   model under capture. The reader's size line is 2,900 B.
+- 2026-10-14: graph capture is off by default for every model (§5, item 11), after phase 9.4's A6
+  found that ONNX Runtime can fail any captured model from its second run (on 1.30.0 even with
+  nothing between its first two runs) and leaks memory under capture. Replaces item 9's "capture on" and item 10's special case.
