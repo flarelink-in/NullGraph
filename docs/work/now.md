@@ -5,23 +5,21 @@ log, not here.
 
 ## Position
 
-- **Cycle C, milestone C2.** Steps 6, 7 and 8 are built and committed (step 8's closure:
-  `bc083b0`). Step 5's scaling study is still deferred.
-- **Step 9, ONNX Runtime brains** ([`../agents-ort-design.md`](../agents-ort-design.md), phases
-  9.0–9.6; decided with the user, [`plan.md`](./plan.md) §5, items 9–11): **every phase is built
-  and committed.**
-  - 9.0 `a57cd76`; 9.1 `e2ac9a4`; 9.2 `a4f4035`; 9.3 `e1344ca` (`OrtBrain`, async brains); 9.4
-    `f11ba4f` (A6; graph capture off by default, item 11); 9.5 `35e5be1`
-    (`createComputeStageAsync`, `prepareBrain`; A33).
-  - 9.6, the commit after `35e5be1`: the guides. `docs/api/inference.md` gains "ONNX Runtime" (an
-    example type-checked against the real `onnxruntime-web` and run on stand-ins);
-    `docs/api/agents.md` gains "Switching brains without a hitch" (`prepareBrain`, a checked
-    example); `docs/api/core.md`, `README.md` and the parent design say what step 9 built.
-- **Next action:** step 10's design: the live Rules / Network / ONNX Runtime switch, with timings.
+- **Cycle C, milestone C2.** Steps 6, 7, 8 and 9 are built and committed. Step 9's phases: 9.0
+  `a57cd76`, 9.1 `e2ac9a4`, 9.2 `a4f4035`, 9.3 `e1344ca`, 9.4 `f11ba4f`, 9.5 `35e5be1`, 9.6
+  `4e19a0f` (the guides). Step 5's scaling study is still deferred.
+- **Step 10, the live switch** ([`../agents-live-switch-design.md`](../agents-live-switch-design.md)):
+  **design decided** with the user (`plan.md` §5, item 12) and committed, in the site's Herd &
+  Wolves demo (`HerdWolvesGPU`): Rules / Network / ONNX Runtime per species, prepared ahead, with
+  live timings. The worker makes its engine again on ONNX Runtime's device at the first ORT pick
+  (D1); Network keeps `.mlp.json`, and ORT's `.onnx` is checked against it (D2).
+- **Next action:** phase 10.0, spikes: ONNX Runtime in the site's worker through Vite; the device
+  switch over one `OffscreenCanvas`; ONNX Runtime's time and memory at 4K–1M agents; the run
+  bracket's bias.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed). Nothing uncommitted after 9.6's commit.
+- **null-graph** (`master`, not pushed). Nothing uncommitted after step 10's design.
 - **ONNX Runtime 1.30.0 is out,** and the peer range `^1.29.0` admits it. Only the `inference`
   suite of 9.4 has run on it (Node/NVIDIA, 15/15, `NG_ORT_DIST`). The repository tests 1.29.0.
 - **`package-lock.json` is ignored by git here.** `dist/index.js` and its map are tracked although
@@ -29,8 +27,7 @@ log, not here.
 - **`venv/`** (ignored): PyTorch, onnx, onnxruntime, scikit-learn; `pip` there needs
   `--cert venv/pip-ca-bundle.pem` ([`gotchas.md`](./gotchas.md)).
 - **The site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, uncommitted): Herd &
-  Wolves with a live Rules / Network choice. Its `null-graph/dist` is from 2026-10-13. Its worker
-  makes the engine first, which ORT cannot use (step 10's design decides).
+  Wolves with a live Rules / Network choice. Its `null-graph/dist` is from 2026-10-13.
 - **Another worktree exists:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`).
   Remove its `node_modules` junction first with `cmd /c rmdir`, then `git worktree remove`.
 - **Green on 2026-10-14, with 9.6:** headless agents (reference + 83), inference (23), core,

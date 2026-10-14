@@ -50,8 +50,8 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 | 6 | C2 | `MlpBrain`: a small network runs as the think stage ([design](../agents-mlp-design.md)) | Neural policies run at rule-brain speed | ✅ 6.0 `e345921`, 6.1 `dbaf884`, 6.2 `b3424b1`, 6.3 (guide, cost, size) |
 | 7 | C2 | Part 1: per-species brains ([design](../agents-species-brains-design.md), phases 7.1–7.5: weight-table rows, then per-species think passes). Part 2: record the rule brain → train a copy per species → export (`tools/agents`), from 7.6 | **First network that has actually learned Herd & Wolves** | Part 1: 7.1 ✅, 7.2 ✅ (measured; option B chosen), 7.3 ✅ (per-species passes, `681ccf4`), 7.4 ✅ (A22, `f19dbea`), 7.5 ✅ (the guide, `de14ff4`): **part 1 complete**. Part 2: design decided 2026-10-13 (`f1244cb`, [cloning](../agents-cloning-design.md), phases 7.6–7.10); 7.6 ✅ (the scenario, the label pass, the recorder, `c2608d7`); 7.7 ✅ (the trainer; round-0 students, `0d3fb9f`); 7.8 ✅ (the copy in the running simulation: catches within 1% of the rule without wander, no drift, no round of correction, `8afc6fa`); 7.9 ✅ (the two networks committed in `tools/agents/models/herd-wolves`, U26, A26, A8, the guide's "A trained network", the tools' README, `cd76a25`); 7.10 ✅ (the `.onnx` writer, U12, A27: ONNX Runtime within 4.5e-6 of `mlpForward`, `834b360`). **Part 2 is built and committed** |
 | 8 | C2 | Reading ONNX: `mlpFromOnnx` in a new entry, `null-graph/inference` (the parent's `MlpBrain.fromOnnx`; [design](../agents-onnx-reader-design.md), phases 8.0–8.3) | Load models trained anywhere | Design decided 2026-10-14 (`a8778ce`; §5, item 8). 8.0 ✅ (`7829f4f`): 16 files from PyTorch, scikit-learn and `onnx.helper`, with what each maker computed. 8.1 ✅ (`8aa243a`): the entry and `mlpFromOnnx` (2,525 B; 13 foreign files read bit for bit, 3 refused as listed; 34 of 34 mutations caught). 8.2 ✅ (`874488d`; A28: the reader's `MlpBrain` and ONNX Runtime agree within 4.5e-6 on 17 files, on three host/GPU pairs). 8.3 ✅ (the commit after `874488d`; the guide `docs/api/inference.md` with a checked example, the README row, the parent's wording). **Every phase is built** |
-| 9 | C2 | `OrtBrain` and the generic ONNX Runtime adapter, in `null-graph/inference` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Design decided 2026-10-14 ([design](../agents-ort-design.md), phases 9.0–9.6; §5, item 9). 9.0 ✅ (the spikes and the design, `a57cd76`). 9.1 ✅ (`OrtRuntime`, `OrtModel`, the anchor; A29 on three host/GPU pairs; `e2ac9a4`). 9.2 ✅ (weights in a second file, read both ways; A32 on three pairs; capture off for such models, §5 item 10; `a4f4035`). 9.3 ✅ (`OrtBrain`, async brains in `AgentSystem`; A5, A30, A31 on three pairs; `e1344ca`). 9.4 ✅ (A6 on three pairs; graph capture off by default, §5 item 11; `f11ba4f`). 9.5 ✅ (`createComputeStageAsync`, `prepareBrain`; A33 on three pairs; `35e5be1`). 9.6 ✅ (the guides; the commit after `35e5be1`). **Every phase is built** |
-| 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Not started |
+| 9 | C2 | `OrtBrain` and the generic ONNX Runtime adapter, in `null-graph/inference` (ORT optional peer) | Larger models; shared with the photo-booth and relight ideas | Design decided 2026-10-14 ([design](../agents-ort-design.md), phases 9.0–9.6; §5, item 9). 9.0 ✅ (the spikes and the design, `a57cd76`). 9.1 ✅ (`OrtRuntime`, `OrtModel`, the anchor; A29 on three host/GPU pairs; `e2ac9a4`). 9.2 ✅ (weights in a second file, read both ways; A32 on three pairs; capture off for such models, §5 item 10; `a4f4035`). 9.3 ✅ (`OrtBrain`, async brains in `AgentSystem`; A5, A30, A31 on three pairs; `e1344ca`). 9.4 ✅ (A6 on three pairs; graph capture off by default, §5 item 11; `f11ba4f`). 9.5 ✅ (`createComputeStageAsync`, `prepareBrain`; A33 on three pairs; `35e5be1`). 9.6 ✅ (the guides; `4e19a0f`). **Every phase is built** |
+| 10 | C2 | Demo: switch Rules / Network / ORT live with timings | The showable result | Design decided 2026-10-14 (the commit after `4e19a0f`; [design](../agents-live-switch-design.md), phases 10.0–10.5, in the site's Herd & Wolves demo; §5, item 12). Next: 10.0 |
 
 **C1 is a product on its own:** crowds, herds and RTS units with no ML.
 
@@ -172,6 +172,17 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
     **Capture is off by
     default for every model; `capture: true` stays as the app's choice.** Item 9's second point and
     item 10 are superseded.
+12. ~~**Step 10: the live switch in the site's Herd & Wolves demo**~~ **Decided 2026-10-14**
+    ([`../agents-live-switch-design.md`](../agents-live-switch-design.md) §12):
+    - **D1:** the page gets ONNX Runtime's device on the first ORT pick: the worker makes its
+      engine again on it and loads the demo again (the site's worker makes its own device at
+      start, which ORT 1.29 cannot use).
+    - **D2:** Network keeps loading `.mlp.json`; ORT loads `.onnx`, checked against the
+      `.mlp.json` bit for bit. (The recommendation was one `.onnx` for both.)
+    - **D3:** the demo's rules are a copy of the scenario file's texts, checked against the
+      teacher's hash in the `.mlp.json` files.
+    - **D4:** `onnxruntime-web` 1.29.0, pinned in the site. **D5:** its WASM vendored in
+      `public/vendor/`. **D6:** ORT capped at the largest count phase 10.0 measures as safe.
 
 ## 6. Constraints that hold for every step
 
@@ -225,3 +236,7 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - 2026-10-14: graph capture is off by default for every model (§5, item 11), after phase 9.4's A6
   found that ONNX Runtime can fail any captured model from its second run (on 1.30.0 even with
   nothing between its first two runs) and leaks memory under capture. Replaces item 9's "capture on" and item 10's special case.
+- 2026-10-14: step 10 designed and decided (§5, item 12). The live switch is built in the site's
+  Herd & Wolves demo, whose worker makes its engine again on ONNX Runtime's device at the first
+  ORT pick. Network keeps loading `.mlp.json`: step 8's "the demo loading `.onnx`" holds for ORT
+  only.

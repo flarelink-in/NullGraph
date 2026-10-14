@@ -161,3 +161,6 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   process even for the synchronous call, so main-thread frame times show no compile stall (17 ms
   in A33). Under Node/Dawn the same compile froze a frame for 0.1 to 1.8 s. Time compile stalls
   under Node, or look at the GPU's timeline.
+- **`docs/agents-demo-design.md` is step 5's design** (scaling limits), not a design for the demo.
+  On 2026-10-14 a new design was written over it by that name and restored from git; step 10's
+  design is `docs/agents-live-switch-design.md`. Look before writing a file by a new name.
