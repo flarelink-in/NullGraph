@@ -258,8 +258,15 @@ it, and the engine must not render after.
   NVIDIA a write that ends past a buffer is lost without an error. A second `bind` is refused;
   load the model again for other buffers.
 - **`await model.run()`** runs the session over the bound buffers. It resolves once ONNX Runtime
-  has queued its GPU work; work submitted after it sees the results. One run at a time.
-- **`await model.destroy()`** releases the session after a run in flight.
+  has queued its GPU work; work submitted after it sees the results. One run of a model at a time.
+- **`await model.destroy()`** releases the session, in line: after a run in flight.
+- **One call into ONNX Runtime at a time.** ONNX Runtime 1.29 fails two calls in flight across its
+  sessions: a session created while another is being created, or a load or a run while another
+  model runs, which breaks its memory. So every load, run and release of a runtime's models waits
+  in line, in the order made. A call starts at once when none is in line, so one model alone waits
+  for nothing, and a call that fails does not hold the line. Two models' runs take turns, and
+  `destroy()` can wait for another model's run. Calls an app makes on ONNX Runtime itself are not
+  in this line, and neither are a second runtime's: use one runtime.
 - **Not supported:** tensor types other than float32 (int64 token inputs, float16, quantized
   models), inputs or outputs on the CPU, and ONNX Runtime's older JavaScript provider (its `all`
   bundle, which ignores a device and cannot load under Node): import `onnxruntime-web/webgpu`.
@@ -348,7 +355,7 @@ frame. The message starts with the class that refused it.
 ### What ONNX Runtime costs
 
 - **Download:** ONNX Runtime's WASM is 6.4 MB gzipped (25.7 MB), and its JavaScript 58 KB
-  gzipped. This package's part, `OrtRuntime`, `OrtModel` and `OrtBrain`, is 3.0 KB min+gzip, paid
+  gzipped. This package's part, `OrtRuntime`, `OrtModel` and `OrtBrain`, is 3.1 KB min+gzip, paid
   only by apps that import them.
 - **Start:** 0.8–0.9 s from the first line to the first actions in Chrome, and 1.3–1.6 s under
   Node: loading ONNX Runtime, making the device (0.5–0.7 s), and a model's first run, which
@@ -366,10 +373,10 @@ frame. The message starts with the class that refused it.
   weights bit for bit; 3 are refused as they should be. 10,000 damaged files and every cut-short
   prefix of a file give a network or a named refusal, nothing else. `OrtRuntime`, `OrtModel` and
   `OrtBrain` run against a stand-in for ONNX Runtime: the options every session gets, each
-  binding refusal, one run at a time, release after a run in flight, and that the real
-  `onnxruntime-web` namespace type-checks as what `OrtRuntime.create` takes. This guide's two
-  examples are type-checked and bundled; the reader's runs on the committed networks, and
-  `useOrtBrain` on a stand-in engine.
+  binding refusal, one run at a time, release after a run in flight, one call into ONNX Runtime at
+  a time across models, in the order made, and that the real `onnxruntime-web` namespace
+  type-checks as what `OrtRuntime.create` takes. This guide's two examples are type-checked and
+  bundled; the reader's runs on the committed networks, and `useOrtBrain` on a stand-in engine.
 - **On the GPU** (the `onnx` and `inference` suites), on Node/Dawn with an NVIDIA and an AMD GPU,
   and in Chrome, with ONNX Runtime Web 1.29.0:
   - for 17 files, the network read by `mlpFromOnnx` into an `MlpBrain` and ONNX Runtime running
@@ -380,7 +387,9 @@ frame. The message starts with the class that refused it.
     with graph capture on and off; reruns byte-identical; switching brains with frames running;
   - 600 interactive frames (A6): no read-back outside the inspector, no WebGPU error, and the
     frame ages above;
-  - `prepareBrain` (A33): `setBrain` of a prepared brain takes under 1 ms.
+  - `prepareBrain` (A33): `setBrain` of a prepared brain takes under 1 ms;
+  - two models at once (A34): prey and wolves each on an `OrtBrain`, both loaded together and both
+    runs started together, act as their networks say within 1.1e-5, with no WebGPU error.
 - **ONNX Runtime 1.30.0** ran the `inference` suite under Node on an NVIDIA GPU only.
 - **Not measured:** files from TensorFlow or Keras, and from reinforcement-learning libraries;
   export the policy as a plain PyTorch module. Models other than dense networks through

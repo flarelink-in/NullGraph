@@ -190,8 +190,10 @@ As built under B:
   `.mlp.json` (§5), loaded with `runtime.load(bytes)`, made an `OrtBrain`, prepared, and run once
   to warm up, which compiles ONNX Runtime's pipelines (0.14–0.46 s in step 9) before the species
   needs it. Without the warm-up, a species switched to ORT acts on its last actions for that long.
-- **ONNX Runtime takes one call at a time** (found in phase 10.3): the demo queues every load,
-  warm-up, run and release of its models, so the prey's and the wolves' calls never overlap.
+- **ONNX Runtime takes one call at a time** (found in phase 10.3). Since 2026-10-15 `OrtRuntime`
+  keeps every load, run and release of its models in line ([`agents-ort-design.md`](./agents-ort-design.md),
+  "After step 9"), so the prey's and the wolves' calls never overlap; the demo's own queue of 10.3
+  is gone. The two species' runs take turns.
 - **A switch** is `setBrain(brain, { species })`: under 1 ms. The overlay shows the last switch's
   time. A switch to ORT also copies the species' actions into the brain's results, so it keeps
   moving as it did until the first run lands.

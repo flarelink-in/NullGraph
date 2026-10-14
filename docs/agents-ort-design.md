@@ -31,6 +31,9 @@ read separate weight files."
 6. **Added after phase 9.4's A6: graph capture is off by default for every model;** `capture: true`
    turns it on for one model (§14, item 6; the user chose option A). Under capture ONNX Runtime can
    fail a model from its second run, and it leaks memory with every run.
+7. **Added after step 10's phase 10.3: `OrtRuntime` takes ONNX Runtime's calls one at a time**
+   ([`work/plan.md`](./work/plan.md) §5, item 14; the user: "yes choose B"). ONNX Runtime 1.29
+   fails two calls in flight across its sessions ("After step 9", at the end).
 
 **Nothing is open** (§14).
 
@@ -62,6 +65,10 @@ read separate weight files."
   with an example type-checked against the real `onnxruntime-web` and run on stand-ins;
   `docs/api/agents.md` covers `prepareBrain`, with a checked example; the parent design's facts
   15–16, §9.4, §11, §12.1 and §12.3 say what was built. **Every phase of step 9 is built.**
+- **After step 9, on 2026-10-15:** `OrtRuntime` puts every create, run and release of its models in
+  one line, after step 10's phase 10.3 found that two calls in flight break ONNX Runtime 1.29. U36
+  and A34 (on three host/GPU pairs) check it; the adapter's line is 3,100 B ("After step 9", at the
+  end).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -593,7 +600,8 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 - **`inference.js`:** the ORT adapter and `OrtBrain` are paid only by apps that import them;
   `mlpFromOnnx` alone tree-shakes them away. Estimate 1.5–2.5 KB min+gzip. A line of its own,
   3,000 B; phase 9.1's adapter is 1,925 B. The reader's own line moves from 2,600 B to 2,900 B for
-  external data (§6.1).
+  external data (§6.1). **The adapter's line moved to 3,100 B on 2026-10-15,** for its calls in line
+  ("After step 9", below), which the user approved.
 - **`agents.js`:** 19,323 B of C2's 21,495 B today. Async brains and `prepareBrain` must fit, with
   no new allowance.
 - **Core:** `createComputeStageAsync`, +60–100 B (§12.1).
@@ -1259,3 +1267,76 @@ compiles at `setBrain`); the agents switching example without `prepareBrain` (it
 
 **Measured:** headless agents (reference + 83), inference 23/23, core, agent-kit (4).
 **Not run:** the GPU suites: no source changed in this phase.
+
+## After step 9 — 2026-10-15: one call into ONNX Runtime at a time
+
+**Why.** Step 10's phase 10.3 ran two models at once for the first time: Herd & Wolves with prey
+and wolves each on an `OrtBrain` ([`agents-live-switch-design.md`](./agents-live-switch-design.md),
+"Phase 10.3 results", finding 1). ONNX Runtime 1.29 failed:
+- a session created while another was being created: `another WebGPU EP inference session is being
+  created.`;
+- a create during another session's run, and two sessions' runs in flight together: its WASM memory
+  broke (`memory access out of bounds`), with uncaught errors of its own.
+
+No suite here had two calls in flight at once: A33 loads two models, one after the other, and runs
+each in turn. The cause is not verified: the WASM both hosts run is ONNX Runtime's asyncify build,
+which can suspend one call at a time.
+
+**Decided by the user** ([`work/plan.md`](./work/plan.md) §5, item 14, "yes choose B"):
+`OrtRuntime` keeps the calls in line, rather than each app.
+
+**The contract** (`oneAtATime` in `src/extras/inference/OrtRuntime.ts`):
+- **One line per runtime.** Every create (`runtime.load`), run (`model.run`) and release
+  (`model.destroy`, and the anchor's in `runtime.destroy`) of its models goes through it.
+- **A call starts when the one before it has settled,** however it settled, in the order the calls
+  were made. A call that fails does not hold the line.
+- **A call starts at once when none is in line.** The line's count drops before the caller resumes,
+  so a call made right after another settles starts at once too. One model alone waits for
+  nothing, as before: A6 reads as it did.
+- **`model.destroy()` releases in line,** so after a run in flight of any of the runtime's models,
+  not only its own. U32's destroy test now says so (it released two models during a run before).
+- **Unchanged:** one run of a model at a time (a second `run()` in flight is refused), and every
+  refusal.
+- **Outside the line:** `OrtRuntime.create`'s anchor (no runtime exists yet), anything an app calls
+  on ONNX Runtime itself, and a second runtime's calls. The guide says to use one runtime.
+
+**What it costs:** the adapter with `OrtBrain` is 3,064 B min+gzip (+76 B). Its line moved from
+3,000 B to 3,100 B (§12.4), as the user approved. Two models' runs take turns: one can wait for the
+other's.
+
+**Tests:**
+- **U36** (headless, the fake `ort`): two loads at once, the second create after the first has
+  settled; a run starts at once with nothing in line; another model's run and a load wait for a
+  run in flight; a failed run does not hold the line; nothing is released while a run is in flight;
+  every call in the order made, the anchor's release last.
+- **U32,** its destroy test: no release while a run is in flight, then `[3, 1, 2, 0]`.
+- **A34** (GPU): Herd & Wolves with prey and wolves each on an `OrtBrain`. Both models load at
+  once; a lockstep step starts both runs at once, then 60 interactive frames, then a lockstep step
+  again. Every live agent acts as its species' network says, within 1e-4, at both lockstep steps;
+  both brains run in at least a quarter of the frames that step; no WebGPU error.
+
+**Watched failing:**
+- U36 and U32's destroy test on the build before the change: two creates started at once, and two
+  releases happened during a run;
+- A34 on that build, under Node: the second load was refused, `another WebGPU EP inference session
+  is being created`;
+- A34 with the loads in line and the runs not (a temporary edit): every check before it passed,
+  then ONNX Runtime's WASM failed during A34 with `memory access out of bounds`, uncaught, and the
+  process died.
+
+**Results** (`npm run test:gpu -- --only inference` under Node, `npm run test:gpu:browser -- --only
+inference`): 17/17 with no WebGPU error on each pair.
+
+| A34 | Node · NVIDIA | Node · AMD | Chrome · AMD |
+|---|---|---|---|
+| Against `mlpForward`, the first step: prey / wolves | 8.3e-6 / 5.7e-7 | 4.0e-6 / 9.8e-7 | 1.1e-5 / 6.6e-7 |
+| The same, after the frames | 7.1e-6 / 3.1e-7 | 2.3e-6 / 5.1e-7 | 1.1e-5 / 5.4e-7 |
+| Runs started in 60 frames that stepped: prey / wolves | 54 / 52 | 59 / 54 | 60 / 45 |
+
+A6, the interactive schedule of one model, reads as before the change. Under Node, every frame acts
+on actions one frame old at both paces. On Node/NVIDIA, `run()` resolved in 1.72 and 0.97 ms
+(median: at the display's pace, and as fast as frames come), against 1.71 and 1.03 ms on the build
+before the change. In Chrome, 299 of 300 frames act on actions one frame old at the display's pace,
+as in phase 9.4.
+
+**Headless:** inference 24/24 (U36 added).
