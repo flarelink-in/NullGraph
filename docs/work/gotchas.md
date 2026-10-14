@@ -181,9 +181,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   - **A production build always emits the `.wasm` (25.7 MB) as a hashed asset,** from the bundle's
     `new URL(…, import.meta.url)`, whatever `wasmPaths` says.
   - `test/spikes/live-switch/run.mjs` tries each way with the site's Vite.
-- **`GPUProfiler.end` has no `catch` on its read.** Destroying its device while a frame's timestamps
-  are being mapped rejects that read: an uncaught `AbortError` (phase 10.0's device switch). Stop the
-  frames, `await device.queue.onSubmittedWorkDone()` and let one task pass, then destroy the device.
+- **Destroying a device rejects every read still pending on it** (`AbortError`, "Buffer was unmapped
+  before mapping was resolved" in Chrome). Phase 10.0's device switch met it as an uncaught error from
+  `GPUProfiler`'s read; the profiler now drops such a read (C8 in `test/core-gpu/run.js`, and
+  `npm run test:profiler`). Any other `mapAsync` needs its own rejection handler. Before destroying a
+  device whose frames you stopped, `await device.queue.onSubmittedWorkDone()` and let one task pass,
+  so that the last reads land.
 - **The site's install is not what its `package.json` says** (2026-10-14):
   - `package.json` asks for `null-graph` from `file:.yalc/null-graph`, whose `dist` is from
     2026-10-12;

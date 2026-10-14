@@ -78,6 +78,10 @@ export class GPUProfiler {
             if (durationMs > 0) {
                 onUpdate(durationMs);
             }
+        }, () => {
+            // The read failed: the device was destroyed or lost while it was pending. Drop it.
+            // (A second argument, not a catch: an error thrown by onUpdate still surfaces.)
+            this.isMapping = false;
         });
     }
 }
