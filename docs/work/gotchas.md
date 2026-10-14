@@ -91,3 +91,30 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
 - **A heredoc in an agent's Bash tool can fail on its quote characters** (`unexpected EOF while
   looking for matching`), although the delimiter is quoted. Seen twice on 2026-10-14 with text
   holding `"""` or many apostrophes. Write the text with the file tools instead.
+- **ONNX Runtime 1.29 runs only on a device it made itself** (spike S5, 2026-10-14).
+  - **Symptom:** given the app's device (the WebGPU provider's `device` option, or
+    `ort.env.webgpu.device`), sessions are created without complaint, and every run fails with
+    `No cached or pending pipeline for deferred dispatch`. After a few, ORT can stop answering: an
+    awaited run never returns, and the process or page hangs.
+  - **What to do:** let ORT make the device (`await ort.env.webgpu.device` after the first session)
+    and adopt it with `engine.init(canvas, { device })`. Guard ORT calls in tests with a time limit
+    (`within()` in `test/spikes/ort/s2.js`). After an ORT upgrade, measure again with
+    `npm run spike:s5`.
+- **`executionProviders: ['webgpu']` with `enableGraphCapture: true` captures only halfway.** ORT's
+  JavaScript side captures; the provider never gets the option (`session-options.ts:105-121` in
+  `onnxruntime-web/lib/wasm`). A later run read a new buffer, and a frame loop hung. Give the
+  provider as an object, `{ name: 'webgpu' }`. A captured session also needs a pre-allocated GPU
+  buffer for every output.
+- **On AMD, a captured session on a re-made ORT device fails its second run** with `Cannot set
+  properties of undefined (setting 'Symbol(gpuBufferMetadata)')`. ORT makes a new device after its
+  last session was released (the entry on its device above). Keep one session alive.
+- **GPU work that cannot hold timestamps (ORT's passes) is timed by a bracket,** and the bracket
+  has a bias. The spikes submit a long WGSL pass first and time from its end to the work's end;
+  on the WGSL kernel that reads 12–45 µs (NVIDIA) to 56–147 µs (AMD) above direct timestamps.
+  Compare bracket with bracket. NVIDIA's clocks also moved every figure about 2.5× between runs
+  an hour apart: only ratios inside one run compare.
+- **Dawn makes submissions wait.** A submission using a buffer that queued work still uses took
+  milliseconds, and with about 30 submissions queued the next one blocked. Keep timing loops to a
+  few submissions in flight (S1 queues 16).
+- **A "60 fps" timer under Node gives 31–32 ms frames on Windows** (the timer's resolution). A
+  frame loop in Node runs at about 30 fps unless it runs as fast as it can.
