@@ -84,10 +84,11 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   and under `cp1252` (a pipe, a redirected log) the export stops with `UnicodeEncodeError:
   'charmap' codec can't encode character '✅'`. Call
   `sys.stdout.reconfigure(encoding='utf-8')` first, as `test/onnx-fixtures/make.py` does.
-- **A small binary file can be changed by git on checkout here.** `core.autocrlf` is `true` and
-  the repository has no `.gitattributes`, so git calls a file text when it holds no zero byte. A
-  217-byte `.onnx` had none, and 13 line-feed bytes. Keep small binaries as base64 inside a text
-  file, as `test/onnx-fixtures/fixtures.json` does, or add a `.gitattributes` rule first.
+- **A small binary file can be changed by git on checkout here.** `core.autocrlf` is `true`, and
+  `.gitattributes` names only the `.mlp.json` files, so git calls a file text when it holds no zero
+  byte. A 217-byte `.onnx` had none, and 13 line-feed bytes. Keep small binaries as base64 inside a
+  text file, as `test/onnx-fixtures/fixtures.json` does, or add a `.gitattributes` rule first
+  (`*.onnx binary`).
 - **A heredoc in an agent's Bash tool can fail on its quote characters** (`unexpected EOF while
   looking for matching`), although the delimiter is quoted. Seen twice on 2026-10-14 with text
   holding `"""` or many apostrophes. Write the text with the file tools instead.
@@ -164,11 +165,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
 - **`docs/agents-demo-design.md` is step 5's design** (scaling limits), not a design for the demo.
   On 2026-10-14 a new design was written over it by that name and restored from git; step 10's
   design is `docs/agents-live-switch-design.md`. Look before writing a file by a new name.
-- **A fresh checkout fails U26 here** ("prey.mlp.json is what the writer writes"). `core.autocrlf`
-  is `true` and there is no `.gitattributes`, so git writes the two committed `.mlp.json` files with
-  CRLF, and the test compares them byte for byte with the writer's LF. The main tree has LF because
-  the files were written there. Seen when validating 9.6 alone in a temporary worktree (2026-10-14):
-  82 of 83, the other suites green. It is not the commit under test.
+- **A checkout before `.gitattributes` fails U26 here** ("prey.mlp.json is what the writer
+  writes"). `core.autocrlf` is `true`, so git wrote the two committed `.mlp.json` files with CRLF,
+  and the test compares them byte for byte with the writer's LF: 82 of 83 when validating 9.6 alone
+  in a temporary worktree (2026-10-14). Since 2026-10-14, `.gitattributes` keeps them LF
+  (`*.mlp.json text eol=lf`). A temporary worktree of an older commit still fails U26: that is not
+  the commit under test.
 - **ONNX Runtime Web through Vite** (5.4, the site's; phase 10.0):
   - **In the dev server, ONNX Runtime cannot import its loader from `public/`.** With
     `wasmPaths: '/vendor/…/'`, Vite adds `?import` to ONNX Runtime's import of
