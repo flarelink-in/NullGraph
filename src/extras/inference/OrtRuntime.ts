@@ -43,9 +43,9 @@ export interface OrtExternalData {
 
 export interface OrtModelOptions {
     /**
-     * ONNX Runtime's graph capture (agents-ort-design.md §9): on, unless `false`, or unless the
-     * model's weights are in a second file (`externalData`). Under capture ONNX Runtime 1.29 can
-     * fail such a model from its second run; `true` asks for capture all the same.
+     * ONNX Runtime's graph capture (agents-ort-design.md §9): off unless `true`. It saves main-thread
+     * time per run, but under it ONNX Runtime (1.29, 1.30) can fail a model from its second run,
+     * and its memory grows with every run.
      */
     readonly capture?: boolean;
     /** Weights stored outside the .onnx file, passed to ONNX Runtime as they are (§6.1). */
@@ -106,15 +106,14 @@ export class OrtRuntime {
 
     /**
      * Creates a session for the model on the runtime's device: the WebGPU provider, outputs kept on
-     * the GPU, graph capture unless `capture: false` or weights in a second file. Bind its buffers
-     * with `model.bind`.
+     * the GPU, graph capture only with `capture: true`. Bind its buffers with `model.bind`.
      */
     public async load(model: Uint8Array | ArrayBuffer, options: OrtModelOptions = {}): Promise<OrtModel> {
         this.assertAlive();
         const bytes = model instanceof Uint8Array ? model : model instanceof ArrayBuffer ? new Uint8Array(model)
             : fail('OrtRuntime', 'expected the model\'s bytes, as a Uint8Array or an ArrayBuffer.');
-        // Decided with the user, 2026-10-14 (agents-ort-design.md §14, item 5).
-        const capture = options.capture ?? !options.externalData?.length;
+        // Decided with the user, 2026-10-14 (agents-ort-design.md §14, item 6).
+        const capture = options.capture === true;
         let session: OrtSessionLike;
         try {
             // An object, never the string 'webgpu': given a string, ONNX Runtime captures halfway (spike S2).

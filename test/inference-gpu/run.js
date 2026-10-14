@@ -4,8 +4,9 @@
 //   A29  the anchor. ONNX Runtime makes the device and the engine adopts it. A model is loaded,
 //        run and destroyed, and the device outlives it: it still answers a read-back and runs the
 //        engine's stages. A captured model loaded after that release runs 100 times, right at runs
-//        1, 2 and 100 (without an anchor, spike S5 saw the second run fail on AMD). A model
-//        without graph capture runs too. Only runtime.destroy() ends the device.
+//        1, 2 and 100 (without an anchor, spike S5 saw the second run fail on AMD). A model loaded
+//        with the default, without graph capture since phase 9.4, runs too. Only
+//        runtime.destroy() ends the device.
 //   A32  (phase 9.2) PyTorch's two-file exports, through the runtime with ONNX Runtime's own
 //        externalData: their outputs equal PyTorch's, and the reader's from the same two files.
 //        The other half, the reader's MlpBrain against ONNX Runtime, is A28 in test/onnx-gpu.
@@ -18,6 +19,11 @@
 //   A31  (phase 9.3) interactive swaps, rules → OrtBrain → MlpBrain → the same OrtBrain again:
 //        each attach starts the brain from the actions agents have (its results seeded from act),
 //        its runs land, and nothing errs.
+//   A6   (phase 9.4, the parent's) 600 interactive frames with OrtBrain, 300 at the display's pace
+//        and 300 as fast as they come: zero mapAsync outside the inspector (GPUBuffer's mapAsync
+//        wrapped; the count is shown to see the inspector's calls and ONNX Runtime's own), zero
+//        GPU errors, and the latency: by spike S2's marker method, how old each frame's actions
+//        are. Never the frame's own; one frame at the display's pace.
 //
 // The runtime's own session is the only one alive across the release, so the device survives
 // only if the anchor holds it.
@@ -25,7 +31,7 @@
 // Two hosts, one file: `npm run test:gpu -- --only inference` (Node: Dawn as navigator.gpu, ORT's
 // asyncify WASM with one thread), `npm run test:gpu:browser -- --only inference`.
 import { NullGraph } from '../../dist/index.js';
-import { AGENT_FLAGS_OFFSET, AGENT_FLAG_ALIVE, AGENT_FLOATS, MlpBrain, mlpForward, rand01 } from '../../dist/agents.js';
+import { AGENT_FLAGS_OFFSET, AGENT_FLAG_ALIVE, AGENT_FLOATS, AgentSystem, MlpBrain, Sensors, defineAgents, mlpForward, rand01 } from '../../dist/agents.js';
 import { OrtBrain, OrtRuntime, mlpFromOnnx } from '../../dist/inference.js';
 import { readBuffers } from '../../tools/agents/label-pass.mjs';
 import { networkFromModel } from '../../tools/agents/model.mjs';
@@ -34,7 +40,11 @@ import { createHerd, herdDefinition } from '../../tools/agents/scenario/herd-wol
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { log, check, fatal, finish, inBrowser } = harnessEnv('__INFERENCE_RESULTS__');
-const ORT_DIST = new URL('../../node_modules/onnxruntime-web/dist/', import.meta.url);
+// NG_ORT_DIST=<folder> (Node only): another ONNX Runtime build's dist folder, to try a version
+// before upgrading to it. Phase 9.4 ran 1.30.0 this way.
+const otherOrt = !inBrowser && globalThis.process?.env?.NG_ORT_DIST;
+const ORT_DIST = otherOrt ? (await import('node:url')).pathToFileURL(`${otherOrt.replace(/[\\/]+$/, '')}/`)
+    : new URL('../../node_modules/onnxruntime-web/dist/', import.meta.url);
 
 // ---------------------------------------------------------------------------
 // ORT bootstrap, per host (as test/onnx-gpu/run.js)
@@ -136,7 +146,7 @@ async function worst(output, data) {
 // Model A: loaded, run, destroyed. After it, only the anchor holds the device.
 const actA = act('A');
 try {
-    const a = await within(runtime.load(bytes), 'load A');
+    const a = await within(runtime.load(bytes, { capture: true }), 'load A');
     a.bind(bindings(actA));
     await within(a.run(), 'A, run 1');
     const w = await worst(actA, obsData);
@@ -180,7 +190,7 @@ check('A29: and the engine\'s stages still run on it', engineRan === true, engin
 // Model B: captured, loaded after the release. On AMD without an anchor, its second run failed.
 const actB = act('B'), newObs = observations(12), checked = [];
 try {
-    const b = await within(runtime.load(bytes), 'load B');
+    const b = await within(runtime.load(bytes, { capture: true }), 'load B');
     b.bind(bindings(actB));
     for (let r = 1; r <= 100; r++) {
         if (r === 100) device.queue.writeBuffer(obs, 0, newObs);   // a captured session reads its bound buffer as it is now
@@ -195,16 +205,16 @@ check('A29: a captured model loaded after that release runs 100 times, right at 
     checked.length === 3 && checked.every(([, w]) => typeof w === 'number' && w <= 1e-4),
     checked.map(([r, w]) => typeof w === 'number' ? `run ${r}: ${w.toExponential(1)}` : w).join('; '));
 
-// Model C: without graph capture.
+// Model C: the default, without graph capture (since phase 9.4; the design's §14, item 6).
 const actC = act('C');
 try {
-    const c = await within(runtime.load(bytes, { capture: false }), 'load C');
+    const c = await within(runtime.load(bytes), 'load C');
     c.bind(bindings(actC));
     for (let r = 1; r <= 3; r++) await within(c.run(), `C, run ${r}`);
     const w = await worst(actC, newObs);
-    check('A29: a model without graph capture runs too', w <= 1e-4 && !c.capture, `worst ${w.toExponential(1)}`);
+    check('A29: a model loaded without options, so without graph capture, runs too', w <= 1e-4 && !c.capture, `worst ${w.toExponential(1)}`);
 } catch (e) {
-    check('A29: a model without graph capture runs too', false, message(e));
+    check('A29: a model loaded without options, so without graph capture, runs too', false, message(e));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,11 +227,10 @@ const readJson = async path => {
 const base64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const fixtures = (await readJson('../onnx-fixtures/fixtures.json')).cases;
 const padded = bytes => Math.ceil(bytes / 16) * 16;     // OrtModel's rule: ONNX Runtime reads and writes 16 B at a time
-// Under capture, ONNX Runtime 1.29 can fail a model whose weights are in a second file from its
-// second run on, depending on the model, the host and what ran before (phase 9.2's results;
-// `npm run spike:ort-issues`). So `load` leaves capture off for such a model unless asked (decided
-// with the user, the design's §14, item 5): A32 takes that default. Capture is probed after the
-// checks, and reported.
+// Under capture, ONNX Runtime 1.29 can fail a model from its second run on, depending on the model,
+// the host and what ran before (phases 9.2 and 9.4; `npm run spike:ort-issues`). So `load` leaves
+// capture off unless asked (decided with the user, the design's §14, item 6): A32 takes that
+// default. Capture is probed after the checks, and reported.
 const TWO_FILES = ['torch-outside', 'torch-outside-batch'];
 async function twoFiles(name, capture) {
     const fixture = fixtures.find(c => c.name === name), bytes = base64(fixture.onnx);
@@ -248,7 +257,7 @@ for (const name of TWO_FILES) {
     const label = `A32: ${name}, two files: through the runtime with ONNX Runtime's externalData, without graph capture by default, its outputs equal PyTorch's, and the reader's from the same files, within 1e-4`;
     try {
         const { bytes, externalData, inputs, maker, outWidth, rows, got, captured } = await twoFiles(name);
-        if (captured) throw new Error('load captured a model whose weights are in a second file');
+        if (captured) throw new Error('load captured a model it was not asked to');
         const { network } = mlpFromOnnx(bytes, { externalData });
         let againstMaker = 0, againstReader = 0;
         inputs.forEach((row, r) => {
@@ -410,6 +419,164 @@ for (const capture of [true, false]) {
         herd?.destroy();
         for (const b of [mlp, brain]) b?.destroy();
         await model?.destroy();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A6 (phase 9.4): the interactive schedule on the GPU, and its latency
+// ---------------------------------------------------------------------------
+// Spike S2's marker method, through AgentSystem and OrtBrain. A custom sensor writes MARK + the
+// step's tick into every agent's first observation. A marker network (relu, relu, identity, one
+// weight of 1 per layer; the shape of Herd & Wolves' 24 → 32 → 32 → 2) carries a first
+// observation to the first action unchanged. A step stage, after act, records what the first and
+// the last agent act on, and what sense wrote. So each frame tells which step's observations its
+// actions came from; a value under MARK is a seed, actions no run gave. One lockstep step before
+// the frames runs the model once: it compiles ONNX Runtime's pipelines, as S2's first run did.
+const nextFrame = pace => (pace === 'fast' ? new Promise(r => setTimeout(r, 0))
+    : inBrowser ? new Promise(r => requestAnimationFrame(r)) : new Promise(r => setTimeout(r, 1000 / 60)));
+const median = values => { const s = [...values].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+{
+    const AGENTS = 20000, FRAMES = 300, MARK = 1000, LAST = AGENTS - 1, PACES = ['display', 'fast'];
+    const SLOTS = PACES.length * FRAMES + 2;           // ticks 0 (the lockstep step before the frames) to the one after them
+    const definition = defineAgents({ capacity: AGENTS, world: { min: [-100, -100], max: [100, 100] }, cellSize: 4,
+        species: [{ name: 'dot', maxSpeed: 1, maxTurn: 1, accel: 1, senseRadius: 4, radius: 0.2 }],
+        sensors: [Sensors.custom({ name: 'marker', width: OBS, wgsl: `fn marker(i: u32, a: Agent) -> array<f32, ${OBS}> {
+    var v: array<f32, ${OBS}>;
+    v[0] = ${MARK}.0 + f32(state.tick);
+    return v;
+}` })] });
+    const widths = [OBS, 32, 32, ACT];
+    const markerNetwork = widths.slice(1).map((output, l) => {
+        const weights = new Float32Array(widths[l] * output);
+        weights[0] = 1;
+        return { input: widths[l], output, activation: l === widths.length - 2 ? 'identity' : 'relu', weights, biases: new Float32Array(output) };
+    });
+    const seen = device.createBuffer({ label: 'A6 seen', size: SLOTS * 16, usage: STORAGE });
+    device.queue.writeBuffer(seen, 0, new Float32Array(SLOTS * 4).fill(-1));
+    const proto = Object.getPrototypeOf(seen), mapAsync = proto.mapAsync;
+    const maps = { control: 0, inspector: 0, other: [] }, errors = [], inspected = [], paces = [], runs = [];
+    const onError = ev => errors.push(String(ev.error?.message ?? ev.error).split('\n')[0]);
+    let agents, model, brain;
+    try {
+        agents = new AgentSystem(engine, definition);
+        model = await within(runtime.load(onnxFromNetwork(markerNetwork, { name: 'a6-marker' })), 'load the marker network');
+        brain = new OrtBrain(model);
+        agents.setBrain(brain);
+        agents.addStepStage({ name: 'probe', buffers: [seen], wgsl: `
+@group(1) @binding(0) var<storage, read_write> seen: array<f32>;
+fn step(i: u32, tick: u32) {
+    if (i != 0u && i != ${LAST}u) { return; }
+    let at = tick * 4u + select(0u, 2u, i == ${LAST}u);
+    if (at + 1u < arrayLength(&seen)) {
+        seen[at] = act[i * ACT_DIM];
+        seen[at + 1u] = obs[i * OBS_DIM];
+    }
+}` });
+        for (let i = 0; i < AGENTS; i++) {
+            agents.spawn(i, { species: 'dot', position: [(rand01(i, 6, 0) * 2 - 1) * 99, 0, (rand01(i, 6, 1) * 2 - 1) * 99],
+                heading: rand01(i, 6, 2) * Math.PI * 2 - Math.PI });
+        }
+        // Each run, with the frame that started it; frame 0 is the lockstep step before the frames.
+        // The frame's tick is its number, so a run started in frame f should read marker MARK + f.
+        let frame = 0;
+        const run = brain.run.bind(brain);
+        brain.run = () => {
+            const record = { frame, t0: performance.now() };
+            runs.push(record);
+            const pending = run();
+            pending.then(() => { record.ms = performance.now() - record.t0; }, e => { record.failed = message(e); });
+            return pending;
+        };
+        await within(agents.step(), 'the lockstep step before the frames');
+
+        let counting = 'control';
+        proto.mapAsync = function (...args) {
+            if (counting === 'control') maps.control++;
+            else if (this.label === 'AgentSystem inspect staging') maps.inspector++;
+            else maps.other.push(this.label || `a buffer without a label, usage ${this.usage}`);
+            return mapAsync.apply(this, args);
+        };
+        device.addEventListener('uncapturederror', onError);
+        try {
+            // The control: ONNX Runtime reads an output back to the CPU with mapAsync, and the count sees it.
+            const control = await within(ort.InferenceSession.create(bytes, { executionProviders: [{ name: 'webgpu' }] }), 'the control session');
+            await within(control.run({ obs: new ort.Tensor('float32', obsData.slice(0, 8 * OBS), [8, OBS]) }), 'the control run');
+            await within(control.release(), 'the control session\'s release');
+            counting = 'frames';
+            for (const pace of PACES) {
+                const from = frame + 1, frameMs = [];
+                let last = performance.now();
+                for (let k = 0; k < FRAMES; k++) {
+                    frame++;
+                    agents.advance(definition.dt);               // one step; starts a run when none is in flight
+                    engine.render(agents.getComputeStages());
+                    if (k % 100 === 50) inspected.push(agents.inspect(k));    // the inspector reads back, off the frame path
+                    await nextFrame(pace);
+                    const now = performance.now();
+                    frameMs.push(now - last);
+                    last = now;
+                }
+                paces.push({ pace, from, to: frame, frameMs });
+            }
+        } finally {
+            proto.mapAsync = mapAsync;
+            device.removeEventListener('uncapturederror', onError);
+        }
+        frame++;
+        await within(agents.step(), 'the lockstep step after the frames');    // it waits for the run in flight first
+        const snapshots = await within(Promise.all(inspected), 'the inspector\'s read-backs');
+        const words = await read(seen, SLOTS * 4);
+        const slot = g => ({ act: words[g * 4], torn: words[g * 4] !== words[g * 4 + 2],
+            sensed: words[g * 4 + 1] === MARK + g && words[g * 4 + 3] === MARK + g });
+
+        // One run is in flight at a time, and the frame after one lands acts on it: so the markers,
+        // in the order frames first acted on them, are the runs in the order they started.
+        const firstSeen = new Set();
+        for (let g = 1; g < frame; g++) if (slot(g).act >= MARK) firstSeen.add(slot(g).act - MARK);
+        [...firstSeen].forEach((marker, k) => { if (runs[k]) runs[k].read = marker - runs[k].frame; });
+
+        const outside = maps.other.length;
+        check(`A6: across ${PACES.length * FRAMES} interactive frames with OrtBrain, zero mapAsync outside the inspector and zero GPU errors; the count saw the inspector's ${inspected.length} read-backs and ONNX Runtime's own`,
+            outside === 0 && errors.length === 0 && inspected.length > 0 && maps.inspector === inspected.length && maps.control > 0 && snapshots.every(s => s !== null),
+            `mapAsync: ${outside} outside the inspector${outside ? ` (${[...new Set(maps.other)].join(', ')})` : ''}, ${maps.inspector} by the inspector, ` +
+            `${maps.control} by ONNX Runtime reading an output to the CPU (the control); GPU errors: ${errors.length}${errors.length ? ` (${errors[0]})` : ''}`);
+        for (const p of paces) {
+            const ages = new Map();
+            let own = 0, seeds = 0, unsensed = 0, torn = 0;
+            for (let g = p.from; g <= p.to; g++) {
+                const s = slot(g);
+                if (!s.sensed) unsensed++;
+                if (s.torn) torn++;
+                if (s.act < MARK) { seeds++; continue; }
+                const age = g - (s.act - MARK);
+                if (age <= 0) own++;
+                ages.set(age, (ages.get(age) ?? 0) + 1);
+            }
+            const started = runs.filter(r => r.frame >= p.from && r.frame <= p.to), paired = started.filter(r => r.read !== undefined);
+            const readOwn = paired.filter(r => r.read === 0).length, failed = started.filter(r => r.failed);
+            const runMs = started.filter(r => r.ms !== undefined).map(r => r.ms), oneOld = ages.get(1) ?? 0;
+            const name = p.pace === 'display' ? `at the display's pace (${inBrowser ? 'requestAnimationFrame' : 'a 60 Hz timer'})` : 'as fast as they come';
+            log(`   A6 ${name}: a frame took ${median(p.frameMs).toFixed(1)} ms (median); ${started.length} runs in ${FRAMES} frames` +
+                (runMs.length ? `; run() resolved in ${median(runMs).toFixed(2)} ms (median), ${Math.max(...runMs).toFixed(2)} ms at most` : ''));
+            // One frame old: at the display's pace, 90% of frames at least; as fast as frames come, more
+            // than half (spike S2's worst was 293 of 300), so that a schedule that stalls still fails.
+            const typical = p.pace === 'display' ? 0.9 * FRAMES : FRAMES / 2 + 1;
+            check(`A6 ${name}: no frame acts on its own or a later frame's observations, nor on a seed; the first and the last agent act on the same run; every run read the observations of the frame that started it; ` +
+                (p.pace === 'display' ? '90% of frames or more act on actions one frame old' : 'more than half act on actions one frame old'),
+                own === 0 && seeds === 0 && unsensed === 0 && torn === 0 && failed.length === 0 && readOwn === paired.length &&
+                paired.length >= started.length - 1 && oneOld >= typical,
+                `frames by the age of their actions, in frames: {${[...ages].sort((a, b) => a[0] - b[0]).map(([age, n]) => `${age}: ${n}`).join(', ')}}; ` +
+                `${own} on their own or a later frame's, ${seeds} on a seed, ${unsensed} not sensed, ${torn} torn; ` +
+                `runs that read the observations of the frame that started them: ${readOwn} of the ${paired.length} that frames acted on` +
+                (failed.length ? `; ${failed.length} runs failed, the first: ${failed[0].failed}` : ''));
+        }
+    } catch (e) {
+        check('A6: 600 interactive frames with OrtBrain ran to their end', false, message(e));
+    } finally {
+        agents?.destroy();
+        brain?.destroy();
+        await model?.destroy();
+        seen.destroy();
     }
 }
 
