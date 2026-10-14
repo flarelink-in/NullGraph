@@ -8,7 +8,9 @@
 //       ONNX Runtime the actions mlpForward gives (docs/agents-cloning-design.md, phase 7.10)
 //   A28 the reader, judged by ONNX Runtime: the same bytes read by mlpFromOnnx into an MlpBrain,
 //       and run by ONNX Runtime as they are, give the same actions
-//       (docs/agents-onnx-reader-design.md, phase 8.2)
+//       (docs/agents-onnx-reader-design.md, phase 8.2). Since step 9's phase 9.2, PyTorch's
+//       two-file exports too, each path given the second file (half of A32,
+//       docs/agents-ort-design.md; test/inference-gpu/run.js holds the other half)
 //
 // The direction matters (ORT owns, NullGraph adopts): ORT requests the features and limits its
 // kernels need when it creates the device, and its maintainers warn a device created with other
@@ -195,7 +197,7 @@ const readJson = async path => {
 // Like A27, this runs before the suite's first session is released.
 {
     const TOL = 1e-4, ROWS = 256, SINGLE = 32;         // a file with a fixed batch of one is run row by row, on fewer rows
-    const REFUSED = ['torch-double', 'torch-heads', 'torch-outside'];        // U31 says why
+    const REFUSED = ['torch-double', 'torch-heads'];        // U31 says why. Since phase 9.2 the two-file exports are read, given their data files.
     // Signed inputs in [-1, 1) from a hash of (agent, field, tick), as the agents suite's A4 senses them.
     const probe = width => Sensors.custom({ name: 'probe', width, wgsl: `fn probe(i: u32, a: Agent) -> array<f32, ${width}> {
     var v: array<f32, ${width}>;
@@ -218,14 +220,16 @@ const readJson = async path => {
     }
     for (const fixture of (await readJson('../onnx-fixtures/fixtures.json')).cases) {
         const dims = fixture.holds.inputs.find(input => !input.initializer).dims;
-        cases.push({ name: `${fixture.name} (${fixture.exporter})`, fixture: fixture.name, bytes: Uint8Array.from(atob(fixture.onnx), c => c.charCodeAt(0)),
-            feed: dims.length === 1 ? 'vector' : dims[0] === 1 ? 'row' : 'batch' });
+        // A second file the export wrote goes to both: the reader and ONNX Runtime take the same list (A32).
+        const externalData = Object.entries(fixture.externalData ?? {}).map(([path, file]) => ({ path, data: Uint8Array.from(atob(file.base64), c => c.charCodeAt(0)) }));
+        cases.push({ name: `${fixture.name} (${fixture.exporter})${externalData.length ? ', with its data file' : ''}`, fixture: fixture.name,
+            bytes: Uint8Array.from(atob(fixture.onnx), c => c.charCodeAt(0)), externalData, feed: dims.length === 1 ? 'vector' : dims[0] === 1 ? 'row' : 'batch' });
     }
     // One system and one brain per shape: setWeights then swaps networks without a compile.
     const shapes = new Map();
     for (const c of cases) {
         try {
-            c.network = mlpFromOnnx(c.bytes).network;
+            c.network = mlpFromOnnx(c.bytes, { externalData: c.externalData ?? [] }).network;
         } catch (e) {
             refused.push(c.fixture ?? c.name);
             continue;
@@ -254,7 +258,7 @@ const readJson = async path => {
                 const [obsWords, actWords] = await readBuffers(ortDevice, [agents.obs, agents.act]);
                 const obs = new Float32Array(obsWords.buffer, obsWords.byteOffset, obsWords.length);
                 const gpu = new Float32Array(actWords.buffer, actWords.byteOffset, actWords.length);
-                const run = await ort.InferenceSession.create(c.bytes, { executionProviders: ['webgpu'] });
+                const run = await ort.InferenceSession.create(c.bytes, { executionProviders: ['webgpu'], ...(c.externalData?.length ? { externalData: c.externalData } : {}) });
                 const ask = async (from, count) => {
                     const dims = c.feed === 'vector' ? [obsDim] : [count, obsDim];
                     const result = await run.run({ [run.inputNames[0]]: new ort.Tensor('float32', obs.slice(from * obsDim, (from + count) * obsDim), dims) });

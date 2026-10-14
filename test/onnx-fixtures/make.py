@@ -9,11 +9,13 @@ Every network has seeded random weights. None is trained.
 
 For each case fixtures.json records:
   onnx      the file's bytes, as base64 (text, so git cannot alter them), and their SHA-256
+  externalData  the files the export wrote beside it, by name, each as base64 with its size and
+            SHA-256 (step 9, phase 9.2: weights stored outside the .onnx file)
   holds     what the file holds, listed with the onnx package: versions, nodes, initializers
   network   the layers as the maker holds them: weights row-major [output][input], as f32
   inputs    four vectors; outputs.maker is what the maker itself computed from them
-  judges    onnxruntime (CPU) and onnx's reference evaluator on the same bytes, and how far the
-            three are apart
+  judges    onnxruntime (CPU) and onnx's reference evaluator on the same bytes, with the files
+            beside them, and how far the three are apart
 """
 import base64
 import hashlib
@@ -150,28 +152,45 @@ def texts(model):
             yield p.value
 
 
-def judge(data, inputs, feeding):
-    """The same bytes through onnxruntime and onnx's reference evaluator. First output only."""
-    session = onnxruntime.InferenceSession(data, providers=['CPUExecutionProvider'])
-    name = session.get_inputs()[0].name
-    reference = onnx.reference.ReferenceEvaluator(onnx.load_from_string(data))
+def judge(data, inputs, feeding, extra=None):
+    """The same bytes through onnxruntime and onnx's reference evaluator. First output only. The
+    files in `extra` (name: bytes) are put beside the model again, where both look for them."""
     # 'row': one [1, n] row at a time (a file with a fixed batch of 1); 'vector': one [n] vector; None: all rows.
     feeds = [inputs[k] if feeding == 'vector' else inputs[k:k + 1] for k in range(len(inputs))] if feeding else [inputs]
     def run(fn):
         outputs = [np.asarray(fn(feed)) for feed in feeds]
         return np.concatenate([o.reshape(-1, o.shape[-1]) for o in outputs])
-    return (run(lambda feed: session.run(None, {name: feed})[0]),
-            run(lambda feed: reference.run(None, {name: feed})[0]))
+    def both(model, proto):
+        session = onnxruntime.InferenceSession(model, providers=['CPUExecutionProvider'])
+        name = session.get_inputs()[0].name
+        reference = onnx.reference.ReferenceEvaluator(proto)
+        return (run(lambda feed: session.run(None, {name: feed})[0]),
+                run(lambda feed: reference.run(None, {name: feed})[0]))
+    if not extra:
+        return both(data, onnx.load_from_string(data))
+    # ONNX Runtime may keep a data file mapped on Windows: the folder is cleaned up as far as it can be.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+        path = os.path.join(folder, 'model.onnx')
+        for name, content in [('model.onnx', data), *extra.items()]:
+            with open(os.path.join(folder, name), 'wb') as file:
+                file.write(content)
+        return both(path, onnx.load(path))
 
 
 def torch_export(module, example, **options):
-    """torch.onnx.export to a file, as a user would call it. Returns the bytes and the files written."""
+    """torch.onnx.export to a file, as a user would call it. Returns the bytes, the files written
+    with their sizes, and the bytes of each file written beside the model."""
     with tempfile.TemporaryDirectory() as folder:
         path = os.path.join(folder, 'model.onnx')
         torch.onnx.export(module, (example,), path, **options)
         files = {name: os.path.getsize(os.path.join(folder, name)) for name in sorted(os.listdir(folder))}
+        extra = {}
+        for name in files:
+            if name != 'model.onnx':
+                with open(os.path.join(folder, name), 'rb') as file:
+                    extra[name] = file.read()
         with open(path, 'rb') as file:
-            return file.read(), files
+            return file.read(), files, extra
 
 
 class Heads(nn.Module):
@@ -233,6 +252,12 @@ def torch_cases():
     add('torch-shared', shared(), torch.zeros(1, 5), 'row', f'torch.onnx.export({same}, (zeros(1, 5),), path)')
     add('torchscript-shared', shared(), torch.zeros(1, 5), 'row',
         f'torch.onnx.export({same}, (zeros(1, 5),), path, dynamo=False, input_names=["obs"], output_names=["act"])', **old)
+
+    # Step 9, phase 9.2. What the default call writes for a network an app would hand to OrtBrain: a
+    # free batch axis, two weight tensors at two offsets of one data file, and a third, of 33 floats,
+    # left inside the .onnx file. Added last, so that every earlier module keeps its random weights.
+    add('torch-outside-batch', seq(nn.Linear(13, 17), nn.Tanh(), nn.Linear(17, 11), nn.ReLU(), nn.Linear(11, 3)), torch.zeros(2, 13), None,
+        'torch.onnx.export(13-17-11-3 tanh/relu, (zeros(2, 13),), path, dynamic_shapes=({0: Dim("batch")},))', **batch)
     return cases
 
 
@@ -270,8 +295,12 @@ def helper_case():
             proto.SerializeToString(), layers, lambda inputs: np.tanh(inputs @ w0 + b0) @ w1.T)
 
 
-def record(name, exporter, call, data, layers, maker_outputs, inputs, feeding, files=None):
+def record(name, exporter, call, data, layers, maker_outputs, inputs, feeding, files=None, extra=None):
     model = onnx.load_from_string(data)
+    # Kept: the files an initializer names. PyTorch's default call also writes an empty one when
+    # every tensor fits inside.
+    named = {e.value for t in model.graph.initializer if t.data_location == TensorProto.EXTERNAL for e in t.external_data if e.key == 'location'}
+    extra = {file: content for file, content in (extra or {}).items() if file in named}
     dropped = without_local_paths(model)
     if dropped:
         data = model.SerializeToString()
@@ -289,14 +318,17 @@ def record(name, exporter, call, data, layers, maker_outputs, inputs, feeding, f
         'onnx': base64.b64encode(data).decode('ascii'), 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
         **({'edited': f'removed {dropped} node metadata entries that held this machine\'s file paths (stack traces)'} if dropped else {}),
         **({'filesWritten': files} if files else {}),
+        **({'externalData': {file: {'base64': base64.b64encode(content).decode('ascii'), 'bytes': len(content),
+                                    'sha256': hashlib.sha256(content).hexdigest()} for file, content in extra.items()}} if extra else {}),
         'holds': holds(model), 'checker': checked,
         'network': layers, 'inputs': rows(inputs), 'outputs': {'maker': rows(maker_outputs)},
     }
-    if any(t.data_location == TensorProto.EXTERNAL for t in model.graph.initializer):
-        case['judges'] = {'skipped': 'weights are in model.onnx.data, which is not kept: the file alone cannot be run'}
+    if any(t.data_location == TensorProto.EXTERNAL for t in model.graph.initializer) and not extra:
+        case['judges'] = {'skipped': 'weights are outside the file, in a file that is not kept: the file alone cannot be run'}
         return case
     try:
-        runtime, reference = judge(data, inputs.astype(np.float64) if model.graph.input[0].type.tensor_type.elem_type == TensorProto.DOUBLE else inputs, feeding)
+        runtime, reference = judge(data, inputs.astype(np.float64) if model.graph.input[0].type.tensor_type.elem_type == TensorProto.DOUBLE else inputs,
+                                   feeding, extra)
         maker = np.asarray(maker_outputs, dtype=np.float64)
         # A reshape never reorders values: skl2onnx's regressor ends in one, to [-1, 1].
         runtime, reference = runtime.reshape(maker.shape), reference.reshape(maker.shape)
@@ -321,12 +353,12 @@ def main():
             result = module(feed)
             maker = (result[0] if isinstance(result, tuple) else result).numpy()
         try:
-            data, files = torch_export(module, example, **options)
+            data, files, extra = torch_export(module, example, **options)
         except Exception as error:
             measured_only.append({'name': name, 'exporter': f'PyTorch {torch.__version__}, {kind}', 'call': call,
                                   'failed': f'{type(error).__name__}: {str(error).splitlines()[0][:300]}'})
             continue
-        cases.append(record(name, f'PyTorch {torch.__version__}, {kind}', call, data, layers_of(layer_modules), maker, inputs, feeding, files))
+        cases.append(record(name, f'PyTorch {torch.__version__}, {kind}', call, data, layers_of(layer_modules), maker, inputs, feeding, files, extra))
 
     # A network of the Herd & Wolves size, measured for where its weights are stored. Not kept.
     def big():
@@ -341,7 +373,7 @@ def main():
             ('torch-big, external_data=False', 'torch.onnx.export(model, (zeros(1, 24),), path, external_data=False)', {'external_data': False}),
             ('torch-big, dynamo=False', 'torch.onnx.export(model, (zeros(1, 24),), path, dynamo=False)', {'dynamo': False})):
         measured_only.append({'name': label, 'exporter': exporter, 'network': '24->64->64->64->2 tanh', 'call': call,
-                              **stored(*torch_export(big(), torch.zeros(1, 24), **options))})
+                              **stored(*torch_export(big(), torch.zeros(1, 24), **options)[:2])})
     with tempfile.TemporaryDirectory() as folder:
         path = os.path.join(folder, 'model.onnx')
         torch.onnx.export(big(), (torch.zeros(1, 24),)).save(path)
@@ -352,7 +384,7 @@ def main():
     # Where the default call draws the line: one Linear(n, 1), so one weight tensor of n floats.
     line = {}
     for n in (63, 64, 65, 66):
-        data, files = torch_export(nn.Linear(n, 1).eval(), torch.zeros(1, n))
+        data, files, _ = torch_export(nn.Linear(n, 1).eval(), torch.zeros(1, n))
         line[f'{n} floats ({n * 4} B)'] = holds(onnx.load_from_string(data))['initializers'][0]['storage']
     measured_only.append({'name': 'where the default call puts a weight tensor', 'exporter': exporter,
                           'call': 'torch.onnx.export(Linear(n, 1), (zeros(1, n),), path)', 'storage': line})

@@ -102,6 +102,7 @@
     "spike:s2": "node test/gpu/run-harness.mjs test/spikes/ort/s2.js __ORT_SPIKE_RESULTS__",
     "spike:s4": "node test/gpu/run-harness.mjs test/spikes/ort/s4.js __ORT_SPIKE_RESULTS__",
     "spike:s5": "node test/gpu/run-harness.mjs test/spikes/ort/s5.js __ORT_SPIKE_RESULTS__",
+    "spike:ort-issues": "node test/gpu/run-harness.mjs test/spikes/ort/issues.js __ORT_SPIKE_RESULTS__",
     "render": "node test/gpu/render.mjs",
     "test:agent-kit": "node --test test/agent-kit.test.mjs",
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",

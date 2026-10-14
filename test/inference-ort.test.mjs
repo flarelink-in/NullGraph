@@ -95,10 +95,17 @@ test('U32: load sets the provider as an object, outputs on the GPU and graph cap
     await runtime.load(MODEL, { capture: true, executionProviders: ['webgpu'], preferredOutputLocation: 'cpu', enableGraphCapture: false });
     assert.deepEqual(optionsOf(3), forced(true), 'other session options are not taken from the app');
     const externalData = [{ path: 'model.onnx.data', data: new Uint8Array(4) }];
-    await runtime.load(MODEL, { externalData });
+    const twoFiles = await runtime.load(MODEL, { externalData });
     assert.equal(optionsOf(4).externalData, externalData, 'externalData goes to ONNX Runtime as it is');
+    // Under capture ONNX Runtime 1.29 can fail a model whose weights are in a second file (phase 9.2):
+    // capture is off for it unless asked for (decided with the user, the design's §14, item 5).
+    assert.equal(optionsOf(4).enableGraphCapture, false, 'weights in a second file: capture off by default');
+    assert.equal(twoFiles.capture, false);
+    assert.equal((await runtime.load(MODEL, { externalData, capture: true })).capture, true, 'unless the app asks for it');
+    assert.equal(optionsOf(5).enableGraphCapture, true);
+    assert.equal((await runtime.load(MODEL, { externalData: [] })).capture, true, 'an empty list is no second file');
     await runtime.load(MODEL.buffer.slice(0));
-    assert.deepEqual([...sessions[5].bytes], [...MODEL], 'an ArrayBuffer is taken as the same bytes');
+    assert.deepEqual([...sessions[7].bytes], [...MODEL], 'an ArrayBuffer is taken as the same bytes');
     await assert.rejects(runtime.load([8, 8]), refusal('OrtRuntime', /^OrtRuntime: expected the model's bytes, as a Uint8Array or an ArrayBuffer\.$/));
 
     assert.deepEqual(model.inputs, [{ name: 'obs', type: 'float32', dims: ['N', 24] }]);
@@ -111,7 +118,8 @@ test('U32: bind checks every tensor and makes the feeds and fetches once', async
     const { ort, sessions } = fakeOrt({ inputs: [OBS, tensor('free', [-1, 3]), tensor('any', [])], outputs: [ACT, tensor('pair', [2, 'N', ''])] });
     const runtime = await OrtRuntime.create(ort);
     const model = await runtime.load(MODEL);
-    const all = () => ({ inputs: { ...bound().inputs, free: { buffer: buffer(5 * 3 * 4), dims: [5, 3] }, any: { buffer: buffer(4), dims: [1] } },
+    // Every buffer holds its values rounded up to 16 B: 60 B of values need 64 B, and 4 B need 16 B.
+    const all = () => ({ inputs: { ...bound().inputs, free: { buffer: buffer(64), dims: [5, 3] }, any: { buffer: buffer(16), dims: [1] } },
         outputs: { ...bound().outputs, pair: { buffer: buffer(2 * N * 7 * 4), dims: [2, N, 7] } } });
     const refused = (change, pattern) => {
         const given = all();
@@ -127,10 +135,13 @@ test('U32: bind checks every tensor and makes the feeds and fetches once', async
     refused(g => { g.inputs.free = { buffer: obs, dims: [0, 3] }; }, /^OrtModel: input "free" is \[-1,3\]; it was given \[0,3\]\.$/);
     refused(g => { g.inputs.free = { buffer: obs, dims: [2.5, 3] }; }, /given \[2\.5,3\]/);
     refused(g => { g.outputs.act = { buffer: act, dims: [N - 1, 2] }; }, /^OrtModel: the axis "N" is 1000 in "obs" and 999 in "act"\.$/);
-    refused(g => { g.inputs.obs = { buffer: buffer(N * 24 * 4 - 4), dims: [N, 24] }; },
-        /^OrtModel: "obs" needs 96000 B with STORAGE usage; its buffer has 95996 B\.$/);
-    refused(g => { g.outputs.act = { buffer: buffer(N * 2 * 4, GPUBufferUsage.COPY_SRC), dims: [N, 2] }; },
-        /^OrtModel: "act" needs 8000 B with STORAGE usage; its buffer has 8000 B, without STORAGE\.$/);
+    const rounded = 'with STORAGE usage: its values, rounded up to 16 B, as ONNX Runtime reads and writes 16 B at a time; its buffer has';
+    refused(g => { g.inputs.obs = { buffer: buffer(N * 24 * 4 - 4), dims: [N, 24] }; }, new RegExp(`^OrtModel: "obs" needs 96000 B ${rounded} 95996 B\\.$`));
+    refused(g => { g.outputs.act = { buffer: buffer(N * 2 * 4, GPUBufferUsage.COPY_SRC), dims: [N, 2] }; }, new RegExp(`^OrtModel: "act" needs 8000 B ${rounded} 8000 B, without STORAGE\\.$`));
+    // Values that end inside the last 16 B: a buffer of exactly their size is too small (on NVIDIA,
+    // ONNX Runtime's last write would be dropped whole: phase 9.2).
+    refused(g => { g.inputs.free = { buffer: buffer(60), dims: [5, 3] }; }, new RegExp(`^OrtModel: "free" needs 64 B ${rounded} 60 B\\.$`));
+    refused(g => { g.inputs.any = { buffer: buffer(4), dims: [1] }; }, new RegExp(`^OrtModel: "any" needs 16 B ${rounded} 4 B\\.$`));
 
     // A refused binding binds nothing: the model still takes a good one, once.
     model.bind(all());

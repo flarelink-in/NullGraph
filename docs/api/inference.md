@@ -7,19 +7,24 @@ the bytes of an `.onnx` file, for [`MlpBrain`](./agents.md#network-brains-mlpbra
 
 - **It does not run ONNX Runtime, and adds no dependency.** The file is read once, on the CPU, by
   this library. The network then runs on the GPU as `MlpBrain`'s think stage, like any other.
-- **Not built yet:** running other kinds of model through ONNX Runtime, which this entry is
-  planned to hold as well.
+- **Being built (step 9):** running other kinds of model through ONNX Runtime. `OrtRuntime` and
+  `OrtModel` are in the entry already; this guide covers them once `OrtBrain` is built
+  ([design](../agents-ort-design.md)).
 
 ## Load a network
 
 ```ts
 import type { NullGraph } from 'null-graph';
 import { MlpBrain, type AgentSystem } from 'null-graph/agents';
-import { mlpFromOnnx } from 'null-graph/inference';
+import { mlpFromOnnx, type OnnxExternalData } from 'null-graph/inference';
 
-/** Puts the dense network of an .onnx file on one species. The caller owns the returned brain. */
-export function useOnnxNetwork(engine: NullGraph, agents: AgentSystem, bytes: ArrayBuffer | Uint8Array, species: string) {
-    const { network, metadata } = mlpFromOnnx(bytes);   // throws, naming the node, when it is not a dense network
+/**
+ * Puts the dense network of an .onnx file on one species. The caller owns the returned brain.
+ * `externalData` holds the second file PyTorch writes beside the .onnx file by default.
+ */
+export function useOnnxNetwork(engine: NullGraph, agents: AgentSystem, bytes: ArrayBuffer | Uint8Array, species: string,
+    externalData: OnnxExternalData[] = []) {
+    const { network, metadata } = mlpFromOnnx(bytes, { externalData });   // throws, naming the node, when it is not a dense network
     // A file written by this repository's exporter carries the names it was trained with. Equal
     // widths cannot show that an input means what the network expects; equal names do.
     const { obsNames, actNames } = agents.definition;
@@ -43,8 +48,10 @@ Call it with the file's bytes, for example
 `useOnnxNetwork(engine, agents, await (await fetch('prey.onnx')).arrayBuffer(), 'prey')`. Destroy
 the system, or give the species another brain, before destroying the returned brain.
 
-- **`mlpFromOnnx(bytes)`** takes a `Uint8Array` or an `ArrayBuffer` and returns
-  `{ network, input, output, metadata }`:
+- **`mlpFromOnnx(bytes, { externalData })`** takes a `Uint8Array` or an `ArrayBuffer`, and, when
+  the exporter stored weights in a second file, that file: `externalData: [{ path, data }]`, with
+  `path` as the `.onnx` file names it (`policy.onnx.data`) and `data` its bytes. It is the list
+  ONNX Runtime takes. It returns `{ network, input, output, metadata }`:
   - `network` is an `MlpNetwork`. It also feeds `MlpBrain.bySpecies`, `brain.setWeights` and
     `mlpForward`.
   - `input` and `output` are the graph's names for its input and its output.
@@ -61,13 +68,15 @@ the system, or give the species another brain, before destroying the returned br
 
 - **One chain of dense layers** from one input to one output. A layer is `Gemm`, or `MatMul` with
   an optional `Add` for the bias, followed by at most one of `Relu`, `Tanh`, `Sigmoid`.
-- **Weights and biases stored in the file as float32.**
+- **Weights and biases as float32,** stored in the file, or in a second file given as
+  `externalData`. A second file is found by its name exactly as the `.onnx` file writes it; the
+  reader opens and fetches nothing itself.
 - **These are passed over, because they change no value:** a `Cast` to float32 or a `Flatten`
   before the first layer, a `Reshape` after the last, and an `Identity` on a layer's weights or
   bias. scikit-learn and PyTorch's older exporter write them.
 - **Not read:** convolutions, recurrent layers, normalization layers, residual connections, and
   other activations (`LeakyRelu`, `Elu`, `Gelu`, `Clip`, `Softmax`); a graph with several inputs
-  or outputs; float64 or float16 weights; weights stored in a second file.
+  or outputs; float64 or float16 weights; weights in a second file that is not given.
 
 ## Exporting from PyTorch
 
@@ -80,11 +89,13 @@ example = torch.zeros(1, 24)                       # one row of observations: [1
 torch.onnx.export(policy, (example,), "policy.onnx", external_data=False)
 ```
 
-- **`external_data=False` is needed.** Without it, PyTorch stores every weight tensor larger
-  than 256 bytes in a second file, `policy.onnx.data`, and `policy.onnx` alone holds the graph and
-  no weights. The reader refuses such a file and names the argument. Measured with PyTorch 2.14.1:
-  this 24→64→64→2 network is one file of 30,794 B with the argument, and two files of 7,927 B and
-  23,040 B without it.
+- **One file with `external_data=False`, or two files without it.** Without the argument,
+  PyTorch stores every weight tensor larger than 256 bytes in a second file, `policy.onnx.data`,
+  and `policy.onnx` alone holds the graph and the small tensors. Measured with PyTorch 2.14.1: this
+  24→64→64→2 network is one file of 30,794 B with the argument, and two files of 7,927 B and
+  23,040 B without it. To read two files, fetch both and pass the second:
+  `mlpFromOnnx(bytes, { externalData: [{ path: 'policy.onnx.data', data }] })`. Given only the
+  first, the reader refuses it and names both ways out.
 - **Export the policy alone.** A model that also estimates a value has two outputs, and the
   reader takes one. Export the part that maps observations to actions: for a model with a `pi`
   and a `vf` part, `torch.onnx.export(model.pi, (example,), "policy.onnx", external_data=False)`.
@@ -134,7 +145,8 @@ loaded, never during a frame. The common ones:
 
 | The message says | What to do |
 |---|---|
-| `initializer "…" is stored outside the file, in "….onnx.data"` | Export again with the weights inside the file. In PyTorch: `external_data=False` |
+| `initializer "…" is stored outside the file, in "….onnx.data"; pass that file, …` | Pass the second file as `externalData`, with the path the message names. Or export again with the weights inside the file; in PyTorch: `external_data=False` |
+| `initializer "…" reads … B at offset … of "…", which holds … B` | The second file given is not the one the `.onnx` file was written with, or it is cut short |
 | `the graph has 1 inputs and 2 outputs` | Export the policy alone, not the policy with its value estimate |
 | `node "…" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid` | The model is not a plain dense network, or uses an activation `MlpBrain` does not have. Retrain with `tanh`, `relu` or `sigmoid`, or wait for ONNX Runtime support |
 | `initializer "…" has data type 11; only float32 (1) is read` | Convert the model to float32 before exporting |

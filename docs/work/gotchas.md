@@ -118,6 +118,18 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   few submissions in flight (S1 queues 16).
 - **A "60 fps" timer under Node gives 31–32 ms frames on Windows** (the timer's resolution). A
   frame loop in Node runs at about 30 fps unless it runs as fast as it can.
+- **ONNX Runtime's kernels read and write 16 B at a time** (phase 9.2). Bound to an app's GPU
+  buffer of exactly its values' size, a model whose last write ends past the buffer loses that
+  write on NVIDIA: the last values keep what they held, with no error. AMD writes them. Round every
+  buffer handed to ORT up to a multiple of 16 B; `OrtModel.bind` refuses one that is not.
+  `npm run spike:ort-issues` shows it.
+- **Under graph capture, ONNX Runtime 1.29 can fail a model whose weights are in a second file,**
+  from its second run on: `Cannot set properties of undefined (setting
+  'Symbol(gpuBufferMetadata)')`. Which model fails depends on the host and on what ran before it
+  in the process, so a passing run proves little. `OrtRuntime.load` leaves capture off for a model
+  given `externalData` (decided 2026-10-14); a direct ORT session needs `enableGraphCapture: false`.
+- **PyTorch's default export writes `model.onnx.data` even when it is empty** (every tensor fitting
+  inside). Only a file that an initializer names belongs to the model (`make.py` keeps only those).
 - **`node --test` has no time limit by default.** A test that awaits a promise that never settles,
   such as a fake session's run nobody settles, hangs the whole run with no output (2026-10-14, phase
   9.1). Run new tests with `--test-timeout=60000`, and make a fake's pending promise fail fast in

@@ -11,6 +11,17 @@ export interface OnnxMlp {
     readonly metadata: Readonly<Record<string, string>>;
 }
 
+/** A file of weights that an exporter stored beside the .onnx file: `path` as the .onnx file names it. */
+export interface OnnxExternalData {
+    readonly path: string;
+    readonly data: Uint8Array | ArrayBuffer;
+}
+
+export interface OnnxReadOptions {
+    /** The files that hold weights stored outside the .onnx file: PyTorch's default call writes model.onnx.data. */
+    readonly externalData?: readonly OnnxExternalData[];
+}
+
 function fail(message: string): never { throw new Error(`mlpFromOnnx: ${message}`); }
 const CUT = 'the file ends inside a field; it is cut short or is not ONNX.';
 const NOT_PROTOBUF = 'the file\'s bytes are not protobuf; it is not ONNX.';
@@ -67,6 +78,9 @@ function numbers(f: Field[], n: number): number[] {
     return out;
 }
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+const bytesOf = (b: ArrayBufferView | ArrayBuffer) => ArrayBuffer.isView(b) ? new Uint8Array(b.buffer, b.byteOffset, b.byteLength) : new Uint8Array(b);
+/** A whole number written as text, as ONNX writes an offset or a length; NaN for anything else. */
+const whole = (s: string) => /^\d{1,15}$/.test(s) ? +s : NaN;
 const defaultDomain = (domain: string) => domain === '' || domain === 'ai.onnx';
 
 interface Node { op: string; name: string; inputs: string[]; outputs: string[]; attr: Map<string, number> }
@@ -83,12 +97,28 @@ const ACTIVATIONS = /* @__PURE__ */ new Map<string, MlpActivation>([['Relu', 're
  * before the first layer and a `Reshape` after the last are passed over. Anything else is refused,
  * naming the node.
  *
+ * Weights stored outside the file are read from `externalData`, the same list ONNX Runtime takes,
+ * with bytes as `data`. A file is found by its path exactly as the .onnx file writes it; nothing is
+ * opened or fetched.
+ *
  * The weights come back bit for bit, in arrays of their own. MlpBrain's limits (4 layers, the
  * widths, finite values) are checked by MlpBrain, not here.
  */
-export function mlpFromOnnx(bytes: Uint8Array | ArrayBuffer): OnnxMlp {
-    const file = ArrayBuffer.isView(bytes) ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-        : bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : fail('expected the file\'s bytes, as a Uint8Array or an ArrayBuffer.');
+export function mlpFromOnnx(bytes: Uint8Array | ArrayBuffer, options: OnnxReadOptions = {}): OnnxMlp {
+    const file = ArrayBuffer.isView(bytes) || bytes instanceof ArrayBuffer ? bytesOf(bytes) : fail('expected the file\'s bytes, as a Uint8Array or an ArrayBuffer.');
+    // Exporters store equal tensors once, so a layer may share its weights with another. Each use
+    // is copied, and the copies together may not outgrow the files: a network of MlpBrain's four
+    // layers cannot, and a file built to exhaust memory is refused before it does.
+    let budget = file.length;
+    const files = new Map<string, Uint8Array>(), given = options.externalData ?? [];
+    for (const x of Array.isArray(given) ? given : [0]) {
+        const data = x?.data;
+        if (typeof x?.path !== 'string' || !(ArrayBuffer.isView(data) || data instanceof ArrayBuffer)) {
+            fail('externalData must be a list of { path, data }, with data a Uint8Array or an ArrayBuffer; a URL is for ONNX Runtime, which fetches it.');
+        }
+        files.set(x.path, bytesOf(data));
+        budget += data.byteLength;
+    }
     const model = fields(file);
     const graph = fields(one(model, 7)?.b ?? fail('the file has no graph; it is not an ONNX model.'));
     const set = all(model, 8).map(x => fields(x.b)).find(f => defaultDomain(text(f, 1)));
@@ -139,10 +169,6 @@ export function mlpFromOnnx(bytes: Uint8Array | ArrayBuffer): OnnxMlp {
         reached.add(list[0]);
         return list[0];
     };
-    // Exporters store equal tensors once, so a layer may share its weights with another. Each use
-    // is copied, and the copies together may not outgrow the file: a network of MlpBrain's four
-    // layers cannot, and a file built to exhaust memory is refused before it does.
-    let budget = file.length;
     /** A node's input as f32 values, decoded only now. An Identity of an initializer stands for it. */
     const tensor = (node: Node, slot: number): Tensor => {
         let name = node.inputs[slot];
@@ -151,14 +177,21 @@ export function mlpFromOnnx(bytes: Uint8Array | ArrayBuffer): OnnxMlp {
             name = alias.inputs[0];
         }
         const t = tensors.get(name) ?? refuse(node, `needs "${node.inputs[slot]}" to be a float32 initializer.`);
-        if (one(t, 14)?.v === 1) {
-            const where = all(t, 13).map(x => fields(x.b)).find(f => text(f, 1) === 'location');
-            fail(`initializer "${name}" is stored outside the file${where ? `, in "${text(where, 2)}"` : ''}; export with the weights inside it (PyTorch: external_data=False).`);
-        }
-        const type = one(t, 2)?.v ?? 0, dims = numbers(t, 1);
+        const type = one(t, 2)?.v ?? 0, dims = numbers(t, 1), raw = one(t, 9), count = dims.reduce((a, d) => a * d, 1);
         if (type !== 1) fail(`initializer "${name}" has data type ${type}; only float32 (1) is read. Export the model as float32.`);
         // Raw bytes, or a float list: one packed field, or one field per value.
-        const raw = one(t, 9), chunks = raw ? [raw.b] : all(t, 4).map(x => x.b), count = dims.reduce((a, d) => a * d, 1);
+        let chunks = raw ? [raw.b] : all(t, 4).map(x => x.b);
+        if (one(t, 14)?.v === 1) {
+            // Stored outside the file: a location, an offset and a length, each written as text.
+            const entry = new Map(all(t, 13).map(x => { const f = fields(x.b); return [text(f, 1), text(f, 2)]; }));
+            const where = entry.get('location') ?? '';
+            const data = files.get(where) ?? fail(`initializer "${name}" is stored outside the file, in "${where}"; pass that file, { externalData: [{ path: '${where}', data }] }, or export with the weights inside it (PyTorch: external_data=False).`);
+            const at = whole(entry.get('offset') ?? '0'), length = entry.has('length') ? whole(entry.get('length')!) : data.length - at;
+            if (!(length >= 0 && at + length <= data.length)) {
+                fail(`initializer "${name}" reads ${entry.get('length') ?? 'the rest'} B at offset ${entry.get('offset') ?? 0} of "${where}", which holds ${data.length} B.`);
+            }
+            chunks = [data.subarray(at, at + length)];
+        }
         let size = 0;
         for (const c of chunks) size += c.length % 4 ? NaN : c.length;
         if (size !== count * 4) fail(`initializer "${name}" is [${dims}] but holds ${chunks.reduce((a, c) => a + c.length, 0) / 4} values.`);
