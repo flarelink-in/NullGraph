@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>NullGraph spikes S1, S2, S4, S5 — ONNX Runtime as the think step</title></head>
+<body>
+<pre id="log">running…</pre>
+<script type="importmap">{ "imports": { "gl-matrix": "../../../node_modules/gl-matrix/esm/index.js" } }</script>
+<!-- ?spike=s1 | s2 | s4 | s5, with the spike's own settings beside it, for instance &device=engine -->
+<script type="module">
+    const spike = new URLSearchParams(location.search).get('spike') ?? 's1';
+    await import(`./${spike}.js`);
+</script>
+</body>
+</html>

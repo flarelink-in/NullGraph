@@ -190,7 +190,7 @@ await agents.step();                         // render(grid, sense) → await ru
 | 12 | Graph capture is WebGPU-only, needs every input and output to be an external GPU buffer, and binds them once.                         | `inference-session.d.ts:135-139`; `onnxruntime-web/lib/wasm/wasm-core-impl.ts:599-603,781,1061` | Fixed buffers for life (§9.4). `OrtBrain` refuses a rebind, because ORT would ignore it silently.                                                           |
 | 13 | `run()` awaits input preparation before dispatching.                                                                                  | `wasm-core-impl.ts:747,760,841`                                                                 | An ORT run lands after the frame that started it (§1, §9.4).                                                                                                |
 | 14 | A session reports input/output shapes; symbolic dims are strings.                                                                     | `inference-session.d.ts:452-468,520-524`                                                        | `OrtBrain` checks `[N or symbol, dim]` float32 at construction.                                                                                             |
-| 15 | `env.webgpu.device` can be **set** to an app-created device before the first session.                                                 | `onnxruntime-common/dist/esm/env.d.ts:211-222`                                                  | An engine created first (the site's worker) can hand its device to ORT — pending S5.                                                                        |
+| 15 | `env.webgpu.device` can be **set** to an app-created device before the first session.                                                 | `onnxruntime-common/dist/esm/env.d.ts:211-222`                                                  | An engine created first (the site's worker) can hand its device to ORT — pending S5. **Does not hold for ORT 1.29 (S5, 2026-10-14):** every run on an app-made device fails, so the engine adopts ORT's device ([`agents-ort-design.md`](./agents-ort-design.md)). |
 | 16 | ORT, creating its own device, requests the adapter's maximum compute/storage limits; NullGraph negotiates features and, since 2026-10-12, three storage limits (`PROGRESSION_LIMITS`), not compute limits. | `onnxruntime-web/lib/wasm/jsep/backend-webgpu.ts:231-257`; `WebGPUContext.requestDevice` (`PROGRESSION_LIMITS`)           | An engine-created device has raised storage limits but default compute limits; S5 checks ORT's dense kernels run on it.                                                                     |
 | 17 | The test-engine host runs `update()`, the camera update and `render()` in one synchronous task.                                       | site `src/workers/engine/EngineCore.ts:223-244`                                                 | With fact 13: an ORT run started in `update()` lands between frames.                                                                                        |
 | 18 | Readback is forbidden in the frame loop, legal in tests.                                                                              | [`design-principles.md`](./design-principles.md) §13                                            | The inspector and dataset recording read back off the frame path, like `Picker`.                                                                            |
@@ -534,6 +534,10 @@ dependency**: listed, never auto-installed, never bundled. An app that imports o
   before any model (the site's worker): set `ort.env.webgpu.device = engine.device` before the first
   session (fact 15). S5 decides whether default limits suffice for the dense subset; if not, §12.3.
   This amends Cycle A's "never the reverse" only after S5, and only for this case.
+  **Settled 2026-10-14 (S5, decision 6): ORT first only.** ORT 1.29 runs on no app-made device,
+  whatever its limits; Cycle A's "never the reverse" stands. Step 9's design,
+  [`agents-ort-design.md`](./agents-ort-design.md), replaces this section's device, session and
+  schedule details.
 
 ### 9.5 Training without ML experience — `tools/agents/` (in the repo, not in the package)
 
@@ -645,7 +649,7 @@ are what make the later rows research rather than animation.
 | Used after destroy | `AgentSystem: used after destroy().` |
 | Network too wide | `MlpBrain: layer <k> is <w> wide; the built-in kernel takes ≤ 64. Use OrtBrain.` |
 | Unsupported ONNX op | `MlpBrain.fromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid. Use OrtBrain.` As built in step 8: `mlpFromOnnx: node "<n>" is <Op>; supported: Gemm, MatMul, Add, Relu, Tanh, Sigmoid.`, with the reader's other refusals in [`agents-onnx-reader-design.md`](./agents-onnx-reader-design.md) §11 |
-| ORT on another device | `OrtBrain: ONNX Runtime uses a different device. Set ort.env.webgpu.device = engine.device before creating the session, or init the engine with { device: await ort.env.webgpu.device }.` |
+| ORT on another device | `OrtBrain: ONNX Runtime uses a different device. Set ort.env.webgpu.device = engine.device before creating the session, or init the engine with { device: await ort.env.webgpu.device }.` **Replaced in step 9** (S5: the first fix does not work): [`agents-ort-design.md`](./agents-ort-design.md) §11 |
 | Model shape | `OrtBrain: input "<n>" is [<dims>] <type>; expected [N, <obsDim>] float32.` |
 | Mixed schedules | `OrtBrain: step() while an interactive run is in flight — await it first.` |
 
@@ -671,6 +675,9 @@ works, and it costs 1.92 MB of pointless upload per frame at 20,000 agents (≈1
 a full CPU array that mirrors nothing.
 
 ### 12.3 Core — optional: `EngineInitOptions.requiredLimits`
+
+**Withdrawn 2026-10-14:** S5 found that ORT 1.29 fails on a device asked for with exactly its own
+limits, so no limit helps; the engine adopts ORT's device (decision 6).
 
 Only if S5 shows ORT's dense kernels fail or crawl on an engine-created device with default limits.
 **Since 2026-10-12** core raises three storage limits (`PROGRESSION_LIMITS`) on every device it
@@ -703,6 +710,9 @@ line of its own of 2,600 B, paid only by apps that import it. `agents.js` is 19,
 
 Agents-first reordering: **S3 runs before C1's step 3** (it sizes the built-in kernel, the shipped
 path). ✅ **S3 measured 2026-10-11**; the results are below the table. S1, S2, S4 and S5 measure only the optional ORT path and run before C2's step 9.
+✅ **S1, S2, S4 and S5 measured 2026-10-14,** as step 9's phase 9.0; the results are in
+[`agents-ort-design.md`](./agents-ort-design.md). S5 found that ORT 1.29 runs only on a device it
+made itself.
 
 | # | Question | Measured how |
 |---|---|---|
@@ -853,6 +863,11 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    2026-10-14. The entry of step 9 is created here.
 9. `null-graph/inference` (generic: device checks, buffer wrapping, both schedules) and `OrtBrain`
    over it — U13, A5, A6. ORT as an optional peer dependency.
+   **Designed in [`agents-ort-design.md`](./agents-ort-design.md), decided with the user
+   2026-10-14,** phases 9.0–9.6; phase 9.0 ran S1, S2, S4 and S5. The user's decisions add two
+   pieces: brains prepared at load and compiled in the background (`prepareBrain`, over a new core
+   method, `createComputeStageAsync`), and weights stored outside the `.onnx` file, read by ORT and
+   by `mlpFromOnnx` alike.
 10. **Demo:** switch Rules / Network (WGSL) / Network (ORT) live, with per-step timings on screen;
     A8 cloning quality.
 
@@ -879,7 +894,10 @@ Every regression test is watched failing on broken code before it passes
 3. **Training tool:** plain JS, zero install (§9.5).
 4. **Cycle C demo:** Herd & Wolves.
 5. **Module name:** `null-graph/agents`.
-6. **Still open:** the device-ownership amendment (engine first allowed, §9.4) — decided by S5.
+6. ~~**Still open:** the device-ownership amendment (engine first allowed, §9.4) — decided by S5.~~
+   **Decided 2026-10-14, by S5 and the user: ORT creates the device; the engine adopts it.** ORT
+   1.29 runs only on a device it made, so engine first is not allowed, and §12.3 is withdrawn
+   ([`agents-ort-design.md`](./agents-ort-design.md) §14).
 7. **C1 steps 3–4 design accepted** (2026-10-11): every refinement in
    [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §1.5, including the brain seam (the
    system builds the think stage). The C1 bundle line is raised to 16 KB (§12.5), and the arrow
