@@ -243,7 +243,9 @@ test('U17: no brain, signatures, dimensions and binding budgets fail before regi
     const count = m.stages.length;
     assert.throws(() => s.setBrain({ kind: 'stage', wgsl: good, dims: { obs: 999, act: 2 } }), /maps 999/);
     assert.throws(() => s.setBrain({ kind: 'stage', wgsl: good, buffers: [{}, {}, {}, {}] }), /brain binds 4.*3 are left/);
-    assert.throws(() => s.setBrain({ kind: 'async' }), /async brains.*C2/);
+    assert.throws(() => s.setBrain({ kind: 'async' }), /^Error: AgentSystem: a brain is a stage brain, or an async brain with bind\(\) and run\(\)\.$/);
+    assert.throws(() => s.setBrain({ kind: 'async', run() {} }), /an async brain with bind\(\) and run\(\)/);
+    assert.throws(() => s.setBrain({ kind: 'other', wgsl: good }), /a brain is a stage brain/);
     assert.throws(() => s.setBrain({ kind: 'stage' }), /RuleBrain/);
     for (const wgsl of ['', '/* fn step(i: u32, tick: u32) {} */', 'fn step(i: f32, tick: u32) {}']) {
         assert.throws(() => s.addStepStage({ name: 'bad', wgsl }), /step stage "bad" must define/);
@@ -420,4 +422,174 @@ test('rand01 CPU twin is deterministic, f32-exact and half-open', () => {
         assert.ok(v >= 0 && v < 1); assert.equal(Math.fround(v), v);
         assert.equal(A.rand01(i, tick, i % 7), v);
     }
+});
+
+// U13 (step 9, phase 9.3; agents-ort-design.md §8): async brains, against a fake whose runs wait
+// until the test settles them. The brain is bound before its pass is built; frames start at most
+// one run each, never in a frame without a step and at most once per thinkEvery steps; lockstep
+// renders sense, awaits the run, then renders the pass and act; a failed run is thrown once.
+function asyncBrain(log = []) {
+    const runs = [], binds = [];
+    const brain = { kind: 'async', wgsl: 'fn think(i: u32, species: u32, tick: u32) { setReason(i, 7u); }', buffers: [],
+        bind(io) { binds.push(io); log.push('bind'); },
+        run() { log.push('run'); return new Promise((done, failed) => runs.push({ done, failed })); },
+        destroy() {} };
+    const settle = async (error) => {
+        const run = runs.find(r => !r.settled);
+        run.settled = true;
+        if (error) run.failed(error); else run.done();
+        for (let k = 0; k < 5; k++) await Promise.resolve();
+    };
+    return { brain, runs, binds, settle };
+}
+const named = chain => chain.map(stage => stage.name);
+const ticks = async () => { for (let k = 0; k < 5; k++) await Promise.resolve(); };
+
+test('U13: an async brain is bound before its pass is built; its pass is a think pass, gated like any', () => {
+    const m = mock(), log = [], s = new A.AgentSystem(m.engine, threeSpecies());
+    m.engine.createComputeStage = (create => o => { log.push(`stage ${o.name}`); return create(o); })(m.engine.createComputeStage);
+    const { brain, binds } = asyncBrain(log);
+    s.setBrain(tagged(1));
+    log.length = 0;
+    s.setBrain(brain, { species: 'wolf' });
+    assert.deepEqual(log, ['bind', 'stage AgentSystem think'], 'bound first, then its pass is built');
+    assert.deepEqual(binds, [{ obs: s.obs, act: s.act, capacity: 128, obsDim: s.definition.obsDim, actDim: s.definition.actDim }]);
+    const passes = passesOf(s);
+    assert.equal(passes.length, 2);
+    assert.deepEqual(passes.map(p => maskOf(m, p)), [0b101, 0b010], 'the async brain\'s pass serves the wolves alone');
+    assert.match(passes[1].shaderCode, /setReason\(i, 7u\)/);
+    // A brain whose bind refuses is not attached: nothing built, the species keeps its brain.
+    const count = m.stages.length;
+    assert.throws(() => s.setBrain({ ...asyncBrain().brain, bind() { throw new Error('not this one'); } }, { species: 'deer' }), /not this one/);
+    assert.equal(m.stages.length, count);
+    assert.equal(passesOf(s).length, 2);
+    // obs is rounded up to 16 B: ONNX Runtime reads 16 B at a time.
+    assert.equal(s.obs.size % 16, 0);
+    assert.ok(s.obs.size >= 128 * s.definition.obsDim * 4);
+    s.destroy();
+});
+
+test('U13: frames start one run at a time, none in a frame without a step, and at most one per thinkEvery steps', async () => {
+    for (const thinkEvery of [1, 3]) {
+        const m = mock(), s = new A.AgentSystem(m.engine, definition(), { thinkEvery }), { brain, runs, settle } = asyncBrain();
+        s.setBrain(brain);
+        const dt = s.definition.dt;
+        assert.equal(s.advance(0), 0);
+        assert.equal(runs.length, 0, 'no step, no run: the observations have not changed');
+        s.advance(dt);
+        assert.equal(runs.length, 1, 'the first frame with a step starts a run');
+        s.advance(dt); s.advance(dt);
+        assert.equal(runs.length, 1, 'never two in flight');
+        await settle();
+        s.advance(dt);
+        assert.equal(runs.length, 2, thinkEvery === 1 ? 'a run per step' : 'three steps since the last run started, two of them while it was in flight');
+        if (thinkEvery === 3) {
+            await settle();
+            s.advance(dt); s.advance(dt);
+            assert.equal(runs.length, 2, 'two steps since: no run');
+            s.advance(dt);
+            assert.equal(runs.length, 3, 'the third: one run per three steps');
+        }
+        await settle();
+        s.destroy();
+    }
+});
+
+test('U13: lockstep renders sense, awaits the run, then renders the passes, act and the rest', async () => {
+    const m = mock(), log = [], s = new A.AgentSystem(m.engine, threeSpecies()), { brain, runs, settle } = asyncBrain(log);
+    m.engine.render = chain => { m.submissions.push(chain); log.push(`render ${named(chain).includes('AgentSystem sense') ? 'sense' : 'act'}`); };
+    s.setBrain(tagged(1));
+    s.setBrain(brain, { species: 'wolf' });
+    log.length = 0;
+    const step = s.step();
+    await ticks();
+    assert.deepEqual(log, ['render sense', 'run'], 'the run waits for this step\'s observations');
+    await settle();
+    await step;
+    assert.deepEqual(log, ['render sense', 'run', 'render act']);
+    const [first, second] = m.submissions.slice(-3, -1);
+    assert.ok(named(first).at(-1) === 'AgentSystem sense' && !named(first).includes('AgentSystem think'), 'the first half ends with sense');
+    assert.equal(named(second).filter(n => n === 'AgentSystem think').length, 2, 'every think pass is in the second half, the copy pass among them');
+    assert.deepEqual(named(second).slice(-2), ['AgentSystem act', 'AgentSystem tick'], 'act and tick follow');
+    assert.equal(m.submissions.at(-1), 'await');
+    // An interactive run in flight is awaited first: two runs of one brain never overlap.
+    log.length = 0;
+    s.advance(s.definition.dt);
+    assert.deepEqual(log, ['run']);
+    const next = s.step();
+    await ticks();
+    assert.deepEqual(log, ['run'], 'nothing rendered while the interactive run is in flight');
+    await settle();
+    await ticks();
+    assert.deepEqual(log, ['run', 'render sense', 'run']);
+    await settle();
+    await next;
+    assert.deepEqual(log, ['run', 'render sense', 'run', 'render act']);
+    assert.equal(runs.length, 3);
+    s.destroy();
+});
+
+test('U13: a failed run is thrown once, naming the species; its brain starts no other run', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), { brain, runs, settle } = asyncBrain();
+    s.setBrain(tagged(1));
+    s.setBrain(brain, { species: ['wolf', 'deer'] });
+    s.advance(s.definition.dt);
+    await settle(new Error('failed to call OrtRun(). ERROR_CODE: 1\nmore'));
+    assert.throws(() => s.advance(s.definition.dt),
+        /^Error: AgentSystem: the brain of species "wolf", "deer" failed in a run: failed to call OrtRun\(\)\. ERROR_CODE: 1\. Give the species another brain with setBrain\(\)\.$/);
+    s.advance(s.definition.dt);
+    s.advance(s.definition.dt);
+    assert.equal(runs.length, 1, 'thrown once; no run starts for that brain again');
+    await s.step();
+    assert.equal(runs.length, 1, 'nor in lockstep, which still steps');
+    // A brain that throws instead of rejecting fails the same way.
+    const other = asyncBrain();
+    other.brain.run = () => { throw new Error('at once'); };
+    s.setBrain(other.brain, { species: 'deer' });
+    s.advance(s.definition.dt);
+    await ticks();
+    assert.throws(() => s.advance(s.definition.dt), /species "deer" failed in a run: at once\. Give/);
+    // Another brain for the species ends it.
+    s.setBrain(tagged(2), { species: ['wolf', 'deer'] });
+    s.advance(s.definition.dt);
+    s.destroy();
+});
+
+test('U13: a run in flight keeps the buffers until it settles; a detached brain\'s failure is nobody\'s', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), { brain, settle } = asyncBrain();
+    s.setBrain(brain);
+    s.advance(s.definition.dt);
+    s.setBrain(tagged(1));                              // detached, its run still in flight
+    await settle(new Error('late'));
+    s.advance(s.definition.dt);                         // nothing thrown: the brain serves no species
+    const again = asyncBrain();
+    s.setBrain(again.brain, { species: 'prey' });
+    s.advance(s.definition.dt);
+    s.destroy();
+    assert.ok(m.buffers.some(b => b.label === 'AgentSystem obs' && !b.destroyed), 'obs is kept while a run may still read it');
+    await again.settle();
+    await ticks();
+    assert.ok(m.buffers.filter(b => b.label?.startsWith('AgentSystem')).every(b => b.destroyed), 'then every buffer is released');
+});
+
+test('U13: a brain attached again while its run is in flight starts no second run until that one settles', async () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, threeSpecies()), { brain, runs, settle } = asyncBrain();
+    s.setBrain(brain);
+    s.advance(s.definition.dt);
+    s.setBrain(tagged(1));                              // detached, its run still in flight
+    s.setBrain(brain);                                  // and attached again
+    s.advance(s.definition.dt);
+    assert.equal(runs.length, 1, 'never two runs of one brain in flight');
+    const step = s.step();
+    await ticks();
+    assert.equal(runs.length, 1, 'lockstep awaits the run of the earlier attach');
+    await settle();
+    await ticks();
+    assert.equal(runs.length, 2, 'then starts its own');
+    await settle();
+    await step;
+    s.advance(s.definition.dt);
+    assert.equal(runs.length, 3, 'and frames start runs again');
+    await settle();
+    s.destroy();
 });

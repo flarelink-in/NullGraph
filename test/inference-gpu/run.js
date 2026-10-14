@@ -9,6 +9,15 @@
 //   A32  (phase 9.2) PyTorch's two-file exports, through the runtime with ONNX Runtime's own
 //        externalData: their outputs equal PyTorch's, and the reader's from the same two files.
 //        The other half, the reader's MlpBrain against ONNX Runtime, is A28 in test/onnx-gpu.
+//   A5   (phase 9.3, the parent's) Herd & Wolves in lockstep, prey on OrtBrain and wolves on
+//        MlpBrain, graph capture on and off: every live agent's actions are its own species'
+//        network's; the same step again with MlpBrain for the prey gives OrtBrain's actions
+//        within 1e-4.
+//   A30  (phase 9.3) two lockstep runs of 120 steps from one seed, prey on OrtBrain: the agent
+//        buffers are byte-identical.
+//   A31  (phase 9.3) interactive swaps, rules → OrtBrain → MlpBrain → the same OrtBrain again:
+//        each attach starts the brain from the actions agents have (its results seeded from act),
+//        its runs land, and nothing errs.
 //
 // The runtime's own session is the only one alive across the release, so the device survives
 // only if the anchor holds it.
@@ -16,9 +25,12 @@
 // Two hosts, one file: `npm run test:gpu -- --only inference` (Node: Dawn as navigator.gpu, ORT's
 // asyncify WASM with one thread), `npm run test:gpu:browser -- --only inference`.
 import { NullGraph } from '../../dist/index.js';
-import { mlpForward, rand01 } from '../../dist/agents.js';
-import { OrtRuntime, mlpFromOnnx } from '../../dist/inference.js';
+import { AGENT_FLAGS_OFFSET, AGENT_FLAG_ALIVE, AGENT_FLOATS, MlpBrain, mlpForward, rand01 } from '../../dist/agents.js';
+import { OrtBrain, OrtRuntime, mlpFromOnnx } from '../../dist/inference.js';
+import { readBuffers } from '../../tools/agents/label-pass.mjs';
+import { networkFromModel } from '../../tools/agents/model.mjs';
 import { onnxFromNetwork } from '../../tools/agents/onnx.mjs';
+import { createHerd, herdDefinition } from '../../tools/agents/scenario/herd-wolves.mjs';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { log, check, fatal, finish, inBrowser } = harnessEnv('__INFERENCE_RESULTS__');
@@ -259,6 +271,145 @@ for (const name of TWO_FILES) {
         log(`   probe: ${name} under graph capture ran its runs this time`);
     } catch (e) {
         log(`   probe: ${name} under graph capture failed, as ONNX Runtime 1.29 can: ${message(e)}`);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A5, A30, A31: OrtBrain in an AgentSystem, Herd & Wolves, the committed networks
+// ---------------------------------------------------------------------------
+const networks = {};
+for (const species of ['prey', 'wolf']) {
+    const file = `../../tools/agents/models/herd-wolves/${species}.mlp.json`;
+    networks[species] = networkFromModel(await readJson(file), herdDefinition(), file);
+}
+const onnxOf = species => onnxFromNetwork(networks[species], { name: `${species}-mlp` });
+const f32 = words => new Float32Array(words.buffer, words.byteOffset, words.length);
+const isAlive = (records, i) => (records[i * AGENT_FLOATS + AGENT_FLAGS_OFFSET] & AGENT_FLAG_ALIVE) !== 0;
+
+for (const capture of [true, false]) {
+    const label = `A5: prey on OrtBrain (graph capture ${capture ? 'on' : 'off'}), wolves on MlpBrain, in lockstep: every live agent's actions are its species' network's, and OrtBrain's equal MlpBrain's within 1e-4`;
+    let herd, model, brain, wolves, prey;
+    try {
+        herd = createHerd(engine, { thinkEvery: 1 });     // every live agent thinks every step: each row compares
+        const { agents, definition } = herd, { obsDim, actDim, capacity } = definition, PREY = definition.speciesIndex('prey');
+        for (let s = 0; s < 60; s++) await agents.step();  // the rule drives first, to a spread-out herd
+        model = await within(runtime.load(onnxOf('prey'), { capture }), 'load prey.onnx');
+        brain = new OrtBrain(model);
+        wolves = new MlpBrain(engine, networks.wolf);
+        agents.setBrain(brain, { species: 'prey' });
+        agents.setBrain(wolves, { species: 'wolf' });
+        const [records, state] = await readBuffers(device, [agents.buffer, agents.state]);
+        await within(agents.step(), 'a lockstep step with OrtBrain');
+        const [obsWords, actWords] = await readBuffers(device, [agents.obs, agents.act]);
+        const obs = f32(obsWords), ours = f32(actWords).slice();
+        let against = { prey: 0, wolf: 0 }, live = 0, moved = 0;
+        for (let i = 0; i < capacity; i++) {
+            if (!isAlive(records, i)) continue;
+            live++;
+            const species = herd.speciesOf(i) === PREY ? 'prey' : 'wolf', want = mlpForward(networks[species], obs.subarray(i * obsDim, (i + 1) * obsDim));
+            for (let j = 0; j < actDim; j++) against[species] = Math.max(against[species], Math.abs(want[j] - ours[i * actDim + j]));
+            if (species === 'prey' && Math.abs(ours[i * actDim]) > 0.01) moved++;
+        }
+        // The same step again from the same state, the prey on MlpBrain.
+        device.queue.writeBuffer(agents.buffer, 0, records);
+        device.queue.writeBuffer(agents.state, 0, state);
+        prey = new MlpBrain(engine, networks.prey);
+        agents.setBrain(prey, { species: 'prey' });
+        await agents.step();
+        const [againWords] = await readBuffers(device, [agents.act]), again = f32(againWords);
+        let apart = 0, wolfSame = true;
+        for (let i = 0; i < capacity; i++) {
+            if (!isAlive(records, i)) continue;
+            for (let j = 0; j < actDim; j++) {
+                const d = Math.abs(again[i * actDim + j] - ours[i * actDim + j]);
+                if (herd.speciesOf(i) === PREY) apart = Math.max(apart, d);
+                else if (d !== 0) wolfSame = false;
+            }
+        }
+        check(label, against.prey <= 1e-4 && against.wolf <= 1e-4 && apart <= 1e-4 && wolfSame && moved > live / 8 && model.capture === capture,
+            `${live} live agents; against mlpForward: prey ${against.prey.toExponential(1)}, wolves ${against.wolf.toExponential(1)}; ` +
+            `OrtBrain against MlpBrain on the same step ${apart.toExponential(1)}; wolves the same both times: ${wolfSame}; ${moved} prey turn by more than 0.01`);
+    } catch (e) {
+        check(label, false, message(e));
+    } finally {
+        herd?.destroy();
+        for (const b of [brain, wolves, prey]) b?.destroy();
+        await model?.destroy();
+    }
+}
+
+{
+    const label = 'A30: two lockstep runs of 120 steps from one seed, prey on OrtBrain, end in byte-identical agent buffers';
+    const run = async () => {
+        const herd = createHerd(engine), model = await within(runtime.load(onnxOf('prey')), 'load prey.onnx'), brain = new OrtBrain(model);
+        try {
+            herd.agents.setBrain(brain, { species: 'prey' });
+            for (let s = 0; s < 120; s++) await within(herd.agents.step(), `step ${s}`);
+            const [words] = await readBuffers(device, [herd.agents.buffer]);
+            return words.slice();
+        } finally {
+            herd.destroy();
+            brain.destroy();
+            await model.destroy();
+        }
+    };
+    try {
+        const [a, b] = [await run(), await run()];
+        let differ = 0;
+        for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) differ++;
+        check(label, a.length === b.length && differ === 0, `${a.length.toLocaleString('en-US')} words, ${differ} differ`);
+    } catch (e) {
+        check(label, false, message(e));
+    }
+}
+
+{
+    const label = 'A31: interactive swaps, rules → OrtBrain → MlpBrain → the same OrtBrain: each attach starts from the actions agents have, and its runs land';
+    let herd, model, brain, mlp;
+    try {
+        herd = createHerd(engine);
+        const { agents, definition } = herd, words = definition.capacity * definition.actDim;
+        const frames = async n => {
+            for (let f = 0; f < n; f++) {
+                agents.advance(definition.dt);
+                engine.render(agents.getComputeStages());
+                await device.queue.onSubmittedWorkDone();
+            }
+        };
+        // The results buffer right after an attach, before any frame: it must hold the actions agents have.
+        const seed = async () => {
+            const [act, results] = await readBuffers(device, [agents.act, brain.buffers[0]]);
+            return { same: results.length >= words && act.every((w, k) => w === results[k]), results: results.slice(0, words) };
+        };
+        // Runs landed: prey rows of the results moved away from the seed. Wolves' rows the brain computes too.
+        const landed = async from => {
+            const [results] = await readBuffers(device, [brain.buffers[0]]);
+            let moved = 0;
+            for (let k = 0; k < words; k++) if (results[k] !== from[k]) moved++;
+            return moved;
+        };
+        await frames(10);
+        model = await within(runtime.load(onnxOf('prey')), 'load prey.onnx');
+        brain = new OrtBrain(model);
+        agents.setBrain(brain, { species: 'prey' });
+        const first = await seed();
+        await frames(30);
+        const firstMoved = await landed(first.results);
+        mlp = new MlpBrain(engine, networks.prey);
+        agents.setBrain(mlp, { species: 'prey' });
+        await frames(30);
+        agents.setBrain(brain, { species: 'prey' });
+        const again = await seed();                         // re-attached: seeded again, from the actions now
+        await frames(30);
+        const againMoved = await landed(again.results);
+        check(label, first.same && again.same && firstMoved > words / 4 && againMoved > words / 4,
+            `seeded at the first attach: ${first.same}; again at the second: ${again.same}; after 30 frames, ${firstMoved} and ${againMoved} of ${words} result words had moved from the seed`);
+    } catch (e) {
+        check(label, false, message(e));
+    } finally {
+        herd?.destroy();
+        for (const b of [mlp, brain]) b?.destroy();
+        await model?.destroy();
     }
 }
 

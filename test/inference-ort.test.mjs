@@ -1,11 +1,14 @@
-// Step 9, phase 9.1 (docs/agents-ort-design.md §5, §6, §10): OrtRuntime and OrtModel, against a
-// fake onnxruntime-web that records every call in order.
+// Step 9, phases 9.1 and 9.3 (docs/agents-ort-design.md §5–§7, §10): OrtRuntime, OrtModel and
+// OrtBrain, against a fake onnxruntime-web that records every call in order.
 //
 //   U32  the runtime makes ORT's device through an anchor session, created first and released
 //        last; every session gets [{ name: 'webgpu' }], 'gpu-buffer' and the capture setting, and
 //        the app cannot override them; bind checks names, types, ranks, fixed axes, named axes,
 //        sizes and usage, once; one run at a time; destroy releases after a run in flight
-//   U14  the refusals of the design's §11 that phase 9.1 builds fire and name the offender
+//   U33  OrtBrain (phase 9.3): dims and names from the model; a fixed first axis refused with
+//        the fix; its results buffer seeded from act before the model is bound; the same buffers
+//        re-bound, others refused; its copy pass parses inside the think module
+//   U14  the refusals of the design's §11 that these phases build fire and name the offender
 //   size the adapter's line of 3,000 B; mlpFromOnnx alone carries none of it
 //   types the real onnxruntime-web namespace is an OrtLike
 //
@@ -231,16 +234,135 @@ test('U14: the runtime\'s refusals name what went wrong', async () => {
     assert.deepEqual(old.log.at(-1), ['release', 1], 'that session is released again');
 });
 
+/** A device for OrtBrain's results buffer and its one copy; `log` holds what it was asked to do. */
+function fakeDevice() {
+    const log = [];
+    const device = { label: 'ORT\'s device', log,
+        createBuffer(o) { const b = { ...o, destroyed: false, destroy() { b.destroyed = true; log.push(['destroy', o.label]); } }; log.push(['buffer', o.label, o.size]); return b; },
+        createCommandEncoder() { return { copyBufferToBuffer: (...args) => log.push(['copy', ...args]), finish: () => 'commands' }; },
+        queue: { submit: list => log.push(['submit', ...list]) } };
+    return device;
+}
+async function brainFixture({ inputs = [OBS], outputs = [ACT] } = {}) {
+    const device = fakeDevice(), fake = fakeOrt({ inputs, outputs, device });
+    const runtime = await OrtRuntime.create(fake.ort), model = await runtime.load(MODEL);
+    return { device, fake, runtime, model, session: fake.sessions[1] };
+}
+const ioFor = (capacity = N, extra = {}) => ({ obs: buffer(capacity * 24 * 4), act: buffer(capacity * 2 * 4, STORAGE | GPUBufferUsage.COPY_SRC), capacity, obsDim: 24, actDim: 2, ...extra });
+
+test('U33: OrtBrain takes its dims and names from the model, and refuses what it cannot run', async () => {
+    const { OrtBrain } = await import('../dist/inference.js');
+    const { model } = await brainFixture();
+    const brain = new OrtBrain(model);
+    assert.equal(brain.kind, 'async');
+    assert.deepEqual(brain.dims, { obs: 24, act: 2 });
+    assert.equal(brain.buffers, undefined, 'no results buffer before bind');
+    assert.equal(brain.model, model);
+    const free = new OrtBrain((await brainFixture({ inputs: [tensor('obs', ['N', 'width'])] })).model);
+    assert.equal(free.dims, undefined, 'a free width is checked at bind, against the system');
+    const refused = async (setup, pattern, options) => assert.throws(() => new OrtBrain(setup.model, options), refusal('OrtBrain', pattern));
+    const two = await brainFixture({ inputs: [OBS, tensor('mask', ['N', 24])], outputs: [ACT, tensor('value', ['N', 1])] });
+    await refused(two, /^OrtBrain: the model has 2 inputs \("obs", "mask"\); name the observations with \{ input: '<name>' \}\.$/);
+    await refused(two, /^OrtBrain: the model has 2 outputs \("act", "value"\); name the actions with \{ output: '<name>' \}\.$/, { input: 'obs' });
+    assert.deepEqual(new OrtBrain(two.model, { input: 'mask', output: 'act' }).dims, { obs: 24, act: 2 });
+    await refused(two, /^OrtBrain: the model has no input "nope"; it has "obs", "mask"\.$/, { input: 'nope' });
+    await refused(await brainFixture({ inputs: [tensor('obs', ['N', 24], 'int64')] }), /^OrtBrain: input "obs" is \[N,24\] int64; expected \[N, obsDim\] float32\.$/);
+    await refused(await brainFixture({ outputs: [tensor('act', ['N', 1, 2])] }), /^OrtBrain: output "act" is \[N,1,2\] float32; expected \[N, actDim\] float32\.$/);
+});
+
+test('U33: bind makes a results buffer rounded up to 16 B, seeds it from act, then binds the model; once per system', async () => {
+    const { OrtBrain } = await import('../dist/inference.js');
+    const { device, model, session } = await brainFixture();
+    const brain = new OrtBrain(model), io = ioFor(1001);           // 1001 × 2 × 4 = 8008 B of actions
+    brain.assertDevice(device);
+    brain.bind(io);
+    const [results] = brain.buffers;
+    assert.deepEqual(device.log.slice(0, 3), [['buffer', 'OrtBrain results', 8016], ['copy', io.act, 0, results, 0, 8008], ['submit', 'commands']],
+        'a results buffer of the actions rounded up to 16 B, seeded with the actions agents have now');
+    assert.equal(results.usage & GPUBufferUsage.STORAGE, GPUBufferUsage.STORAGE);
+    const run = brain.run(), [first] = session.runs;
+    assert.deepEqual(first.feeds.obs, { gpuBuffer: io.obs, dataType: 'float32', dims: [1001, 24] });
+    assert.deepEqual(first.fetches.act, { gpuBuffer: results, dataType: 'float32', dims: [1001, 2] });
+    session.settle();
+    await run;
+    // Again for the same system (a species given back to it): seeded again, bound once.
+    brain.bind(io);
+    assert.deepEqual(device.log.slice(3), [['copy', io.act, 0, results, 0, 8008], ['submit', 'commands']]);
+    assert.throws(() => brain.bind(ioFor(1001)), refusal('OrtBrain', /^OrtBrain: bound to another system's buffers; buffers are fixed for life\. Load the model again for this system\.$/));
+    assert.throws(() => brain.assertDevice({ label: 'the engine\'s own' }),
+        refusal('OrtBrain', /^OrtBrain: this system's engine has another device\. ONNX Runtime 1\.29 runs only on a device it made: init the engine with \{ device: runtime\.device \}\.$/));
+    // destroy waits for a run in flight before it releases the results buffer; the model stays the app's.
+    const last = brain.run();
+    brain.destroy();
+    assert.ok(!results.destroyed, 'kept while a run may still write it');
+    session.settle();
+    await last;
+    await Promise.resolve();
+    assert.ok(results.destroyed);
+    assert.ok(!session.released && model.capture === true);
+    assert.throws(() => brain.assertDevice(device), refusal('OrtBrain', /used after destroy/));
+    await assert.rejects(brain.run(), refusal('OrtBrain', /used after destroy/));
+});
+
+test('U33: a fixed first axis must be the system\'s capacity; a refused bind leaves no buffer', async () => {
+    const { OrtBrain } = await import('../dist/inference.js');
+    const { device, model } = await brainFixture({ inputs: [tensor('obs', [1, 24])], outputs: [tensor('act', [1, 2])] });
+    const brain = new OrtBrain(model);
+    assert.throws(() => brain.bind(ioFor(1000)), refusal('OrtBrain',
+        /^OrtBrain: input "obs" is \[1,24\]: its first axis is fixed at 1, and the system has 1000 agents\. Export it with a symbolic first axis \(PyTorch: dynamic_shapes, or dynamic_axes=\{'obs': \{0: 'N'\}\}\)\.$/));
+    assert.equal(device.log.length, 0, 'refused before any buffer is made');
+    brain.bind(ioFor(1));                                   // a fixed axis that is the capacity
+    // The model's own refusal, after the buffer was made: the buffer is released again.
+    const wide = await brainFixture({ inputs: [tensor('obs', ['N', 23])] });
+    const narrow = new OrtBrain(wide.model);
+    assert.throws(() => narrow.bind(ioFor(4)), refusal('OrtModel', /input "obs" is \[N,23\]; it was given \[4,24\]/));
+    assert.deepEqual(wide.device.log.filter(([what]) => what !== 'copy' && what !== 'submit'), [['buffer', 'OrtBrain results', 32], ['destroy', 'OrtBrain results']]);
+    assert.equal(narrow.buffers, undefined);
+});
+
+test('U33: the copy pass is a think pass: it parses inside the generated module, and an AgentSystem runs it as one', async () => {
+    const { OrtBrain } = await import('../dist/inference.js');
+    const A = await import('../dist/agents.js');
+    const { WgslReflect } = await import('../node_modules/wgsl_reflect/wgsl_reflect.module.js');
+    const { model } = await brainFixture({ inputs: [tensor('obs', ['N', 'width'])], outputs: [tensor('act', ['N', 'actions'])] });
+    const brain = new OrtBrain(model);
+    assert.ok(!brain.wgsl.includes('`'));
+    const definition = A.defineAgents({ capacity: 64, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+        species: [{ name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+        sensors: [A.Sensors.nearest({ name: 'near', k: 2 })] });
+    const code = A.buildAgentThinkWGSL(definition, brain.wgsl);
+    const reflect = new WgslReflect(code);
+    assert.deepEqual(reflect.storage.filter(v => v.group === 1).map(v => [v.name, v.binding]), [['ortResults', 0]]);
+    assert.match(code, /setAct\(i, k, ortResults\[i \* ACT_DIM \+ k\]\)/);
+    // In a system on the mock engine: bound, then one think pass whose group 1 is the results buffer.
+    const stages = [], engine = { device: Object.assign(model.device, { limits: { maxStorageBufferBindingSize: 1 << 27, maxBufferSize: 1 << 28,
+        maxComputeWorkgroupsPerDimension: 65535, maxComputeInvocationsPerWorkgroup: 256, maxComputeWorkgroupSizeX: 256, maxStorageBuffersPerShaderStage: 8 } }),
+        createComputeStage(o) { const s = { ...o, enabled: true, preClearBuffers: [] }; stages.push(s); return s; },
+        setComputePassBindGroup(stage, entries, group) { (stage.groups ??= [])[group] = entries; }, render() {} };
+    engine.device.queue.writeBuffer = () => {};
+    engine.device.queue.onSubmittedWorkDone = async () => {};
+    const agents = new A.AgentSystem(engine, definition);
+    agents.setBrain(brain);
+    const think = stages.find(s => s.name === 'AgentSystem think');
+    assert.equal(think.groups[1][0].resource.buffer, brain.buffers[0]);
+    assert.equal(brain.buffers[0].size, Math.ceil(64 * definition.actDim * 4 / 16) * 16);
+    agents.destroy();
+    brain.destroy();
+});
+
 test('size: the adapter keeps its line, and mlpFromOnnx alone carries none of it', async () => {
     const bundle = async contents => (await build({ stdin: { contents, resolveDir: root, loader: 'ts' }, bundle: true, minify: true,
         format: 'esm', platform: 'browser', external: ['gl-matrix'], write: false, logLevel: 'silent' })).outputFiles[0];
     const entry = `${root}src/extras/inference/index.ts`;
-    const adapter = await bundle(`export { OrtRuntime, OrtModel } from '${entry}';`), gzip = gzipSync(adapter.contents).length;
-    assert.ok(adapter.text.includes('could not start its WebGPU provider') && !adapter.text.includes('mlpFromOnnx'), 'the bundle is the adapter, without the reader');
-    assert.ok(gzip <= 3000, `the adapter is ${gzip} B min+gzip; its line is 3,000 B (the design's §12.4)`);
+    // The line holds the adapter and OrtBrain (phase 9.3), which imports nothing of the agents entry but types.
+    const adapter = await bundle(`export { OrtRuntime, OrtModel, OrtBrain } from '${entry}';`), gzip = gzipSync(adapter.contents).length;
+    assert.ok(adapter.text.includes('could not start its WebGPU provider') && adapter.text.includes('ortResults') && !adapter.text.includes('mlpFromOnnx'),
+        'the bundle is the adapter and OrtBrain, without the reader');
+    assert.ok(!/MlpBrain|affine layers|AgentSystem:/.test(adapter.text), 'OrtBrain copies no code of the agents entry');
+    assert.ok(gzip <= 3000, `the adapter and OrtBrain are ${gzip} B min+gzip; their line is 3,000 B (the design's §12.4)`);
     const reader = await bundle(`export { mlpFromOnnx } from '${entry}';`);
-    assert.ok(!/OrtRuntime|OrtModel|anchor/.test(reader.text), 'the reader\'s bundle holds the adapter');
-    console.log(`size: OrtRuntime and OrtModel are ${adapter.contents.length} B min, ${gzip} B min+gzip, of 3,000 B; mlpFromOnnx alone is ${gzipSync(reader.contents).length} B min+gzip`);
+    assert.ok(!/OrtRuntime|OrtModel|OrtBrain|anchor|ortResults/.test(reader.text), 'the reader\'s bundle holds the adapter');
+    console.log(`size: OrtRuntime, OrtModel and OrtBrain are ${adapter.contents.length} B min, ${gzip} B min+gzip, of 3,000 B; mlpFromOnnx alone is ${gzipSync(reader.contents).length} B min+gzip`);
 });
 
 test('types: the onnxruntime-web namespace, as an app imports it, is an OrtLike', () => {

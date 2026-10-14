@@ -60,6 +60,17 @@ export class AgentSystem {
     /** One think pass per attached brain, in attachment order, gated by its species-mask uniform. */
     private readonly thinks = new Map<Brain, { stage: ComputeStageNode; mask: GPUBuffer; bits: number }>();
     private everySpecies = false;
+    /**
+     * Step 9 (agents-ort-design.md §8): each attached async brain's run in flight, the steps since
+     * it last started one, and whether one failed. `inflight` holds every run not yet settled, of
+     * brains attached or not, with its brain: destroy() releases `obs` only after them, and a brain
+     * attached again keeps its run in flight.
+     */
+    private readonly runs = new Map<Brain, { pending?: Promise<void>; steps: number; failed?: boolean }>();
+    private readonly inflight = new Map<Promise<void>, Brain>();
+    private failure?: Error;
+    /** Lockstep with an async brain: grid, queries and sense; then the passes, act, app stages, tick and instances. */
+    private halves: [ComputeStageNode[], ComputeStageNode[]] = [[], []];
     private readonly appStages = new Map<string, ComputeStageNode>();
     private instanceStage?: ComputeStageNode;
     private highlightBuffer?: GPUBuffer;
@@ -83,8 +94,9 @@ export class AgentSystem {
         this.neighbourStride = def.sensors.reduce((n, s) => n + (s.kind === 'nearest' ? s.k : 0), 0);
         const senseCode = buildAgentSenseWGSL(def, this.thinkEvery);
         const actCode = buildAgentActWGSL(def);
+        // obs is rounded up to 16 B: ONNX Runtime reads 16 B at a time (agents-ort-design.md §6).
         const sizes = [AGENT_BYTES * def.capacity, Math.max(4, def.capacity * this.neighbourStride * 4),
-            Math.max(4, def.capacity * def.obsDim * 4), def.capacity * def.actDim * 4, def.capacity * 4, 16];
+            Math.ceil(def.capacity * def.obsDim / 4) * 16, def.capacity * def.actDim * 4, def.capacity * 4, 16];
         const limit = Math.min(engine.device.limits.maxStorageBufferBindingSize, engine.device.limits.maxBufferSize);
         for (const [i, size] of sizes.entries()) {
             if (!Number.isSafeInteger(size) || size > limit) {
@@ -148,11 +160,12 @@ export class AgentSystem {
     }
 
     private rebuildChains(): void {
-        const step = [...this.grid.getComputeStages(), ...this.stages.filter(s =>
-            s.name.startsWith('AgentSystem query ') || s.name === 'AgentSystem sense'),
-            ...[...this.thinks.values()].map(t => t.stage),
+        const sensing = [...this.grid.getComputeStages(), ...this.stages.filter(s =>
+            s.name.startsWith('AgentSystem query ') || s.name === 'AgentSystem sense')];
+        const acting = [...[...this.thinks.values()].map(t => t.stage),
             this.stages.find(s => s.name === 'AgentSystem act')!, ...this.appStages.values(),
             this.stages.find(s => s.name === 'AgentSystem tick')!];
+        const step = [...sensing, ...acting];
         this.chains.length = 0;
         for (let n = 0; n <= this.definition.maxStepsPerFrame; n++) {
             const chain: ComputeStageNode[] = [];
@@ -161,6 +174,7 @@ export class AgentSystem {
             if (this.instanceStage) chain.push(this.instanceStage);
             this.chains.push(chain);
         }
+        this.halves = [sensing, this.instanceStage ? [...acting, this.instanceStage] : acting];
     }
 
     private checkExtraBuffers(name: string, buffers: readonly GPUBuffer[]): void {
@@ -195,6 +209,7 @@ export class AgentSystem {
                 this.stages.splice(this.stages.indexOf(t.stage), 1);
                 this.release(t.mask);
                 this.thinks.delete(b);
+                this.runs.delete(b);         // a run in flight lands in the brain's own buffer, which it keeps
             } else if (bits !== t.bits) {
                 t.bits = bits;
                 this.engine.device.queue.writeBuffer(t.mask, 0, new Uint32Array([bits, 0, 0, 0]));
@@ -204,11 +219,20 @@ export class AgentSystem {
         this.rebuildChains();
     }
 
-    /** Validates `brain` and builds its pass; nothing is assigned until this returns. */
+    /**
+     * Validates `brain` and builds its pass; nothing is assigned until this returns. An async brain
+     * (step 9) is bound first: its runs read `obs` and write a buffer of its own, which its pass,
+     * gated like any think pass, copies into `act`.
+     */
     private attach(brain: Brain): void {
-        if (brain.kind !== 'stage') throw new Error('AgentSystem: async brains are deferred to C2; use a stage brain.');
+        const async = brain.kind === 'async';
+        if (async ? typeof brain.bind !== 'function' || typeof brain.run !== 'function' : brain.kind !== 'stage') {
+            throw new Error('AgentSystem: a brain is a stage brain, or an async brain with bind() and run().');
+        }
         brain.assertDevice?.(this.engine.device);
-        if (brain.dims) assertBrainDims(this.definition, brain.dims.obs, brain.dims.act);
+        const def = this.definition;
+        if (brain.dims) assertBrainDims(def, brain.dims.obs, brain.dims.act);
+        if (async) brain.bind!({ obs: this.obs, act: this.act, capacity: this.capacity, obsDim: def.obsDim, actDim: def.actDim });
         const code = buildAgentThinkWGSL(this.definition, brain.wgsl!, this.thinkEvery);
         const extra = brain.buffers ?? [];
         this.checkExtraBuffers('brain', extra);
@@ -222,6 +246,36 @@ export class AgentSystem {
             throw error;
         }
         this.thinks.set(brain, { stage, mask, bits: 0 });
+        // The first frame with a step starts its first run.
+        // A run still in flight from an earlier attach is awaited like one started now.
+        if (async) this.runs.set(brain, { steps: this.thinkEvery, pending: [...this.inflight].find(([, b]) => b === brain)?.[0] });
+    }
+
+    /** Starts a run of an async brain; a failure is kept for the next advance() or step(). */
+    private start(brain: Brain, run: { pending?: Promise<void>; steps: number; failed?: boolean }): Promise<void> {
+        run.steps = 0;
+        let started: Promise<void>;
+        try { started = brain.run!(); } catch (error) { started = Promise.reject(error); }
+        const pending: Promise<void> = started.then(() => undefined, error => {
+            run.failed = true;
+            const names = this.definition.species.filter(s => this.brainOf[s.index] === brain).map(s => s.name);
+            // A brain that serves no species any more failed for nobody.
+            if (names.length) this.failure ??= new Error(`AgentSystem: the brain of species "${names.join('", "')}" failed in a run: ${String(error?.message ?? error).split('\n')[0].replace(/\.$/, '')}. Give the species another brain with setBrain().`);
+        }).finally(() => {
+            const now = this.runs.get(brain);
+            if (now?.pending === pending) now.pending = undefined;
+            this.inflight.delete(pending);
+        });
+        run.pending = pending;
+        this.inflight.set(pending, brain);
+        return pending;
+    }
+
+    /** A failed run is thrown once, by the next advance() or step(). */
+    private throwFailure(): void {
+        const failure = this.failure;
+        this.failure = undefined;
+        if (failure) throw failure;
     }
 
     /** App stages must write only their own record, never fields peers read in the same dispatch. */
@@ -375,14 +429,42 @@ export class AgentSystem {
         }
     }
 
-    public advance(frameSeconds: number): number { this.assertAlive(); return this.clock.advance(frameSeconds); }
+    /**
+     * The steps this frame. With an async brain (step 9, agents-ort-design.md §8.2) it also starts a
+     * run when the brain has none in flight and `thinkEvery` steps have passed since its last one;
+     * the run reads the observations this frame's stages write, and lands before the next frame's.
+     */
+    public advance(frameSeconds: number): number {
+        this.assertAlive();
+        this.throwFailure();
+        const steps = this.clock.advance(frameSeconds);
+        if (steps) {
+            for (const [brain, run] of this.runs) {
+                run.steps += steps;
+                if (!run.pending && !run.failed && run.steps >= this.thinkEvery) this.start(brain, run);
+            }
+        }
+        return steps;
+    }
     public getComputeStages(): ComputeStageNode[] { this.assertAlive(); this.assertBrain(); return this.chains[this.clock.steps]; }
 
+    /** One exact step. With an async brain: sense, await its run, then its pass, act and the rest (§8.4). */
     public async step(): Promise<void> {
         this.assertAlive();
         this.assertBrain();
+        this.throwFailure();
         this.upload();
-        this.engine.render(this.chains[1]);
+        if (!this.runs.size) {
+            this.engine.render(this.chains[1]);
+        } else {
+            // An interactive run in flight first, so that two runs of one brain never overlap.
+            await Promise.all([...this.runs.values()].map(run => run.pending));
+            this.throwFailure();
+            this.engine.render(this.halves[0]);
+            await Promise.all([...this.runs].filter(([, run]) => !run.failed).map(([brain, run]) => this.start(brain, run)));
+            this.throwFailure();
+            this.engine.render(this.halves[1]);
+        }
         await this.engine.device.queue.onSubmittedWorkDone();
     }
 
@@ -391,7 +473,10 @@ export class AgentSystem {
         this.destroyed = true;
         this.grid.destroy();
         for (const stage of this.stages) stage.enabled = false;
-        for (const buffer of this.owned) buffer.destroy();
+        // A run not yet queued still reads obs: release the buffers once every run has settled.
+        const release = () => { for (const buffer of this.owned) buffer.destroy(); };
+        if (this.inflight.size) void Promise.all(this.inflight.keys()).then(release);
+        else release();
     }
 
     private assertAlive(): void {

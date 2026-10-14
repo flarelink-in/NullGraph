@@ -42,7 +42,11 @@ read separate weight files."
   both paths read PyTorch's two-file exports (A32 on three host/GPU pairs). It found two faults of
   ONNX Runtime: a rule for buffers (rounded up to 16 B) guards against one; against the other,
   capture is off by default for models whose weights are in a second file (§14, item 5).
-- Phases 9.3–9.6 follow (§13).
+- **Phase 9.3 was built on 2026-10-14:** `OrtBrain`, and async brains in `AgentSystem`. In
+  lockstep, prey on `OrtBrain` and wolves on `MlpBrain` act within 1.1e-5 of `MlpBrain` on the same
+  step, with graph capture on and off; two runs of 120 steps are byte-identical (A5, A30, A31 on
+  three host/GPU pairs).
+- Phases 9.4–9.6 follow (§13).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -513,7 +517,9 @@ location it was not given.
 | Fixed batch axis | `OrtBrain: input "<n>" is [<dims>]: its first axis is fixed at <k>, and the system has <capacity> agents. Export it with a symbolic first axis (PyTorch: dynamic_shapes, or dynamic_axes={'<n>': {0: 'N'}}).` |
 | Another device | `OrtBrain: this system's engine has another device. ONNX Runtime 1.29 runs only on a device it made: init the engine with { device: runtime.device }.` (Replaces the parent's "ORT on another device", whose first fix does not work.) |
 | Bound elsewhere | `OrtBrain: bound to another system's buffers; buffers are fixed for life. Load the model again for this system.` |
-| A run failed | `AgentSystem: the brain of species "<s>" failed in a run: <first line of ORT's message>. Give the species another brain with setBrain().` |
+| A run failed | `AgentSystem: the brain of species "<s>"<, "<t>"…> failed in a run: <first line of ORT's message, without its last period>. Give the species another brain with setBrain().` (as built in 9.3) |
+| Not a brain (added in 9.3) | `AgentSystem: a brain is a stage brain, or an async brain with bind() and run().` (replaces "async brains are deferred to C2") |
+| Model name (added in 9.3) | `OrtBrain: the model has no <input\|output> "<n>"; it has <names>.` |
 | Preparation pending | `AgentSystem: this brain is still being prepared; await prepareBrain(brain) before setBrain(brain).` |
 | A pass that does not compile | `NullGraph: compute stage "<name>" did not compile: <the device's message>.` (from `createComputeStageAsync`; `prepareBrain` passes it on) |
 | Data file not given | `mlpFromOnnx: initializer "<n>" is stored outside the file, in "<where>"; pass that file, { externalData: [{ path: '<where>', data }] }, or export with the weights inside it (PyTorch: external_data=False).` (Step 8's message, with the first way out added.) |
@@ -583,7 +589,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 | 9.0 ✅ | Spikes S1, S2, S4, S5 (`test/spikes/ort/`, `npm run spike:s1` … `spike:s5`); this design, with the user's decisions | — (measurements) | the spikes and the design |
 | 9.1 ✅ | `OrtRuntime`, `OrtModel`, the anchor, ORT's `externalData` passed through; the peer dependency; `OrtLike`; the adapter's size line | U32, A29, U14 (their errors) | one |
 | 9.2 ✅ | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
-| 9.3 | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
+| 9.3 ✅ | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
 | 9.4 | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded | A6 | one |
 | 9.5 | Prepared brains: core's `createComputeStageAsync`, then `agents.prepareBrain`; core's size reported | U34, U35, A33 | one |
 | 9.6 | The guides: `docs/api/inference.md` gains ORT and external data, with checked examples; the agents guide gains `prepareBrain`; the parent's facts 15–16, §9.4, §11 and §12.3 | the examples' tests | one |
@@ -908,3 +914,58 @@ checked; buffers not rounded up to 16 B (U32).
 
 **Also green:** headless agents (reference + 73), core, agent-kit (4).
 **Not run:** the agents GPU suite (nothing it runs changed).
+
+## Phase 9.3 results — 2026-10-14: OrtBrain, and async brains in AgentSystem
+
+**Built:**
+- `src/extras/inference/OrtBrain.ts`, exported from `null-graph/inference`: `new OrtBrain(model,
+  { input, output })`, as §7 has it. Its think pass is the copy pass of §4. `bind` makes a results
+  buffer rounded up to 16 B, seeds it from `act`, then binds the model; the same system's buffers
+  again re-seed it; another system's are refused. `destroy` waits for a run in flight.
+- `AgentSystem` (`src/extras/agents/AgentSystem.ts`), as §8 has it:
+  - `attach` binds an async brain before it builds the brain's think pass;
+  - `advance()` starts a run when the brain has none in flight and `thinkEvery` steps have passed
+    since its last one started, never in a frame without a step;
+  - a failed run is thrown once, by the next `advance()` or `step()`, naming the species, and its
+    brain starts no run after;
+  - `step()` waits for an interactive run in flight, renders grid, queries and sense, awaits every
+    async brain's run, then renders the passes, act, app stages, tick and instances;
+  - `destroy()` releases the buffers once every run in flight has settled;
+  - a brain detached while its run is in flight and attached again keeps that run: the next
+    `advance()` or `step()` waits for it rather than start a second (found at review, before the
+    commit; ONNX Runtime refuses a run while one is in flight, which would have failed the species);
+  - `obs` is rounded up to 16 B (§6).
+- The brain contract (`RuleBrain.ts`) documents `bind` and `run` for async brains.
+- Tests: U13, six tests in `test/agents-system.test.mjs`; U33, four tests in
+  `test/inference-ort.test.mjs`; U17's refusal updated. A5, A30 and A31 in `test/inference-gpu`.
+
+**Measured:**
+
+| | |
+|---|---|
+| Headless | agents (reference + 79), inference 21/21 |
+| A5 | 4,096 live agents, `thinkEvery: 1`, after 60 steps of the rule. Against `mlpForward`: prey 4.0e-6 to 1.1e-5, wolves 4.8e-7 to 1.9e-6. `OrtBrain` against `MlpBrain` on the same step: 4.0e-6 to 1.1e-5. Graph capture on and off alike; wolves on `MlpBrain` the same both times. On Node/NVIDIA, Node/AMD and Chrome/AMD |
+| A30 | 65,536 words of agent records, 0 differ, on all three |
+| A31 | seeded at both attaches; after 30 frames, 8,167 to 8,192 of 8,192 result words had moved from the seed, on all three |
+| The `inference` GPU suite | 12/12 on all three, zero WebGPU errors |
+| The agents GPU suite | 137/137 on all three, zero WebGPU errors: `AgentSystem` changed, and every brain, sensor and stage it ran before still runs |
+| Sizes, min+gzip | the agents entry 19,894 B, of C2's 21,495 B: +571 B for async brains (estimate 400–700 B); the rule path 14,144 B (+558 B). The re-attach fix adds 38 B (19,899 → 19,937 B, measured with esbuild's ESM bundle of `dist/agents.js`), about 19,932 B by the measure above. The adapter with `OrtBrain` 2,994 B, under its line of 3,000 B, after trimming (below) |
+
+**Watched failing.** Ten mutations of the built agents and inference entries, one at a time, each
+caught by the test meant for it:
+- U13: a run started while one is in flight; a re-attached brain forgetting its run in flight; runs every frame, `thinkEvery` ignored; a run in a
+  frame without a step; lockstep acting before the run; `obs` released with a run in flight; a
+  failed run never thrown;
+- U33: the copy pass reading the next agent's row; no seeding; the results buffer not rounded up.
+
+On the GPU (the `inference` suite, Node/AMD): the copy pass reading the next agent's row fails both
+of A5's checks; no seeding fails A31.
+
+**Differs from the design, or adds to it:**
+- `thinkEvery` counts the steps since a run started, those taken while it was in flight included;
+  U13 pins it.
+- Two refusals added to §11; the "failed in a run" message drops the last period of ORT's line.
+- As first built, the adapter with `OrtBrain` was 3,049 B. It fits its line after three changes no
+  user sees: fields without a value of their own are declared only (no code is emitted for them),
+  the copy pass's WGSL lost its indentation, and the seed copy's command encoder its label. No
+  message was shortened. The margin is 6 B.
