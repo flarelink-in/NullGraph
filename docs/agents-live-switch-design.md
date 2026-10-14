@@ -23,8 +23,8 @@ uncommitted unless the user says otherwise.
 
 **Status:** decided with the user, 2026-10-14 (§12). Phase 10.0 measured on 2026-10-14 (results at
 the end). After it the user revised two decisions (§12): D5, Vite serves ONNX Runtime's own files;
-D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14 (results at the
-end); phases 10.3–10.5 follow (§13).
+D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14, and 10.3 on
+2026-10-15 (results at the end); phases 10.4 and 10.5 follow (§13).
 
 ---
 
@@ -190,6 +190,8 @@ As built under B:
   `.mlp.json` (§5), loaded with `runtime.load(bytes)`, made an `OrtBrain`, prepared, and run once
   to warm up, which compiles ONNX Runtime's pipelines (0.14–0.46 s in step 9) before the species
   needs it. Without the warm-up, a species switched to ORT acts on its last actions for that long.
+- **ONNX Runtime takes one call at a time** (found in phase 10.3): the demo queues every load,
+  warm-up, run and release of its models, so the prey's and the wolves' calls never overlap.
 - **A switch** is `setBrain(brain, { species })`: under 1 ms. The overlay shows the last switch's
   time. A switch to ORT also copies the species' actions into the brain's results, so it keeps
   moving as it did until the first run lands.
@@ -249,7 +251,9 @@ page's device is then lost, and here that is the ORT device, which the engine sh
 - **A model is refused** (`OrtBrain`, `setBrain`): the same as a failed load, for that species.
 - **The demo is destroyed** (another demo, a rebuild): the system first, then each brain, then each
   model. The runtime stays with the worker.
-- **The worker is torn down** (the canvas unmounts): the demo, then `await runtime.destroy()`.
+- **The worker is torn down** (the canvas unmounts): the page terminates the worker, which takes
+  ONNX Runtime and its device with it (phase 10.3). `EngineCore.destroy()` would destroy the demo,
+  then `await runtime.destroy()`, but nothing calls it.
 
 ## 11. Validation
 
@@ -296,7 +300,7 @@ copies from here: its rule, networks and `.onnx` files.
 | 10.0 ✅ | Spikes, no demo change: ONNX Runtime in the site's worker through Vite; the device switch over one `OffscreenCanvas` (D1); ONNX Runtime's time and memory at 4K–1M agents (D6); the run bracket's bias (§8) | Measurements, recorded here |
 | 10.1 ✅ | Plumbing: null-graph pushed to the site; `onnxruntime-web` 1.29.0 installed (D4), and left out of Vite's pre-bundling, so that Vite serves its files (D5); the two `.onnx` files exported and placed beside the `.mlp.json` (D2) | The site builds; the page loads as today |
 | 10.2 ✅ | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
-| 10.3 | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
+| 10.3 ✅ | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
 | 10.4 | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
 | 10.5 | The stress test with ORT at every count (D6), under the timeout guard (§9); the site's documentation page; the guides' pointer to the demo | Drive at each count; step 10 closed, and with it C2 |
 
@@ -587,3 +591,146 @@ file held before.
 **Not measured:** the hitch that preparing removes, as Chrome shows it. Chrome compiles in its GPU
 process (`docs/work/gotchas.md`), so the worker's thread showed no stall either way. Under Node,
 step 9 measured it at 240–1,759 ms (A33).
+
+## Phase 10.3 results — 2026-10-15: ONNX Runtime in the demo
+
+**What changed in the site:**
+
+| File | Now | Before |
+|---|---|---|
+| `src/workers/engine/EngineCore.ts` | `ort`, the worker's ONNX Runtime service. Its first `start()` makes the device switch (D1, §4): ONNX Runtime imported, with one thread, and `null-graph/inference`; `OrtRuntime.create`; the demo destroyed; the old device's queue and one task awaited; the engine made on `runtime.device` over the same canvas; the profiler made again; the old device destroyed; the demo loaded again, and `DEMO_LOADED` posted. A `LOAD_DEMO` during the switch waits for it. Each part is timed, and logged once. Every demo's setup gets a fifth argument, `{ ort }` | One engine, made at `INIT`; four arguments |
+| `src/workers/types/types.ts` | `preyBrain` and `wolfBrain` take `'ort'`; `OrtService`, `DemoServices` | `'rules' \| 'network'` |
+| `HerdWolvesGPU/options.ts` | `HERD_BRAINS`: `'rules'`, `'network'`, `'ort'` | The first two |
+| `HerdWolvesGPU/networks.ts` | `loadHerdOnnx()` fetches both `.onnx` files (`new URL(…, import.meta.url)`, so a build emits them); `holdsNetwork()` compares a network that `mlpFromOnnx` read with a `.mlp.json`'s, bit for bit (D2) | — |
+| `HerdWolvesGPU/index.ts` | ONNX Runtime as the third brain (below) | Rules or network |
+| `…/controls/herd-gpu-controls.tsx` | A third button per species, "ONNX Runtime", and a caption: the first pick downloads it (about 6.5 MB) and moves the engine to its GPU device, so the simulation starts over | Two buttons |
+
+**The demo:**
+- **The first ORT pick** asks the worker to start ONNX Runtime. Until the demo is loaded again on
+  the new device, the old engine draws, the species keep their brains, and the species line says
+  `starting ONNX Runtime…`. The page's loading overlay shows only for the switch itself, from the
+  demo's destroy to its load on the new device: about 60–110 ms by the logs.
+- **Once ONNX Runtime runs,** the `.onnx` files load, and each is read with `mlpFromOnnx` and
+  compared with its `.mlp.json` (§5). A file that differs is refused for ORT.
+- **Each system prepares its ORT brains once:** `runtime.load(bytes)`, `new OrtBrain(model)`,
+  `prepareBrain`, one warm-up run. A species switches when its brain is ready. Until then its line
+  says `loading ONNX model…`, then `warming up ONNX Runtime…`.
+- **A failed run** (`advance()` throws once, naming the species) puts that species back on the
+  rules. That frame steps nothing, and the warning line says why (§10).
+- **Destroying a system** destroys its `OrtBrain`s, then their models. The runtime stays with the
+  worker.
+- **The overlay:** a species on ORT reads `ONNX Runtime 24→64→64→64→2`. One that asked for it and
+  cannot have it reads `ONNX Runtime did not start`, `.onnx files failed` or `ONNX Runtime
+  refused`, and the reason goes on the warning line. The last-switch line names the brain.
+- **The inspector:** `decided by ONNX Runtime`.
+- **The console:**
+  - `[Engine] ONNX Runtime 1.29.0 started; the engine moved to its device: import 49.6 ms, runtime 1096.8 ms, demo destroyed 2.2 ms, engine 1.3 ms, demo loaded 86.2 ms, total 1236.1 ms`;
+  - `… .onnx files loaded: prey.onnx holds prey.mlp.json's network; wolf.onnx holds wolf.mlp.json's network`;
+  - `… prey ONNX Runtime brain ready: loaded and prepared in 39 ms, first run 184 ms`;
+  - 10.2's switch lines, with `→ ONNX Runtime`.
+- **Loaded on the first ORT pick only:** in a build, the worker reaches ONNX Runtime's chunk and
+  `null-graph/inference`'s only through `import()` on that path, and the demo fetches the `.onnx`
+  files only there (read from the built chunks).
+
+**Found in 10.3:**
+1. **ONNX Runtime 1.29 takes one call at a time, across all its sessions.** With both species on
+   ORT:
+   - the wolves' model, created while the prey's was being created, failed:
+     `another WebGPU EP inference session is being created.`;
+   - with the creates in turn, the wolves' create during the prey's warm-up run failed inside ONNX
+     Runtime's WASM (`operation does not support unaligned accesses`), and ONNX Runtime then threw
+     `memory access out of bounds`, uncaught;
+   - with each preparation in turn, the two species' runs in flight together failed the same way.
+     The wolves went back to the rules (§10), and ONNX Runtime threw its own uncaught error.
+
+   Step 9's suites never have two of ONNX Runtime's calls in flight at once: A33 loads two models,
+   one after the other, and runs each in turn. `OrtRuntime` does not queue calls. The demo now
+   queues every load, warm-up, run and release of its models on one promise chain. Each model's
+   `run` is wrapped after its warm-up, so the runs that `AgentSystem` starts wait their turn. With
+   the queue, both species ran on ORT in every drive, with no error. **Cause, not verified:** the
+   WASM that Vite serves is ONNX Runtime's asyncify build, which can suspend one call at a time.
+   Whether null-graph should queue the calls itself is the user's decision (`work/plan.md` §5,
+   item 14).
+2. **A warning wider than the overlay's line wrote its second line over the last-switch line.**
+   The overlay wraps each line at 44 em, and 10.2 put the last-switch line just below the warning
+   line. ORT's start failure showed it, since its reason is long. The timeout guard's notice and
+   the darts note above 262,144 agents wrap too. A warning now comes last, below the last-switch
+   line, where nothing is drawn under it.
+3. **§10's last bullet did not happen as written.** The page terminates the worker when the canvas
+   unmounts (`useEngineStore.cleanup`), and that takes ONNX Runtime and its device with it.
+   `EngineCore.destroy()` now destroys the demo and then awaits the runtime's destroy, but nothing
+   calls it, before 10.3 or since. §10 says so now.
+
+**Checks:**
+- **The site's own:**
+  - `tsc` passes (30 s), and ESLint reports nothing in the changed files;
+  - Prettier: the new code is formatted as the site's. Older differences were left alone:
+    `EngineCore.ts`, `types.ts` and the controls hold some, and `index.ts` one of the two that 10.2
+    noted (10.3 rewrote the other's code).
+- **`check-site.mjs`:** 16/16. 10.3 reads the files it checks and changes none.
+- **The build** (`vite build`, 101 s) emits:
+  - ONNX Runtime's chunk, `ort.webgpu.bundle.min` (116,633 B), and its `.wasm` once (25,749,873 B);
+  - `null-graph/inference`'s chunk (13,516 B);
+  - both `.onnx` files as hashed assets (41,186 B each).
+- **The drive,** in Chrome on the AMD iGPU: the whole script four times, twice on the dev server
+  and twice on a build (`vite preview`). The script sets the prey to ORT, which starts it, then
+  the wolves; both back to Rules, both to Network, both to ORT again; then 16K agents, and 4K:
+  - **the device switch,** 13 first picks measured, in this script and in the shorter drives:
+    781–1,295 ms, and 1,824 ms on the first pick after the dev server started. Its import of ONNX
+    Runtime took 348 ms there, against 35–74 ms otherwise. Phase 10.0's spike measured
+    692–939 ms. The parts:
+
+    | Part | Time |
+    |---|---|
+    | `OrtRuntime.create`: ONNX Runtime's WASM fetched and compiled, its device made | 649–1,137 ms (1,384 ms on that first pick) |
+    | The demo destroyed | 1.2–3.8 ms (39.9 ms once) |
+    | The engine made on the new device | 0.4–1.3 ms |
+    | The demo loaded again | 59–102 ms |
+
+  - **the ORT brains:**
+    - each system's first model loaded and prepared in 39–126 ms. Its warm-up run took
+      155–485 ms, while ONNX Runtime compiled its pipelines;
+    - the other species' model then took 6–10 ms and 2–6 ms, since ONNX Runtime had compiled the
+      same shapes;
+    - after a rebuild (16K, then 4K), each model took 6–86 ms and 2–29 ms;
+  - **61 switches** in the logs kept, every one compiled ahead:
+
+    | To | Switches | Time |
+    |---|---|---|
+    | ONNX Runtime | 42 | 0.1–1.1 ms; one above 1 ms (the wolves, at 16K) |
+    | Network | 11 | 0.0–0.2 ms |
+    | Rules | 8 | 0.0–0.5 ms |
+
+  - **60 fps** with both species on ORT, at 4K and at 16K (the page's widget), with catches going
+    on (1,620–2,134 a minute at 4K);
+  - **no error,** in the page or the worker, in any run of the finished code.
+- **Read by eye** (screenshots):
+  - while ONNX Runtime started, the old engine ran on the rules (`starting ONNX Runtime…`);
+  - each species then read `ONNX Runtime 24→64→64→64→2`, at 4K and at 16K;
+  - zoomed in and paused, the inspector read `Prey 2,113 · decided by ONNX Runtime`.
+- **The failures, each caused and then undone:**
+  - **a refused model:** one bit of `prey.onnx`'s weights flipped. The log said `prey.onnx is not
+    prey.mlp.json's network: export it again`. The prey stayed on the rules, with `ONNX Runtime
+    refused` on its line and the reason on the warning line, and the wolves ran on ORT. The file was
+    restored byte for byte, and `check-site.mjs` passed again;
+  - **ONNX Runtime not starting:** for one run, `wasmPaths` pointed at a folder that does not exist.
+    The engine stayed on its device. The prey line said `ONNX Runtime did not start`, the warning
+    line gave ORT's reason (`could not start its WebGPU provider: no available backend found`), and
+    the wolves still switched to Network;
+  - **a failed run:** met only before the queue (finding 1). The wolves went back to the rules, as
+    §10 says. No run failed once the calls were queued, and nothing here fails one on demand.
+- **Watched failing:**
+  - **the queue:** without it, the wolves' model did not load, and then ONNX Runtime's memory broke
+    (finding 1);
+  - **the warning's place:** before the change, ORT's start-failure reason overprinted the
+    last-switch line. After it, the reason sits below, and so does the timeout guard's two-line
+    notice, which refused 1M agents on this iGPU.
+
+**Not run:**
+- **the engine failing on ONNX Runtime's device,** the branch that keeps the old engine: nothing
+  here makes it fail;
+- **a second demo on ONNX Runtime's device:** each page has its own worker (`EngineCanvas` is keyed
+  by the path), so ONNX Runtime goes with the page;
+- **counts above 16K with ORT** (phase 10.5). At 1M, the demo's guard refused the build on this
+  iGPU: about 2.0 s per step predicted, over its 600 ms limit;
+- **Chrome on NVIDIA, and other browsers** (Deferred).
