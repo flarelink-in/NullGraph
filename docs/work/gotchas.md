@@ -118,3 +118,7 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   few submissions in flight (S1 queues 16).
 - **A "60 fps" timer under Node gives 31–32 ms frames on Windows** (the timer's resolution). A
   frame loop in Node runs at about 30 fps unless it runs as fast as it can.
+- **`node --test` has no time limit by default.** A test that awaits a promise that never settles,
+  such as a fake session's run nobody settles, hangs the whole run with no output (2026-10-14, phase
+  9.1). Run new tests with `--test-timeout=60000`, and make a fake's pending promise fail fast in
+  the test itself (race it against a tick).

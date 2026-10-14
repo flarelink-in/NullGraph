@@ -13,6 +13,8 @@ export const SUITES = [
     { name: 'visibility', file: 'test/visibility-gpu/run.js', key: '__VISIBILITY_RESULTS__' },
     { name: 'core', file: 'test/core-gpu/run.js', key: '__CORE_GPU_RESULTS__' },
     { name: 'onnx', file: 'test/onnx-gpu/run.js', key: '__ONNX_RESULTS__' },
+    // Step 9: null-graph/inference's ONNX Runtime adapter on the device ONNX Runtime makes.
+    { name: 'inference', file: 'test/inference-gpu/run.js', key: '__INFERENCE_RESULTS__' },
     { name: 'picking', file: 'test/picking-gpu/run.js', key: '__PICKING_RESULTS__' },
     { name: 'text', file: 'test/text-gpu/run.js', key: '__TEXT_RESULTS__' },
     { name: 'probes', file: 'test/probes-gpu/run.js', key: '__PROBE_RESULTS__' },

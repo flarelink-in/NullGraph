@@ -32,7 +32,10 @@ read separate weight files."
   Chrome/AMD. Results: "Phase 9.0 results", at the end. They changed the parent's plan in one
   place that matters: **ONNX Runtime 1.29 runs only on a device it made itself** (S5), so the engine
   adopts ONNX Runtime's device, never the reverse.
-- **Nothing else is built.** Phases 9.1–9.6 follow (§13).
+- **Phase 9.1 was built on 2026-10-14:** `OrtRuntime`, `OrtModel` and the anchor. A29 passes on
+  three host/GPU pairs: the device outlives every model, and a captured model loaded after a release
+  runs 100 times on AMD. The adapter is 1,925 B min+gzip, under its line of 3,000 B.
+- Phases 9.2–9.6 follow (§13).
 
 **Target:** `src/extras/inference/` gains `OrtRuntime`, `OrtModel` and `OrtBrain`, and
 `mlpFromOnnx` reads weights stored outside the file; `src/extras/agents/AgentSystem.ts` learns
@@ -479,7 +482,10 @@ location it was not given.
 | Condition | Message |
 |---|---|
 | Not ORT's web build | `OrtRuntime: that is not onnxruntime-web (no InferenceSession, Tensor.fromGpuBuffer or env.webgpu); pass the namespace of import * as ort from 'onnxruntime-web/webgpu'.` |
-| The provider cannot start | `OrtRuntime: ONNX Runtime could not start its WebGPU provider: <message>.` |
+| The provider cannot start | `OrtRuntime: ONNX Runtime could not start its WebGPU provider: <first line of ORT's message>.`, or `…: it made no device.` |
+| Not bytes (added in 9.1) | `OrtRuntime: expected the model's bytes, as a Uint8Array or an ArrayBuffer.` |
+| ORT cannot load the model (added in 9.1) | `OrtRuntime: ONNX Runtime could not load the model: <first line of ORT's message>.` |
+| No metadata (added in 9.1) | `OrtRuntime: this ONNX Runtime reports no input or output metadata; onnxruntime-web 1.29 or later is needed.` |
 | Used after destroy | `OrtRuntime: used after destroy().` · `OrtModel: used after destroy().` · `OrtBrain: used after destroy().` |
 | Not a float32 tensor | `OrtModel: <input\|output> "<n>" is <type>; only float32 tensors can be bound.` |
 | Unknown name | `OrtModel: "<n>" is not an <input\|output> of this model; it has <names>.` |
@@ -549,7 +555,8 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 
 - **`inference.js`:** the ORT adapter and `OrtBrain` are paid only by apps that import them;
   `mlpFromOnnx` alone tree-shakes them away. Estimate 1.5–2.5 KB min+gzip. A line of its own,
-  3,000 B. The reader's own line moves from 2,600 B to 2,900 B for external data (§6.1).
+  3,000 B; phase 9.1's adapter is 1,925 B. The reader's own line moves from 2,600 B to 2,900 B for
+  external data (§6.1).
 - **`agents.js`:** 19,323 B of C2's 21,495 B today. Async brains and `prepareBrain` must fit, with
   no new allowance.
 - **Core:** `createComputeStageAsync`, +60–100 B (§12.1).
@@ -562,7 +569,7 @@ lockstep (the app cannot split `step()`), and every trap of §9 met again by eve
 | Phase | Builds | Tests | Commit |
 |---|---|---|---|
 | 9.0 ✅ | Spikes S1, S2, S4, S5 (`test/spikes/ort/`, `npm run spike:s1` … `spike:s5`); this design, with the user's decisions | — (measurements) | the spikes and the design |
-| 9.1 | `OrtRuntime`, `OrtModel`, the anchor, ORT's `externalData` passed through; the peer dependency; `OrtLike`; the adapter's size line | U32, A29, U14 (their errors) | one |
+| 9.1 ✅ | `OrtRuntime`, `OrtModel`, the anchor, ORT's `externalData` passed through; the peer dependency; `OrtLike`; the adapter's size line | U32, A29, U14 (their errors) | one |
 | 9.2 | Weights outside the file in the reader: `make.py` keeps the data files in `fixtures.json`; `mlpFromOnnx(bytes, { externalData })`; the reader's new line; both paths on the GPU | U36, U30–U31 updated, A32 | one |
 | 9.3 | Async brains in `AgentSystem` (attach, `advance`, `step`, `destroy`); `OrtBrain` and its copy pass | U13, U33, A5, A30, A31 | one |
 | 9.4 | The interactive schedule on the GPU: A6 on three hosts, with the latency recorded | A6 | one |
@@ -746,3 +753,57 @@ then the WGSL kernel on the same device, to see that the device survived.
 - **Not run:** S1 with the network's real Herd & Wolves weights (S1 uses random weights; the cost
   does not depend on them); any host but these three; Chrome on NVIDIA (Chrome on Windows always
   took the iGPU).
+
+## Phase 9.1 results — 2026-10-14: the runtime, the model and the anchor
+
+**Built:**
+- `src/extras/inference/OrtRuntime.ts`, exported from `null-graph/inference`:
+  - `OrtLike`, the members of `ort` used (with `OrtSessionLike` and `OrtValueMetadataLike`);
+  - `OrtRuntime`: `create(ort, { adapter })`, `load(bytes, { capture, externalData })`,
+    `destroy()`, `device`;
+  - `OrtModel`: `inputs`, `outputs`, `device`, `capture`, `bind`, `run`, `destroy`;
+  - the anchor's model: y = x + x on one float32, 66 bytes, kept as base64 in the source and
+    decoded only by `create`, so that an unused import leaves nothing behind.
+- `package.json`: `onnxruntime-web` `^1.29.0` as an optional peer dependency; it stays a
+  devDependency at 1.29.0. `npm run test:inference` runs the new file.
+- `test/inference-ort.test.mjs`: U32, U14 for phase 9.1's refusals, the size line, and a type
+  check. The type check compiles, strict, an app that passes the real `onnxruntime-web/webgpu`
+  namespace as an `OrtLike`.
+- `test/inference-gpu/` (the GPU suite `inference` in `test/gpu/suites.mjs`): A29.
+
+**Measured:**
+
+| | |
+|---|---|
+| U32, U14, size, types | 8 of 8; with the reader's 8, `npm run test:inference` passes 16 of 16 |
+| A29 | 6 of 6, zero WebGPU errors, on Node/NVIDIA, Node/AMD and Chrome/AMD. On AMD, the captured model loaded after the release ran right at runs 1, 2 and 100: worst difference from `mlpForward` 3.1e-7 |
+| `OrtRuntime.create` | 502 ms on Node/AMD (S4's first session: 491–631 ms) |
+| Sizes, min+gzip | `OrtRuntime` with `OrtModel` 1,925 B (line 3,000 B); the whole inference entry 4,268 B; `mlpFromOnnx` alone 2,527 B (2,525 B before: the minifier's names; its bundle holds no adapter code); the agents entry unchanged at 19,323 B |
+
+**Watched failing.** Ten mutations of the built adapter, one at a time, each caught by the test
+meant for it:
+- the provider given as a string; capture off by default; the app's session options passed
+  through;
+- the anchor released before the models; `destroy` not waiting for a run in flight;
+- a second `bind` allowed; no check of named axes; no `STORAGE` check;
+- two runs in flight. At first this was caught only by the test runner's 30 s limit, because the
+  fake's second run never settles; the test now races it against a tick and fails in 5 ms;
+- no metadata check.
+
+On the GPU, the anchor released at once fails 6 of A29's checks on AMD. The engine's buffers then
+belong to a destroyed device, and every run fails.
+
+**Differs from the design, or adds to it:**
+- Three refusals added to §11: bytes that are not bytes; a model ORT cannot load, with ORT's first
+  line; an ORT that reports no metadata.
+- `OrtModel` also carries `device` and `capture`, which `OrtBrain` will read (phase 9.3).
+- A failed run passes on ORT's own error unchanged; `AgentSystem` adds the species in phase 9.3.
+- An axis that the file leaves free without a name (ORT reports it as -1) takes any size; a tensor
+  whose shape the file leaves out takes any dims.
+- After `runtime.destroy()`, the device is gone on all three hosts (logged, not checked): ORT
+  destroys it with the anchor.
+
+**Also green:** headless agents (reference + 73), core, agent-kit (4); `onnx` 23/23 on
+Node/NVIDIA.
+**Not run:** `onnx` on AMD and in Chrome (its code did not change; the entry it imports grew); the
+agents GPU suite (nothing it runs changed).
