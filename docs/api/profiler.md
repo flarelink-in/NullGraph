@@ -46,5 +46,7 @@ function frame() {
 
 Because GPU results are read back asynchronously, the value delivered to `onUpdate` typically
 reflects a frame or two earlier — which is exactly what you want for a smooth, non-blocking HUD.
+If the device is destroyed or lost while a read is pending, that read is dropped: `onUpdate` is
+not called for it, and nothing is thrown.
 Combine `gpuTimeMs` with a CPU-side `performance.now()` delta around your submission code to see
 both halves of the frame budget at once.

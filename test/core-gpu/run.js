@@ -10,12 +10,15 @@
 //       inside one compute pass (RenderPipeline's "no barrier needed" comment, measured)
 //   C5  a validation error names the stage it came from (labels)
 //   C6  headless resize: the screen texture follows engine.resize
+//   C7  limits: a created device gets the adapter's storage limits, unless autoNegotiate is off
+//   C8  a GPUProfiler whose device is destroyed during its read drops the read, and throws nothing
 //
 // Two hosts, one file (test/gpu/harness-env.mjs): `npm run test:gpu` (Node/Dawn), or
 // `npm run dev:serve` → http://localhost:3000/test/core-gpu/. Both run headless (canvas null) —
 // a browser can render without a canvas too, and that is part of what C1 claims.
 
 import { NullGraph, PROGRESSION_LIMITS } from '../../dist/index.js';
+import { GPUProfiler } from '../../dist/profiler.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 
 const { log, check, fatal, finish } = harnessEnv('__CORE_GPU_RESULTS__');
@@ -336,6 +339,43 @@ function solidBatch(target, pass, rgba) {
         PROGRESSION_LIMITS.map(k => `${k} ${device.limits[k]} (adapter ${adapter.limits[k]})`).join(', ') +
         (r.success ? `; baseline ${plain.device.limits.maxStorageBuffersPerShaderStage} buffers` : `; ${r.error}`));
     if (r.success) plain.device.destroy();
+}
+
+// ---------------------------------------------------------------------------
+// C8 — a GPUProfiler whose device is destroyed while its read is pending. The read rejects
+// (AbortError in Chrome); the profiler drops it, and nothing reaches the page or the process.
+// Step 10's device switch met it as an uncaught error (docs/agents-live-switch-design.md, B).
+// ---------------------------------------------------------------------------
+{
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter.features.has('timestamp-query')) {
+        log('C8 not run: the adapter has no timestamp-query');
+    } else {
+        const doomed = await adapter.requestDevice({ requiredFeatures: ['timestamp-query'] });
+        const unhandled = [];
+        const onNode = (reason) => unhandled.push(reason);
+        const onPage = (ev) => { ev.preventDefault(); unhandled.push(ev.reason); };
+        if (typeof window !== 'undefined') window.addEventListener('unhandledrejection', onPage);
+        else process.on('unhandledRejection', onNode);
+        const profiler = new GPUProfiler(doomed);
+        let updates = 0;
+        profiler.begin();
+        profiler.end(() => updates++);
+        doomed.destroy();                        // the read is pending: it cannot have landed yet
+        await doomed.lost;
+        // Until the read is settled one way or the other: dropped (the profiler can read again),
+        // or rejected with no one to catch it.
+        for (let t = 0; t < 200 && profiler.isMapping && unhandled.length === 0; t++) {
+            await new Promise((done) => setTimeout(done, 10));
+        }
+        await new Promise((done) => setTimeout(done, 10));
+        if (typeof window !== 'undefined') window.removeEventListener('unhandledrejection', onPage);
+        else process.off('unhandledRejection', onNode);
+        check('C8: a profiler whose device is destroyed during its read drops the read, and throws nothing',
+            unhandled.length === 0 && updates === 0 && !profiler.isMapping,
+            unhandled.length ? `unhandled: ${unhandled.map((e) => `${e?.name}: ${e?.message}`).join('; ')}`
+                : `read dropped; onUpdate called ${updates} times`);
+    }
 }
 
 await finish('All core GPU tests passed.');
