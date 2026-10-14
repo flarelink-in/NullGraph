@@ -70,7 +70,12 @@ output.dispose();                                              // …then releas
 ```
 
 - Adopt in that direction (the runtime owns, NullGraph adopts): the runtime requests the features
-  and limits its kernels need, and NullGraph's baseline needs no optional feature.
+  and limits its kernels need, and NullGraph's baseline needs no optional feature. ONNX Runtime
+  1.29 allows no other: given a device the app made, its runs fail.
+- **ONNX Runtime destroys its device with its last session.** Keep a session alive while the
+  engine renders on that device, or use `OrtRuntime` from `null-graph/inference`, which keeps one
+  for its whole life and runs models over the engine's buffers
+  ([inference.md](./inference.md#onnx-runtime)).
 - Nothing is negotiated on an adopted device. `engine.capabilities` reports what it already has
   (subgroup sizes from `device.adapterInfo` where the browser exposes it); `powerPreference` and
   `autoNegotiate` are refused with a named error, and a missing `desiredFeatures` entry warns.
@@ -276,6 +281,7 @@ Full signatures — the `Camera` methods, the WGSL camera struct, and every `Buf
 | `createPass(config)` | Create a render pass (screen or offscreen). |
 | `createBatch(pass, config)` | Create a render batch (pipeline + storage buffer). |
 | `createComputeStage(config)` | Create a standalone GPU compute stage. |
+| `createComputeStageAsync(config)` | The same stage, its pipeline from `createComputePipelineAsync`: the compile does not hold the caller. A shader that does not compile rejects, naming the stage, with the device's message about the WGSL. |
 | `setBatchGeometry(batch, vb, ib, count, format?)` | Bind vertex/index buffers to a batch. |
 | `updateBatchData(batch, data, count)` | Stream instance data into a batch (Zero-Copy). |
 | `createTextureBindGroup(batch, views, sampler, extra?, group?)` | Build/cache a texture bind group. |
