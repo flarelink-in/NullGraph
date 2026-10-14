@@ -1,0 +1,3 @@
+# The trained networks are compared byte for byte with what their writer writes, which is LF (U26).
+# With core.autocrlf, a checkout would write them with CRLF.
+*.mlp.json text eol=lf
