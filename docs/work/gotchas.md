@@ -220,16 +220,17 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   even the rules brain the system started with. `agents.prepareBrain(brain)` of a brain the system
   runs keeps its pass and compiles nothing (phase 10.2: the demo's return to the rules logged
   "compiled now" without it).
-- **ONNX Runtime 1.29 takes one call at a time, across all its sessions** (phase 10.3, Chrome).
+- **ONNX Runtime 1.29 takes one call at a time, across all its sessions** (phase 10.3 in Chrome,
+  then A34 under Node).
   - **Symptom:** two sessions created at once: the second fails, `another WebGPU EP inference
     session is being created.` A create during another session's run, or two sessions' runs in
     flight together: ONNX Runtime's WASM fails (`memory access out of bounds`; once `operation does
     not support unaligned accesses`), and ONNX Runtime throws an uncaught error of its own.
-  - **Why step 9 never met it:** its suites never have two calls in flight at once (A33's two
-    models load and run in turn), and `OrtRuntime` does not queue calls.
-  - **What to do:** queue every load, run and release of one runtime's models, as the site's
-    Herd & Wolves demo does (`inLine` in its `index.ts`). Whether `OrtRuntime` should do it is
-    `plan.md` §5, item 14.
+  - **Why step 9 never met it:** its suites never had two calls in flight at once (A33's two
+    models load and run in turn).
+  - **What to do:** nothing, through `OrtRuntime`: since 2026-10-15 it puts every create, run and
+    release of its models in one line (`plan.md` §5, item 14; U36, A34). Calls made on ONNX
+    Runtime directly, or through a second runtime, are outside that line: keep them apart.
   - **Cause, not verified:** Vite serves ONNX Runtime's asyncify build, which can suspend one call
     at a time.
 - **Herd & Wolves' overlay wraps a line wider than 44 em into the slot below** (`maxWidth: 44` in

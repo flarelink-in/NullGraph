@@ -6,11 +6,14 @@
 //        asked (phase 9.4), and the app cannot override them; bind checks names, types, ranks,
 //        fixed axes, named axes, sizes and usage, once; one run at a time; destroy releases after
 //        a run in flight
+//   U36  (after step 10's phase 10.3) ONNX Runtime takes one call at a time: every create, run
+//        and release of a runtime's models waits in line, in the order made; a call starts at
+//        once when none is in line, and a call that fails does not hold the line
 //   U33  OrtBrain (phase 9.3): dims and names from the model; a fixed first axis refused with
 //        the fix; its results buffer seeded from act before the model is bound; the same buffers
 //        re-bound, others refused; its copy pass parses inside the think module
 //   U14  the refusals of the design's §11 that these phases build fire and name the offender
-//   size the adapter's line of 3,000 B; mlpFromOnnx alone carries none of it
+//   size the adapter's line of 3,100 B (3,000 B until U36); mlpFromOnnx alone carries none of it
 //   types the real onnxruntime-web namespace is an OrtLike
 //
 // Imports dist/: run `npm run build:lib` first.
@@ -188,28 +191,83 @@ test('U32: one run at a time, over the same feeds and fetches, with ONNX Runtime
     await third;
 });
 
-test('U32: destroy releases each model after its run in flight, and the anchor last', async () => {
+test('U32: destroy releases each model after the run in flight, and the anchor last', async () => {
     const { ort, log, sessions } = fakeOrt();
     const runtime = await OrtRuntime.create(ort);
     const [a, b, c] = [await runtime.load(MODEL), await runtime.load(MODEL), await runtime.load(MODEL)];
     a.bind(bound());
     const running = a.run();
-    await c.destroy();
+    // Every release waits in line behind a's run, c's too: one call at a time (U36).
+    const goneC = c.destroy();
     await c.destroy();
     const destroyed = runtime.destroy();
     await tick();
     const releases = () => log.filter(entry => entry[0] === 'release').map(entry => entry[1]);
-    assert.deepEqual(releases(), [3, 2], 'the model with a run in flight waits for it; the anchor waits for every model');
+    assert.deepEqual(releases(), [], 'nothing is released while a run is in flight; a second destroy returns at once');
     sessions[1].settle();
     await running;
+    await goneC;
     await destroyed;
-    assert.deepEqual(releases(), [3, 2, 1, 0], 'each session released once, the anchor last');
+    assert.deepEqual(releases(), [3, 1, 2, 0], 'each session released once, in the order asked, the anchor last');
     await runtime.destroy();
     assert.equal(releases().length, 4, 'destroy twice releases nothing twice');
 
     await assert.rejects(runtime.load(MODEL), refusal('OrtRuntime', /^OrtRuntime: used after destroy\(\)\.$/));
     assert.throws(() => b.bind(bound()), refusal('OrtModel', /^OrtModel: used after destroy\(\)\.$/));
     await assert.rejects(a.run(), refusal('OrtModel', /^OrtModel: used after destroy\(\)\.$/));
+});
+
+// Step 10's phase 10.3 found that ONNX Runtime 1.29 fails two calls in flight, across sessions: a
+// session created while another is being created, or a create or a run while another session runs
+// (its WASM memory breaks). Decided with the user, 2026-10-15 (work/plan.md §5, item 14).
+test('U36: ONNX Runtime takes one call at a time: every create, run and release waits in line, in the order made', async () => {
+    const { ort, log, sessions } = fakeOrt();
+    const runtime = await OrtRuntime.create(ort);
+    const calls = () => log.filter(([what]) => what !== 'device').map(([what, id]) => `${what} ${id}`);
+
+    // Two loads at once: the second session is created once the first create has settled. Each
+    // create here waits until the test lets it go.
+    const create = ort.InferenceSession.create, held = [];
+    ort.InferenceSession.create = (...args) => new Promise(done => held.push(() => done(create(...args))));
+    const loads = [runtime.load(MODEL), runtime.load(MODEL)];
+    await tick();
+    assert.equal(held.length, 1, 'the second load waits for the first create');
+    held.shift()();
+    const a = await loads[0];
+    await tick();
+    assert.equal(held.length, 1, 'then the second create starts');
+    held.shift()();
+    const b = await loads[1];
+    ort.InferenceSession.create = create;
+
+    // With nothing in line a call starts at once; another model's call waits for it.
+    a.bind(bound());
+    b.bind(bound());
+    const ranA = a.run();
+    assert.equal(sessions[1].runs.length, 1, 'with nothing in line, a run starts at once');
+    const ranB = b.run(), loadingC = runtime.load(MODEL);
+    await tick();
+    assert.equal(sessions[2].runs.length, 0, 'b\'s run waits for a\'s run in flight');
+    assert.equal(sessions.length, 3, 'so does a load');
+    sessions[1].settle(new Error('failed to call OrtRun(). ERROR_CODE: 1'));
+    await assert.rejects(ranA, /^Error: failed to call OrtRun\(\)\. ERROR_CODE: 1$/, 'ONNX Runtime\'s error, to the run that met it');
+    await tick();
+    assert.equal(sessions[2].runs.length, 1, 'a call that failed does not hold the line: b\'s run starts');
+    assert.equal(sessions.length, 3, 'the load waits behind it');
+    sessions[2].settle();
+    await ranB;
+    const c = await loadingC;
+
+    // Releases wait in line too.
+    c.bind(bound());
+    const ranC = c.run(), destroyed = runtime.destroy();
+    await tick();
+    assert.deepEqual(calls().filter(call => call.startsWith('release')), [], 'nothing is released while a run is in flight');
+    sessions[3].settle();
+    await ranC;
+    await destroyed;
+    assert.deepEqual(calls(), ['create 0', 'create 1', 'create 2', 'run 1', 'run 2', 'create 3', 'run 3', 'release 1', 'release 2', 'release 3', 'release 0'],
+        'one call at a time, in the order the app made them, the anchor\'s release last');
 });
 
 test('U14: the runtime\'s refusals name what went wrong', async () => {
@@ -361,10 +419,11 @@ test('size: the adapter keeps its line, and mlpFromOnnx alone carries none of it
     assert.ok(adapter.text.includes('could not start its WebGPU provider') && adapter.text.includes('ortResults') && !adapter.text.includes('mlpFromOnnx'),
         'the bundle is the adapter and OrtBrain, without the reader');
     assert.ok(!/MlpBrain|affine layers|AgentSystem:/.test(adapter.text), 'OrtBrain copies no code of the agents entry');
-    assert.ok(gzip <= 3000, `the adapter and OrtBrain are ${gzip} B min+gzip; their line is 3,000 B (the design's §12.4)`);
+    // 3,000 B until 2026-10-15, when the line of calls (U36) took it to 3,064 B; the user approved a new line.
+    assert.ok(gzip <= 3100, `the adapter and OrtBrain are ${gzip} B min+gzip; their line is 3,100 B (the design's §12.4)`);
     const reader = await bundle(`export { mlpFromOnnx } from '${entry}';`);
     assert.ok(!/OrtRuntime|OrtModel|OrtBrain|anchor|ortResults/.test(reader.text), 'the reader\'s bundle holds the adapter');
-    console.log(`size: OrtRuntime, OrtModel and OrtBrain are ${adapter.contents.length} B min, ${gzip} B min+gzip, of 3,000 B; mlpFromOnnx alone is ${gzipSync(reader.contents).length} B min+gzip`);
+    console.log(`size: OrtRuntime, OrtModel and OrtBrain are ${adapter.contents.length} B min, ${gzip} B min+gzip, of 3,100 B; mlpFromOnnx alone is ${gzipSync(reader.contents).length} B min+gzip`);
 });
 
 test('types: the onnxruntime-web namespace, as an app imports it, is an OrtLike', () => {

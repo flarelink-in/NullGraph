@@ -69,13 +69,36 @@ export interface OrtBinding {
 
 function fail(who: string, message: string): never { throw new Error(`${who}: ${message}`); }
 const firstLine = (error: unknown) => String((error as Error)?.message ?? error).split('\n')[0];
+
+type Line = <T>(call: () => Promise<T>) => Promise<T>;
+
+/**
+ * One call into ONNX Runtime at a time (agents-ort-design.md, "After step 9"). ONNX Runtime 1.29
+ * fails two calls in flight across its sessions: a session created while another is being created,
+ * and a create or a run while another session runs, which breaks its WASM memory (step 10, phase
+ * 10.3). A call starts when the one before it has settled, however it settled, and at once when
+ * none is in line. The count drops before the caller resumes, so a call made then starts at once.
+ */
+function oneAtATime(): Line {
+    let last!: Promise<unknown>, waiting = 0;
+    const done = () => { waiting--; };
+    return <T>(call: () => Promise<T>) => {
+        const result: Promise<T> = waiting++ ? last.then(call) : new Promise<T>(start => start(call()));
+        last = result.then(done, done);
+        return result;
+    };
+}
 // y = x + x on one float32: the anchor's model, 66 bytes of ONNX. It never runs; while its session
 // lives, ONNX Runtime keeps its device.
 const ANCHOR = 'CAhCAhANOjoKDgoBeAoBeBIBeSIDQWRkEgZhbmNob3JaDwoBeBIKCggIARIECgIIAWIPCgF5EgoKCAgBEgQKAggB';
 
-/** ONNX Runtime's device, kept alive by the anchor session, and the models loaded on it. */
+/**
+ * ONNX Runtime's device, kept alive by the anchor session, and the models loaded on it. Every
+ * create, run and release of its models waits in line: one call into ONNX Runtime at a time.
+ */
 export class OrtRuntime {
     private readonly models = new Set<OrtModel>();
+    private readonly inLine = oneAtATime();
     private destroyed = false;
 
     private constructor(private readonly ort: OrtLike, public readonly device: GPUDevice, private readonly anchor: OrtSessionLike) {}
@@ -105,8 +128,9 @@ export class OrtRuntime {
     }
 
     /**
-     * Creates a session for the model on the runtime's device: the WebGPU provider, outputs kept on
-     * the GPU, graph capture only with `capture: true`. Bind its buffers with `model.bind`.
+     * Creates a session for the model on the runtime's device, in line: the WebGPU provider,
+     * outputs kept on the GPU, graph capture only with `capture: true`. Bind its buffers with
+     * `model.bind`.
      */
     public async load(model: Uint8Array | ArrayBuffer, options: OrtModelOptions = {}): Promise<OrtModel> {
         this.assertAlive();
@@ -117,18 +141,18 @@ export class OrtRuntime {
         let session: OrtSessionLike;
         try {
             // An object, never the string 'webgpu': given a string, ONNX Runtime captures halfway (spike S2).
-            session = await this.ort.InferenceSession.create(bytes, { executionProviders: [{ name: 'webgpu' }],
+            session = await this.inLine(() => this.ort.InferenceSession.create(bytes, { executionProviders: [{ name: 'webgpu' }],
                 preferredOutputLocation: 'gpu-buffer', enableGraphCapture: capture,
-                ...(options.externalData ? { externalData: options.externalData } : {}) });
+                ...(options.externalData ? { externalData: options.externalData } : {}) }));
         } catch (error) {
             return fail('OrtRuntime', `ONNX Runtime could not load the model: ${firstLine(error)}.`);
         }
         if (this.destroyed || !session.inputMetadata || !session.outputMetadata) {
-            await session.release();
+            await this.inLine(() => session.release());
             this.assertAlive();
             fail('OrtRuntime', 'this ONNX Runtime reports no input or output metadata; onnxruntime-web 1.29 or later is needed.');
         }
-        const loaded: OrtModel = new OrtModel(this.ort, session, this.device, capture, () => this.models.delete(loaded));
+        const loaded: OrtModel = new OrtModel(this.ort, session, this.device, capture, () => this.models.delete(loaded), this.inLine);
         this.models.add(loaded);
         return loaded;
     }
@@ -138,7 +162,7 @@ export class OrtRuntime {
         if (this.destroyed) return;
         this.destroyed = true;
         await Promise.all([...this.models].map(model => model.destroy()));
-        await this.anchor.release();
+        await this.inLine(() => this.anchor.release());
     }
 
     private assertAlive(): void {
@@ -164,7 +188,9 @@ export class OrtModel {
         public readonly device: GPUDevice,
         /** Whether ONNX Runtime captures the session's GPU work. */
         public readonly capture: boolean,
-        private readonly forget: () => void) {
+        private readonly forget: () => void,
+        /** The runtime's line: one call into ONNX Runtime at a time. */
+        private readonly inLine: Line) {
         this.inputs = session.inputMetadata.map(describe);
         this.outputs = session.outputMetadata.map(describe);
     }
@@ -214,14 +240,15 @@ export class OrtModel {
     }
 
     /**
-     * Runs the session over the bound buffers. Resolves once ONNX Runtime has queued its GPU work,
-     * not when the GPU is done; the queue orders what is submitted after it. One run at a time.
+     * Runs the session over the bound buffers, in line: after the calls the runtime has before it.
+     * Resolves once ONNX Runtime has queued its GPU work, not when the GPU is done; the queue orders
+     * what is submitted after it. One run of a model at a time.
      */
     public async run(): Promise<void> {
         this.assertAlive();
         if (!this.feeds) fail('OrtModel', 'run() before bind().');
         if (this.pending) fail('OrtModel', 'run() while a run is in flight; await it first.');
-        const pending = this.session.run(this.feeds, this.fetches!);
+        const pending = this.inLine(() => this.session.run(this.feeds!, this.fetches!));
         this.pending = pending;
         try {
             await pending;
@@ -230,13 +257,12 @@ export class OrtModel {
         }
     }
 
-    /** Releases the session, after a run in flight. The buffers stay the app's. */
+    /** Releases the session in line, so after a run in flight. The buffers stay the app's. */
     public async destroy(): Promise<void> {
         if (this.destroyed) return;
         this.destroyed = true;
         this.forget();
-        await this.pending?.catch(() => undefined);
-        await this.session.release();
+        await this.inLine(() => this.session.release());
     }
 
     private assertAlive(): void {

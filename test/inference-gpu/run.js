@@ -24,6 +24,9 @@
 //        wrapped; the count is shown to see the inspector's calls and ONNX Runtime's own), zero
 //        GPU errors, and the latency: by spike S2's marker method, how old each frame's actions
 //        are. Never the frame's own; one frame at the display's pace.
+//   A34  (after step 10's phase 10.3) two models at once: both loaded together, prey and wolves
+//        each on an OrtBrain, both runs started together by a lockstep step and by interactive
+//        frames. ONNX Runtime 1.29 takes one call at a time; OrtRuntime keeps its calls in line.
 //
 // The runtime's own session is the only one alive across the release, so the device survives
 // only if the anchor holds it.
@@ -674,6 +677,72 @@ fn step(i: u32, tick: u32) {
         for (const herd of herds) herd.destroy();
         for (const brain of brains) brain.destroy();
         for (const model of models) await model.destroy();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A34 (after step 10's phase 10.3): two models at once
+// ---------------------------------------------------------------------------
+// ONNX Runtime 1.29 takes one call at a time, across its sessions: a session created while another
+// is being created fails, and two sessions' runs in flight together break its WASM memory. Prey and
+// wolves each get an OrtBrain of their own network. Both models load at once; a lockstep step starts
+// both runs at once, and so does every interactive frame that steps. OrtRuntime keeps the calls in
+// line (work/plan.md §5, item 14).
+{
+    const label = 'A34: two models loaded at once, prey and wolves each on an OrtBrain, both runs started together in lockstep and in 60 interactive frames: every live agent acts as its species\' network says, both brains run, and nothing errs';
+    const errors = [], onError = ev => errors.push(String(ev.error?.message ?? ev.error).split('\n')[0]);
+    let herd, models = [], brains = [];
+    device.addEventListener('uncapturederror', onError);
+    try {
+        herd = createHerd(engine, { thinkEvery: 1 });     // every live agent thinks every step: each row compares
+        const { agents, definition } = herd, { obsDim, actDim, capacity } = definition, PREY = definition.speciesIndex('prey');
+        for (let s = 0; s < 60; s++) await agents.step();  // the rule drives first, to a spread-out herd
+        const loads = await within(Promise.allSettled(['prey', 'wolf'].map(species => runtime.load(onnxOf(species)))), 'two loads at once');
+        models = loads.filter(l => l.status === 'fulfilled').map(l => l.value);
+        const refused = loads.find(l => l.status === 'rejected');
+        if (refused) throw refused.reason;
+        brains = models.map(model => new OrtBrain(model));
+        const runs = [0, 0];                               // runs started, per brain
+        brains.forEach((brain, k) => { const run = brain.run.bind(brain); brain.run = () => { runs[k]++; return run(); }; });
+        agents.setBrain(brains[0], { species: 'prey' });
+        agents.setBrain(brains[1], { species: 'wolf' });
+        // One lockstep step, which starts both runs at once; each species' largest difference from its network.
+        const lockstep = async when => {
+            const [records] = await readBuffers(device, [agents.buffer]);
+            await within(agents.step(), `a lockstep step with two OrtBrains, ${when}`);
+            const [obsWords, actWords] = await readBuffers(device, [agents.obs, agents.act]);
+            const obs = f32(obsWords), ours = f32(actWords), against = { prey: 0, wolf: 0 };
+            let live = 0;
+            for (let i = 0; i < capacity; i++) {
+                if (!isAlive(records, i)) continue;
+                live++;
+                const species = herd.speciesOf(i) === PREY ? 'prey' : 'wolf', want = mlpForward(networks[species], obs.subarray(i * obsDim, (i + 1) * obsDim));
+                for (let j = 0; j < actDim; j++) against[species] = Math.max(against[species], Math.abs(want[j] - ours[i * actDim + j]));
+            }
+            return { ...against, live };
+        };
+        const first = await lockstep('first');
+        const before = [...runs];
+        let stepping = 0;
+        for (let f = 0; f < 60; f++) {
+            if (agents.advance(definition.dt)) stepping++;   // throws a run that failed
+            engine.render(agents.getComputeStages());
+            await within(device.queue.onSubmittedWorkDone(), `frame ${f}`);
+        }
+        const ran = runs.map((n, k) => n - before[k]);
+        const last = await lockstep('after the frames');
+        const fine = d => d.prey <= 1e-4 && d.wolf <= 1e-4;
+        check(label, fine(first) && fine(last) && first.live > 0 && ran.every(n => n >= stepping / 4) && errors.length === 0,
+            `${first.live} live agents; against mlpForward, the first step: prey ${first.prey.toExponential(1)}, wolves ${first.wolf.toExponential(1)}; ` +
+            `after the frames: prey ${last.prey.toExponential(1)}, wolves ${last.wolf.toExponential(1)}; in ${stepping} frames that stepped, ` +
+            `the prey's brain started ${ran[0]} runs and the wolves' ${ran[1]}; GPU errors: ${errors.length}${errors.length ? ` (${errors[0]})` : ''}`);
+    } catch (e) {
+        check(label, false, message(e));
+    } finally {
+        device.removeEventListener('uncapturederror', onError);
+        herd?.destroy();
+        for (const brain of brains) brain.destroy();
+        await within(Promise.all(models.map(model => model.destroy())), 'A34: releasing both models').catch(e => log(`   A34 teardown: ${message(e)}`));
     }
 }
 
