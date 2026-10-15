@@ -5,8 +5,8 @@ skinned models") and §10, row 5. Cycle D, step D1, phase 5 (the user's "10.5").
 
 **Asked by the user** (2026-10-15, after phase 4 was committed): "you can start with 10.5".
 
-**Status:** phase 5.0 committed `86216cf`, phase 5.1 committed `e84e308`; phase 5.2 implemented and
-validated, 2026-10-15. Next: the demo's rigid Models migration and cost comparison (5.3).
+**Status:** phases 5.0–5.3 committed and validated, 2026-10-15. Palette layout investigation
+and phase 5.4 asset intake started; actual skinned animal integration awaits the user's GLBs.
 
 ---
 
@@ -334,6 +334,59 @@ Site TypeScript, targeted ESLint, production Vite build (51 s), IDE build, loade
 headless suites pass. Build warnings are the existing large chunks/Node deprecation plus temporary
 output outside the site. Only the site's installed `node_modules/null-graph/dist` was refreshed for
 validation; no yalc publish, lockfile update, assets added, server stopped, push or deployment.
+
+### Palette slowdown investigation and phase 5.4 intake — 2026-10-15
+
+The shipped 5.3 producer used `slot = gid.x`, `part = gid.y`. Neighboring lanes therefore wrote
+matrices 288 bytes apart for these six-part animals. Flattening the existing bounded 2D dispatch
+and deriving slot/part by quotient/remainder makes adjacent lanes write adjacent 48-byte matrices.
+It preserves capacity, survivor guards, bindings, palette indexing and the workgroup-count limit.
+The extra invocations in a padded dispatch return before reading or writing a slot out of bounds.
+
+`visible-palette.mjs` now compares the legacy hook, old strided producer and actual site producer;
+it reconstructs the old ordering only in the test. Timestamp samples amortize eight renders per
+interval (the original single-render readings showed roughly 65 us steps). Forward and reverse
+mode orders expose clock/order sensitivity. Isolated stage measurements are diagnostic, **not additive**.
+
+Final actual-site results at **16,384**, 512², median of 16 batched samples after eight warmups:
+
+| Adapter/order | Hook total ms | Old palette total ms | Contiguous palette total ms | Old/new isolated producer ms |
+|---|---:|---:|---:|---:|
+| AMD forward | 8.929 | 8.954 | 7.774 | 1.770 / 0.483 |
+| AMD reverse | 8.815 | 9.445 | 7.832 | 1.663 / 0.467 |
+| NVIDIA forward | 10.519 | 10.887 | 10.674 | 0.311 / 0.172 |
+| NVIDIA reverse | 10.609 | 10.756 | 10.584 | 0.262 / 0.180 |
+
+**Finding:** invocation layout is a measured contributor, particularly on AMD (about 71–73% less
+producer time, 13–17% less total time versus the old palette at 16K). Cache/write locality is the
+likely mechanism, not a hardware-counter proof. A palette is not free: it adds producer dispatches,
+writes and vertex-stage reads, while these rigid animals need only one influence per vertex and
+share a small baked table. On NVIDIA, drawing still dominates and the total is near the hook.
+At 4K and 128 the variation is too large for a consistent layout/speedup claim. These are isolated
+model measurements, not full-demo FPS or skinned-animal performance. No adaptive crossover policy
+or sparse/indirect-dispatch optimization is introduced.
+
+All four final runs: **12/12 checks each**, zero pixel differences and zero captured GPU errors.
+Site TypeScript, targeted ESLint, IDE build and `check-site.mjs` pass. The changed layout has not
+had a new browser/React/worker drive; the earlier 5.3 drive is not claimed as testing this change.
+Reports: `%TEMP%/ng-palette-final-{amd,nvidia}{,-reverse}.json`.
+
+**5.4 intake:** inspected all site public GLBs. Only the two butterflies (same asset in two
+directories) and two Mixamo dancers have skins; none of the cow/fox/other animal GLBs has a skin.
+Added `test/spikes/animated-models/check-skinned-asset.mjs`: pass an absolute GLB path to bake and
+report geometry, clips, bounds, finite data, normalized influences, table size and palette capacity
+costs. Add `--herd` to require `idle`, `walk`, `run`, `eat`; no silent clip substitution.
+Butterfly and HipHop dancer pass; rigid cow and butterfly-with-`--herd` correctly fail by name.
+Loader suite: 18 passed, two optional historical-compatibility checks skipped, zero failed.
+
+**Asset handoff:** provide one skinned GLB per species, at most four weights per vertex, one skin,
+and the four semantic clips (or an explicit clip mapping to implement). Include textures/material
+intent and desired forward axis/size. Intake does not certify materials, orientation, picking,
+loop quality or final GPU rendering. Those need the actual assets and phase 5.4 visual drives.
+The site is deliberately not switched to a dancer/butterfly or fabricated skinned animal.
+
+`npm run yalc:push` completed: production library build and all five registered local consumers
+refreshed, including the site. No server restarted, deployment or remote git push.
 
 ### Questions after 5.0, as asked
 
