@@ -136,6 +136,9 @@ The same table holds bone matrices; the hook does four weighted fetches instead 
 read by `vi`. `bakeSkinnedAnimation` reuses `Animator`'s sampling. Phase 5, once the user has a
 skinned model to test with.
 
+**Phase 5 is designed in its own file:** [`agents-skinned-models-design.md`](./agents-skinned-models-design.md)
+(asked 2026-10-15, "you can start with 10.5").
+
 ## 7. The demo
 
 - **Options:** "Draw agents as": Darts | Models | Arrows. Models: wolves as the fox, prey as the
