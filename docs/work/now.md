@@ -31,6 +31,11 @@ log, not here.
   8.95–9.45 ms → 7.77–7.83 ms; NVIDIA near hook parity. Four final GPU runs 12/12 each.
 - **5.4 started (intake only):** asset checker added; no skinned cow/fox found in site public GLBs.
   Need user's GLBs and idle/walk/run/eat clips; integration/visual drive remains blocked on assets.
+- **Defaults follow-up:** Models + built-in Network for both species; README updated with animated
+  crowd capabilities/boundaries; intake checker asserts the shared defaults. TypeScript, targeted
+  ESLint, IDE build and site shader checks pass. Fresh isolated Chrome/AMD startup: both networks
+  loaded/switched, six palettes, screenshot reviewed, clean teardown and zero errors. Not a full
+  React/worker drive. Offline recording and 3D/evolution discussed only; no implementation.
 - Open, not asked: the green clear colour reads as sky when the camera is low; catch rings dominate
   far views; the animals' palette is a stand-in.
 

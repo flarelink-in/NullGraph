@@ -69,8 +69,8 @@ depends on the imported features and the application's bundler.
 | `null-graph`             | Device initialization/adoption, cameras, buffer and texture management, batches, compute stages, render passes, indirect drawing and headless rendering                             | [Usage](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/core.md) · [Reference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/core-reference.md)                                |
 | `null-graph/geometry`    | Vertex layouts, primitives, geometry builders, dynamic geometry, unified vertex/index pools, meshlets and LOD-chain construction                                                    | [Geometry](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/geometry.md)                                                                                                                         |
 | `null-graph/materials`   | PBR, Lambert, Toon, Basic, Emissive and Matcap materials; composable WGSL shader builders                                                                                           | [Materials](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/materials.md)                                                                                                                       |
-| `null-graph/loaders`     | GLB parsing, animation timeline evaluation and skeletal data management for GPU vertex skinning                                                                                     | [Loaders and animation](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/loaders.md)                                                                                                             |
-| `null-graph/visibility`  | GPU instance and meshlet culling, frustum and Hi-Z occlusion tests, normal-cone rejection, screen-space-error LOD and indirect draw generation                                      | [Visibility](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/visibility.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/visibility-shader-reference.md) |
+| `null-graph/loaders`     | GLB parsing, animation timelines, skeletal data, rigid/skinned animation baking and WGSL helpers for visible-instance animation palettes                                              | [Loaders and animation](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/loaders.md)                                                                                                             |
+| `null-graph/visibility`  | GPU instance and meshlet culling, Hi-Z occlusion, normal-cone rejection, meshlet and instance LOD, indirect draws and app-defined instance vertex hooks                               | [Visibility](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/visibility.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/visibility-shader-reference.md) |
 | `null-graph/lights`      | Buffer-backed lights with standard, tiled-forward and clustered-forward lighting                                                                                                    | [Lights](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/lights.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/lights-shader-reference.md)             |
 | `null-graph/shadows`     | Cascaded directional shadows, punctual-light shadow atlas, cached tiles and caster culling integrated with visibility                                                               | [Shadows](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/shadows.md) · [Shader reference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/shadows-shader-reference.md)          |
 | `null-graph/environment` | Image-based diffuse/specular lighting, environment prefiltering, BRDF LUTs, irradiance volumes, GPU probe capture and parallax-corrected reflection probes                          | [Environment](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/environment.md) · [Probes](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/probes.md)                              |
@@ -116,6 +116,22 @@ Neighbour scans have a configurable per-cell budget: crowded cells can omit cand
 overflow-free operation is required for the documented same-device deterministic replay guarantee.
 See the [agents guide](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md)
 for supported shapes, buffer ownership, inspection and integration examples.
+
+### Animated GPU crowds
+
+`bakeRigidAnimation` and `bakeSkinnedAnimation` prepare shared GLB animation tables once.
+Applications can use the loaders' WGSL snippets to blend poses into a palette after GPU culling,
+then read one rigid influence or four weighted skin influences from an instance vertex hook.
+Animation state stays on the GPU; the compacted visible slot selects the palette entry, without
+reading survivor counts back to the CPU. Applications own palette allocation, scheduling and
+device-limit checks. Palettes trade extra compute and memory traffic for less vertex-stage sampling;
+they are not a universal speedup.
+
+The Herd & Wolves demo now defaults to cow/fox **Models** with both species on the built-in
+**Network** brain. Rules, ONNX Runtime, Darts and debug Arrows remain selectable. Models and network
+files load on demand, so the demo can briefly use its existing loading/fallback paths at startup.
+The demo animals are rigid-part models; the skinned bake and palette path are available, but the
+user's skinned animal assets are not yet integrated.
 
 ## Requirements and boundaries
 
