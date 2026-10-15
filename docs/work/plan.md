@@ -323,3 +323,9 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   on screen become public API in `null-graph/visibility` (`InstanceDrawOptions.lod`); fences are built
   from boxes in stock toon wood, Models mode only; the animals, field and grass keep their own
   fragments ([design](../agents-animated-models-design.md), "Phase 4 review").
+
+- **2026-10-15, D1 phase 5 (the user's "10.5"):** started at the user's word, designed in its own
+  file ([design](../agents-skinned-models-design.md)). Decided: a second bake,
+  `bakeSkinnedAnimation`, beside the rigid one; a public WGSL sampling helper, `BAKED_POSE_WGSL`, in
+  loaders; the Mixamo dancers, the butterfly and in-memory fixtures as test models while no rigged
+  animal exists (the demo keeps the Kenney animals); a cost spike first (5.0).

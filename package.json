@@ -127,7 +127,8 @@
     "watch:test-ui": "esbuild test/javascript/index.js --bundle --outfile=dist-web-test/index.js --platform=browser --format=esm --sourcemap --watch",
     "dev": "concurrently \"npm run watch:lib\" \"npm run watch:test-ui\" \"npm run dev:serve\"",
     "preview": "npx serve dist-web-test",
-    "spike:animated-models": "node test/gpu/run-harness.mjs test/spikes/animated-models/run.js __ANIM_SPIKE_RESULTS__"
+    "spike:animated-models": "node test/gpu/run-harness.mjs test/spikes/animated-models/run.js __ANIM_SPIKE_RESULTS__",
+    "spike:skinned-models": "node test/gpu/run-harness.mjs test/spikes/skinned-models/run.js __SKIN_SPIKE_RESULTS__"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"
