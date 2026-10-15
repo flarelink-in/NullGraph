@@ -99,10 +99,14 @@ vis.setGeometry(mega, pack);                // pack optional → instance tier o
 
 ## Model-space vertex hooks (instance tier)
 
-`createInstanceDrawBatch` accepts `vertexHook: { wgsl, bindings, entries, group? }`.
+`createInstanceDrawBatch` accepts `vertexHook: { wgsl, bindings, entries, group?, instanceIndex? }`.
 The generated vertex stage calls your function before the instance model transform:
 `fn deform(pos: vec3<f32>, normal: vec3<f32>, vi: u32, inst: Instance) -> Deformed`.
 Visibility supplies `struct Deformed { position: vec3<f32>, normal: vec3<f32> }`.
+Set `instanceIndex: true` to opt in to a fifth `slot: u32` argument after `inst`: the compacted
+`@builtin(instance_index)` of this draw. Use it to read a palette produced over this batch's visible
+list after culling. It differs from `inst.sourceIndex`, the original simulation row. Existing hooks
+remain four-argument by default. See the loaders guide's visible-model palette section.
 Return both values in model space; visibility then applies the instance model matrix and its
 inverse-transpose normal matrix. UVs and the stock material fragment contract are unchanged.
 

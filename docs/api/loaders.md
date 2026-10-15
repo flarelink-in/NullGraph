@@ -139,10 +139,78 @@ inputs as the rigid bake. Morph targets and separate material colours are not ba
 
 Upload influences, weights and the transform table once. When using a megabuffer, pad both per-vertex
 arrays to its full vertex count and offset by `mesh.baseVertex * 4`, since `vertex_index` includes
-the base vertex. This bake alone does not animate a draw. The planned palette snippets (D1 phase
-5.2) will sample into one matrix slot per **visible model**, after culling; they are not exported
-yet. The existing Herd & Wolves demo stays on its rigid models until the palette integration and
-the user's skinned animals are ready.
+the base vertex. This bake alone does not animate a draw. Use the palette snippets below to sample
+once per **visible model**, after culling. The existing Herd & Wolves demo migration is phase 5.3;
+the user's skinned animals follow when available.
+
+## Baked pose / visible-model palette WGSL
+
+Four independent strings are exported from `null-graph/loaders`:
+
+| Export | Provides | Caller declares |
+|---|---|---|
+| `BAKED_POSE_WGSL` | `BakedPose { r0, r1, r2 }`, `bakedMix`, `bakedPosition`, `bakedNormal` | nothing |
+| `BAKED_SAMPLE_WGSL` | `bakedFramePose`, `bakedClipPose` | storage-read `bakedTransforms: array<vec4<f32>>` |
+| `BAKED_PALETTE_WRITE_WGSL` | `bakedWritePalette` | storage-read-write `bakedPalette: array<vec4<f32>>` |
+| `BAKED_PALETTE_READ_WGSL` | `bakedPalettePose` (rigid), `bakedSkinPose` (four influences) | storage-read `bakedPalette: array<vec4<f32>>` |
+
+Include the common pose string once in each shader module. The other strings require it and
+declare no resources, entry points or bind groups. Apps own allocation, binding, clip selection,
+dispatch, scheduling and teardown; no palette class or CPU work per visible agent is imposed.
+
+Signatures (all functions are WGSL):
+
+```wgsl
+// tableBase and paletteBase are offsets in vec4 ROWS, not bytes or matrices.
+// influences is the source table width; stride is the reserved influences per palette slot.
+fn bakedFramePose(tableBase: u32, influences: u32, frame: u32, influence: u32) -> BakedPose
+fn bakedClipPose(tableBase: u32, influences: u32, clip: vec2<u32>, phase: f32, looping: bool, influence: u32) -> BakedPose
+fn bakedWritePalette(paletteBase: u32, stride: u32, slot: u32, influence: u32, pose: BakedPose)
+fn bakedPalettePose(paletteBase: u32, stride: u32, slot: u32, influence: u32) -> BakedPose
+fn bakedSkinPose(paletteBase: u32, stride: u32, slot: u32, joints: vec4<u32>, weights: vec4<f32>) -> BakedPose
+fn bakedMix(a: BakedPose, b: BakedPose, weight: f32) -> BakedPose
+fn bakedPosition(pose: BakedPose, position: vec3<f32>) -> vec3<f32>
+fn bakedNormal(pose: BakedPose, normal: vec3<f32>) -> vec3<f32>
+```
+
+`clip` is `(firstFrame, frames)` from a baked clip. Phase is finite and measured in cycles, **not
+seconds**: divide elapsed seconds by `clip.seconds` (use zero for a zero-duration clip). Looping
+wraps negative/positive phases and interpolates across the seam. Non-looping clamps to `[0, 1]`
+and includes the last frame. A one-frame clip holds its single pose. `bakedMix` does not clamp its
+weight; keep blend weights in `[0, 1]` if relying on the bake's bounds. `bakedNormal` applies the
+linear 3x3 part, without normalization or inverse transpose: normalize after transformation;
+animated non-uniform scale needs application-specific normal handling or derivative face normals.
+
+**Visible-slot scheduling with `VisibilitySystem`:** bind `batch.storageBuffer` as the compacted
+`array<Instance>` and `batch.indirectBuffer` as storage-read `array<u32>`; `args[1]` is the count.
+Dispatch enough threads for the batch capacity times its influence count; guard against that GPU
+count before reading a survivor. Choose clips/phases from `visible[slot].sourceIndex`, sample each
+influence and write its slot with `bakedWritePalette`. Put this stage **after that batch's cull and
+before its draw**, e.g. `engine.render([...vis.getComputeStages(), paletteStage, scenePass])`.
+Use separate palette regions/stages for batches (including separate camera/shadow culls).
+
+In a vertex hook set **`instanceIndex: true`** and define the fifth argument `slot: u32`. Read the
+palette by `slot`, never by `inst.sourceIndex`. For rigid vertices call
+`bakedPalettePose(paletteBase, stride, slot, partOf[vi])`; for skinned vertices call
+`bakedSkinPose(paletteBase, stride, slot, joints[vi], weights[vi])`, with indices and weights bound
+as `array<vec4<u32>>` / `array<vec4<f32>>`. Return
+`Deformed(bakedPosition(pose, pos), bakedNormal(pose, normal))`. Existing four-argument hooks remain
+unchanged unless opted in. No vertex attributes, record layout or cull changes are needed.
+
+**Memory and bounds are caller obligations:** reserve `capacity * stride * 48` bytes, plus any
+base offset, with `STORAGE` usage (and `COPY_DST` if initializing). Capacity must cover the maximum
+survivors, not just the previous frame's count; culling compacts the work but does not automatically
+resize allocation. Check both `device.limits.maxStorageBufferBindingSize` and `maxBufferSize`, and
+split batches/regions if required. Ensure all offsets/index products fit `u32`, `stride` covers all
+influences, clips have at least one frame, and source/palette bounds are valid. Slots change every
+cull and must be recomputed every frame; never reuse another view's slot assignment. Zero-weight
+influences skip palette reads; weights should be non-negative and normalized. The snippets do not
+validate malformed shader inputs or perform GPU allocation/dispatch for you.
+
+**Executable examples:** `test/loaders-gpu/run.js` is a complete cull/palette/hook integration with
+nonzero base offsets, clip blending, four-influence and rigid reads, shrinking/empty survivor lists,
+and an independent CPU-rendered reference. Run `npm run test:gpu -- --only loaders`, or
+`npm run test:gpu:browser -- --only loaders`. Build the library first.
 
 ## Hardware-Accelerated Skeletal Animations (one CPU-evaluated character)
 NullGraph splits the heavy lifting: the CPU evaluates the animation timeline, and the GPU handles the vertex skinning. The `SkeletonManager` bridges the gap, allowing you to animate complex characters efficiently.

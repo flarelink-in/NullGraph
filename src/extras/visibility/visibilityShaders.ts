@@ -528,7 +528,7 @@ struct VertexOut {
  */
 export function buildInstanceDrawWGSL(opts: DrawShaderOptions & {
     vertexAttributesWGSL?: string;
-    vertexHook?: Pick<InstanceVertexHook, 'wgsl' | 'bindings'>;
+    vertexHook?: Pick<InstanceVertexHook, 'wgsl' | 'bindings' | 'instanceIndex'>;
 } = {}): string {
     const hook = opts.vertexHook;
     const attrs = opts.vertexAttributesWGSL ?? `
@@ -554,7 +554,7 @@ fn vs_main(${attrs}
     @builtin(instance_index) ii: u32,${hook ? '\n    @builtin(vertex_index) vi: u32,' : ''}
 ) -> VertexOut {
     let inst = instances[ii];
-    ${hook ? 'let deformed = deform(pos, normal, vi, inst);\n    ' : ''}let world = inst.model * vec4<f32>(${hook ? 'deformed.position' : 'pos'}, 1.0);
+    ${hook ? `let deformed = deform(pos, normal, vi, inst${hook.instanceIndex ? ', ii' : ''});\n    ` : ''}let world = inst.model * vec4<f32>(${hook ? 'deformed.position' : 'pos'}, 1.0);
     var out: VertexOut;
     out.clipPos = camera.viewProj * world;
     out.worldPos = world.xyz;

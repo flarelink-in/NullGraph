@@ -11,6 +11,7 @@ export const SUITES = [
     { name: 'shadows', file: 'test/shadows-gpu/run.js', key: '__SHADOW_RESULTS__' },
     { name: 'sky', file: 'test/environment-gpu/run.js', key: '__SKY_RESULTS__' },
     { name: 'visibility', file: 'test/visibility-gpu/run.js', key: '__VISIBILITY_RESULTS__' },
+    { name: 'loaders', file: 'test/loaders-gpu/run.js', key: '__LOADERS_RESULTS__' },
     { name: 'core', file: 'test/core-gpu/run.js', key: '__CORE_GPU_RESULTS__' },
     { name: 'onnx', file: 'test/onnx-gpu/run.js', key: '__ONNX_RESULTS__' },
     // Step 9: null-graph/inference's ONNX Runtime adapter on the device ONNX Runtime makes.

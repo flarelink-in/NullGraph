@@ -20,7 +20,8 @@ test('bake size lines and tree-shaking: parser-only apps carry no bake', async (
     const bake = await bundle(`export { bakeRigidAnimation } from '${entry}';`);
     const skinned = await bundle(`export { bakeSkinnedAnimation } from '${entry}';`);
     const all = await bundle(`export * from '${entry}';`);
-    for (const [name, output, ceiling] of [['parser', parser, 3500], ['bake', bake, 3600], ['skinned', skinned, 4800], ['entry', all, 8600]]) {
+    const palette = await bundle(`export { BAKED_POSE_WGSL, BAKED_SAMPLE_WGSL, BAKED_PALETTE_WRITE_WGSL, BAKED_PALETTE_READ_WGSL } from '${entry}';`);
+    for (const [name, output, ceiling] of [['parser', parser, 3500], ['bake', bake, 3600], ['skinned', skinned, 4800], ['palette', palette, 1100], ['entry', all, 9300]]) {
         const bytes = gzipSync(output.contents).length;
         assert.ok(bytes <= ceiling, `${name}: ${bytes} B min+gzip exceeds ${ceiling} B`);
         console.log(`loaders ${name}: ${output.contents.length} B min, ${bytes} B min+gzip (line ${ceiling} B)`);
@@ -29,6 +30,8 @@ test('bake size lines and tree-shaking: parser-only apps carry no bake', async (
     assert.ok(!parser.text.includes('bakeSkinnedAnimation:'), 'parser-only apps carry the skinned bake');
     assert.ok(!bake.text.includes('bakeSkinnedAnimation:'), 'rigid-only apps carry the skinned bake');
     assert.ok(!skinned.text.includes('Invalid GLB.') && !skinned.text.includes('bakeRigidAnimation:'), 'skinned-only apps carry the parser or rigid bake');
+    assert.ok(!bake.text.includes('bakedClipPose') && !parser.text.includes('bakedClipPose'), 'bakes/parser do not carry palette WGSL');
+    assert.ok(!palette.text.includes('Invalid GLB.') && !palette.text.includes('bakeSkinnedAnimation:'), 'palette-only apps carry no parser/bake');
     assert.ok(bake.text.includes('bakeRigidAnimation:') && !bake.text.includes('Invalid GLB.'), 'the bake imports no parser');
     assert.equal((await bundle(`import '${entry}';`)).text.trim(), '', 'unused entry leaves no code');
 });
