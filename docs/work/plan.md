@@ -307,3 +307,5 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   `null-graph/visibility`, both public API, then a Models draw mode with a toon field in Herd &
   Wolves; deer or cow for the prey, the fox for the wolves; one accumulated animation phase per
   agent ([design](../agents-animated-models-design.md) §11).
+
+- **2026-10-15, D1.3:** Models mode implemented in the site with cow prey and fox wolves (user reconfirmed cow/deer instead of pig). D1.2 committed `75824a7`. D1.4 field/grass/toon/post remains next; see now.md and the animated-model design.

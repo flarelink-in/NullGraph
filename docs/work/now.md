@@ -5,13 +5,13 @@
 - **Cycle C, C2 complete.** Steps 6–10 committed; step 5's scaling study remains deferred.
 - **Cycle D, step D1: animated agents.** Design/phase 0 committed `edecdf4`; phase 1 (rigid bake,
   parser node metadata, tests and guide) committed **`f538ffe`** at the user's request.
-- **Phase 2 built and validated, uncommitted.** Public instance-tier `vertexHook`, model-space
+- **Phase 2 committed `75824a7`.** Public instance-tier `vertexHook`, model-space
   deformation, dedicated bind-group validation, unchanged no-hook WGSL, guide and GPU pose test.
   [Design/results](../agents-animated-models-design.md). User called these phases “10.1/10.2”;
   they are D1.1/D1.2, not the already-completed live-switch phases.
-- **Next: phase 3**, Models mode in the site: cow prey, fox wolves; animation from simulation
-  state and one accumulated phase per agent. No machine-specific count caps. Field/toon/post
-  remain phase 4; field scope defaults to Models only (design §11, item 5 still open).
+- **Phase 3 implemented:** Models mode in the site: cow prey, fox wolves; animation from simulation
+  state and one accumulated phase float per agent. No machine-specific count caps. Field/toon/post
+  are next (phase 4); field scope defaults to Models only (design §11, item 5 still open).
   Skinned models wait for the user's model (phase 5).
 
 ## Validation and limitations
@@ -30,10 +30,15 @@
 
 ## Repository state
 
-- **null-graph:** `master`; D1.1 committed, D1.2 uncommitted. `dist/` development build;
+- **null-graph:** `master`; D1.1 and D1.2 committed; D1.3 site committed `77c8e92`; site check and notes added. `dist/` development build;
   tracked core dist files unchanged. `package-lock.json` ignored. No push.
-- **Site:** `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, untouched this session.
-  Installed library remains step 10; no yalc push or deployment. Restart Vite after refresh.
+- **Site:** `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, Models integration implemented.
+  Installed library and `.yalc` dist refreshed; Vite restarted with `--force` on port 8081. No deployment.
+- D1.3 validation: site `tsc --noEmit`, IDE build, visibility/loaders regressions and scenario/network
+  parity pass. `test/spikes/animated-models/check-site.mjs` checks real site preparation and shaders.
+  Chrome/AMD drives switch modes, pause, adjust speed and request 4K/16K/64K/1M: zero GPU errors.
+  Larger counts can be refused by measured queue-completion render cost, separately from step cost.
+  Animals' external palette is absent; four UV swatches map to the installed site palette (no new assets).
 - Optional GLB compatibility test needs `NG_GLB_COMPAT_DIR` and `NG_GLB_OLD_LOADER`; old build
   in local Claude temp session `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`, `scratchpad/old/loaders.js`.
   Models stay local/ignored; never commit them.
