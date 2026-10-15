@@ -321,8 +321,10 @@ const cel = new CelShade({ bands: 4, softness: 0.08, saturation: 1.2 });
 
 Ink lines from a Sobel over linearized depth (silhouettes, distance-normalized) plus luma
 (interior detail). One pass. **Without `gbuffer.depth` it falls back to luma-only edges** —
-silhouettes against same-luminance backgrounds won't draw. Place after Tonemap/CelShade, before
-FXAA (so lines get smoothed).
+silhouettes against same-luminance backgrounds won't draw. Place after Tonemap/CelShade, and
+before FXAA for soft, smoothed lines or after it for crisp ones (`ChainPresets.anime()` does
+the latter). `lumaSensitivity: 0` keeps silhouettes only: luma lines also ink every shading band
+and texture edge.
 
 ```ts
 const ink = new Outline({ thickness: 1.5, depthSensitivity: 8, lumaSensitivity: 0.6, strength: 1 });
@@ -618,8 +620,9 @@ CelShade → Kuwahara → Outline → FXAA → ChromaticAberration → Vignette 
 ```
 
 Key adjacencies: SSAO before Bloom (occluded creases must not glow); AutoExposure before Bloom (so
-the threshold sees normalized luminance); FXAA after Outline (so ink edges get anti-aliased);
-FilmGrain last (so nothing smooths the grain). Full reasoning is in
+the threshold sees normalized luminance); FXAA after Outline (so ink edges get anti-aliased;
+`ChainPresets.anime()` puts it before, for one-pixel crisp ink); FilmGrain last (so nothing
+smooths the grain). Full reasoning is in
 [`post-presets.md`](../post-presets.md) §2.
 
 ### `orderChain()` — sort a chain for you

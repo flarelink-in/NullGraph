@@ -54,11 +54,13 @@ CelShade -> Kuwahara -> Outline -> FXAA -> ChromaticAberration -> Vignette -> Fi
   values (banding HDR crushes everything into the bottom band), FXAA's luma estimate assumes
   display range, and grain/vignette/CA are lens- and film-artifacts of the final picture.
 - **FXAA after Outline**, so ink edges get anti-aliased; **FilmGrain last**, so nothing
-  smooths it away.
+  smooths it away. One preset breaks this on purpose: `anime` runs FXAA *before* Outline, so
+  the ink is drawn on the smoothed image and stays one pixel sharp. After FXAA, a one-pixel
+  line is smeared into a soft grey band two or three pixels wide.
 
 The old "throw if Tonemap is not last" enforcement idea is obsolete — post-Tonemap effects
 are legitimate. The ordering above ships as documentation and as the order every
-`ChainPresets.*` factory uses.
+`ChainPresets.*` factory uses, except `anime` (above).
 
 ---
 
@@ -175,7 +177,7 @@ since `PostChain` rejects the same instance twice and each holds a live arena su
 
 | Preset | Chain | Intent |
 |---|---|---|
-| `anime` | Bloom`natural` → Tonemap`filmic` → CelShade(5 bands) → Outline → FXAA | Toon shading with ink silhouettes. Best with `gbuffer.depth`. |
+| `anime` | Bloom(threshold 0.8, intensity 0.2) → Tonemap`faithful` → FXAA → Outline(1 px, depth only) | Soft authored colors with crisp ink silhouettes: no posterize, no luma lines. Needs `gbuffer.depth`. Changed 2026-10-15: it was Bloom`natural` → Tonemap`filmic` → CelShade(5 bands) → Outline → FXAA, whose bands and luma lines turned fields into blotches and far objects into ink. |
 | `comic` | Tonemap`filmic` → CelShade(3 bands) → Outline(thick) → FXAA → Vignette | Harder bands, thicker ink, punchier color. |
 | `painterly` | Bloom`subtle` → Tonemap`natural` → Kuwahara(r5) → Vignette | Brushwork surfaces, crisp edges. |
 | `analog` | Halation → Bloom`subtle` → Tonemap`neutral` → FXAA → CA → Vignette → FilmGrain | 35mm print look. |
