@@ -237,6 +237,26 @@ the chain, its params buffer is released, and the batch leaves its pass. (A cull
 its owner keeps binding the owner's destroyed buffers, and every later frame is refused at submit;
 `ShadowSystem.destroy()` does this for its casters.)
 
+### Level of detail by size on screen (instance tier)
+
+A batch can draw its mesh index's rows only while they look large enough, or small enough. Two
+batches over the **same mesh index** with adjoining bands draw every row exactly once: as the full
+mesh near the camera and as a stand-in far away. The size is the diameter of the row's bounding
+sphere in pixels, measured as the meshlet tier's LOD measures it (nearest distance, vertical field
+of view, screen height). It is checked in each batch's own cull, one comparison per row; a batch
+without `lod` culls exactly as before.
+
+```ts
+// Animals larger than 12 px on screen draw as the model, smaller ones as a cube: same rows.
+vis.createInstanceDrawBatch(scenePass, 'cow', COW, { lod: { minPixels: 12 } });
+vis.createInstanceDrawBatch(scenePass, 'cow-cube', COW, { lod: { maxPixels: 12 } });
+```
+
+Bounds are `minPixels` (inclusive) and `maxPixels` (exclusive); leave one out for an open end.
+The far mesh needs its own `meshName` in the megabuffer but culls the near mesh's rows, so the
+rows' bounds must cover both. Picking and shadows draw what their own batches say: a pick batch
+over the same mesh index picks the full mesh at any size.
+
 ## 5. Render
 
 ```ts
@@ -378,6 +398,7 @@ return [
 | meshlet tier without `setGeometry(mega, pack)` | throws |
 | meshlet tier without `maxMeshletsPerInstance` / `maxVisibleMeshletInstances` | throws |
 | `getComputeStages()` before any draw batch | throws |
+| `lod` with neither bound, a bound that is not a finite number ≥ 0, or `minPixels` ≥ `maxPixels` | throws, before the batch is made |
 
 ## 10. Notes & limits
 
@@ -391,4 +412,6 @@ return [
 - **Testing.** The pure cull math (frustum, sphere, cone, Hi-Z level, LOD) and every generated WGSL
   module are covered headless by `npm run test:visibility`. On a real device, `test/visibility-gpu`
   (run by `npm run test:gpu` / `test:gpu:browser`) pins one draw per mesh at any instance count, the
-  GPU cull against the CPU mirror, and Hi-Z occlusion; the meshlet-tier scenes are not written yet.
+  GPU cull against the CPU mirror, Hi-Z occlusion, the vertex hook, and LOD bands (each row drawn
+  by exactly one band, as the CPU mirror of its size says); the meshlet-tier scenes are not written
+  yet.

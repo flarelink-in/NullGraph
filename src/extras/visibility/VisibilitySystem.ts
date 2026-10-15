@@ -271,6 +271,16 @@ export class VisibilitySystem {
                 refuse(`bindings must declare only group ${hookGroup}; group numbers are not rewritten.`);
             }
         }
+        const lod = options.lod;
+        if (lod) {
+            const bound = (v: number | undefined) => v === undefined || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+            const { minPixels, maxPixels } = lod;
+            if (!bound(minPixels) || !bound(maxPixels) || (minPixels === undefined && maxPixels === undefined) ||
+                (minPixels !== undefined && maxPixels !== undefined && minPixels >= maxPixels)) {
+                throw new Error(`VisibilitySystem: lod needs minPixels or maxPixels, each a finite number ≥ 0, ` +
+                    `and minPixels below maxPixels; got ${JSON.stringify(lod)}.`);
+            }
+        }
         // §9.3 (shadows-design.md): a shadow cascade points this batch at its own camera and
         // runs without Hi-Z. Both default to today's behavior.
         const camera = options.camera ?? this.engine.ctx.cameraUniformBuffer;
@@ -316,7 +326,7 @@ export class VisibilitySystem {
         const paramsBuffer = this.createParamsBuffer();
         const stage = this.engine.createComputeStage({
             name: `Instance Cull: ${meshName}`,
-            shaderCode: buildInstanceCullWGSL({ occlusion }),
+            shaderCode: buildInstanceCullWGSL({ occlusion, lod }),
             dispatchCount: () => [Math.ceil(this.instanceCount / 64), 1, 1],
             preClearBuffers: [{ buffer: batch.indirectBuffer!, offset: 4, data: new Uint32Array([0]) }],
         });
