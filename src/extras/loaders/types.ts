@@ -23,6 +23,8 @@ export interface RawGeometryData {
      * `loadMerged`, which merges the meshes.
      */
     node?: number;
+    /** Additional joint/weight sets were present; the crowd bake refuses to drop them. */
+    hasAdditionalInfluences?: boolean;
 }
 
 /** A glTF node as the file holds it: the fields NullGraph reads. */
@@ -59,4 +61,6 @@ export interface GLBData{
     imageUrls?: string[];
     /** Every node of the file, in its order: the parts and parents an animation moves. */
     nodes?: GLBNode[];
+    /** Recorded when more than one skin is present; the crowd bake supports one skin only. */
+    skinCount?: number;
 }

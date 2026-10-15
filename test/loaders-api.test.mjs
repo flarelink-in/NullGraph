@@ -7,23 +7,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 import { glb, box } from './glb-fixtures/build.mjs';
+import { mat4 } from 'gl-matrix';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-test('rigid bake size lines and tree-shaking: parser-only apps carry no bake', async () => {
+test('bake size lines and tree-shaking: parser-only apps carry no bake', async () => {
     const entry = join(root, 'src/extras/loaders/index.ts').replaceAll('\\', '/');
     const bundle = async contents => (await build({ stdin: { contents, loader: 'ts', resolveDir: root },
         bundle: true, minify: true, format: 'esm', platform: 'browser', external: ['gl-matrix'],
         write: false, logLevel: 'silent' })).outputFiles[0];
     const parser = await bundle(`export { GLBParser } from '${entry}';`);
     const bake = await bundle(`export { bakeRigidAnimation } from '${entry}';`);
+    const skinned = await bundle(`export { bakeSkinnedAnimation } from '${entry}';`);
     const all = await bundle(`export * from '${entry}';`);
-    for (const [name, output, ceiling] of [['parser', parser, 3300], ['bake', bake, 3400], ['entry', all, 6700]]) {
+    for (const [name, output, ceiling] of [['parser', parser, 3500], ['bake', bake, 3600], ['skinned', skinned, 4800], ['entry', all, 8600]]) {
         const bytes = gzipSync(output.contents).length;
         assert.ok(bytes <= ceiling, `${name}: ${bytes} B min+gzip exceeds ${ceiling} B`);
         console.log(`loaders ${name}: ${output.contents.length} B min, ${bytes} B min+gzip (line ${ceiling} B)`);
     }
     assert.ok(!parser.text.includes('bakeRigidAnimation:'), 'parser-only apps carry the bake');
+    assert.ok(!parser.text.includes('bakeSkinnedAnimation:'), 'parser-only apps carry the skinned bake');
+    assert.ok(!bake.text.includes('bakeSkinnedAnimation:'), 'rigid-only apps carry the skinned bake');
+    assert.ok(!skinned.text.includes('Invalid GLB.') && !skinned.text.includes('bakeRigidAnimation:'), 'skinned-only apps carry the parser or rigid bake');
     assert.ok(bake.text.includes('bakeRigidAnimation:') && !bake.text.includes('Invalid GLB.'), 'the bake imports no parser');
     assert.equal((await bundle(`import '${entry}';`)).text.trim(), '', 'unused entry leaves no code');
 });
@@ -60,5 +65,37 @@ test('loaders guide: rigid preparation example type-checks, bundles and runs on 
         assert.deepEqual([...result.geometry.megaIndices], [...result.animation.indices]);
         assert.equal(result.bounds[3], result.animation.bounds.radius);
         assert.ok(result.bounds[3] > 2.5);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('loaders guide: skinned preparation example type-checks, bundles and runs', async () => {
+    const guide = readFileSync(join(root, 'docs/api/loaders.md'), 'utf8');
+    const sources = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map(m => m[1]).filter(s => s.includes('export async function prepareSkinnedModel'));
+    assert.equal(sources.length, 1);
+    const dir = mkdtempSync(join(root, 'test/.loaders-api-'));
+    try {
+        writeFileSync(join(dir, 'example.ts'), sources[0]);
+        writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
+            target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true,
+            noEmit: true, skipLibCheck: true, types: ['@webgpu/types'], lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+        }, files: ['example.ts'] }));
+        try {
+            execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--project', join(dir, 'tsconfig.json')], { cwd: root, stdio: 'pipe' });
+        } catch (error) { throw new Error(`Skinned example TypeScript failed:\n${error.stdout}\n${error.stderr}`); }
+        const output = await build({ stdin: { contents: sources[0], loader: 'ts', resolveDir: root },
+            bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'silent' });
+        writeFileSync(join(dir, 'example.mjs'), output.outputFiles[0].text);
+        const { prepareSkinnedModel } = await import(pathToFileURL(join(dir, 'example.mjs')).href);
+        const p = box();
+        p.joints = Array(p.positions.length / 3).fill([0, 0, 0, 0]).flat();
+        p.weights = Array(p.positions.length / 3).fill([1, 0, 0, 0]).flat();
+        const bytes = glb({ nodes: [{ mesh: 0, skin: 0, children: [1] }, {}], meshes: [{ primitives: [p] }],
+            skins: [{ joints: [1], inverseBindMatrices: [...mat4.create()] }], animations: [{ name: 'idle',
+                samplers: [{ times: [0, 1], values: [0, 0, 0, 0, 1, 0] }], channels: [{ sampler: 0, node: 1, path: 'translation' }] }] });
+        const { animation, bounds } = await prepareSkinnedModel(`data:model/gltf-binary;base64,${Buffer.from(bytes).toString('base64')}`);
+        assert.equal(animation.vertexCount, 8);
+        assert.equal(animation.influences, 1);
+        assert.equal(animation.frames, 30);
+        assert.equal(bounds[3], animation.bounds.radius);
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });

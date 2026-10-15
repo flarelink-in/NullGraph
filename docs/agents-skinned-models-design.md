@@ -5,7 +5,8 @@ skinned models") and §10, row 5. Cycle D, step D1, phase 5 (the user's "10.5").
 
 **Asked by the user** (2026-10-15, after phase 4 was committed): "you can start with 10.5".
 
-**Status:** decided with the user, 2026-10-15 (§9: the four recommendations). Phase 5.0 next.
+**Status:** phases 5.0 and 5.1 complete locally, 2026-10-15. Phase 5.2 next: palette snippets
+and GPU verification, then the demo's rigid Models migration (5.3). Phase 5.1 is not committed yet.
 
 ---
 
@@ -194,7 +195,60 @@ sampling, for skinned models and, as the numbers allow, for rigid ones. Its memo
 computing it only for the agents drawn as models (the near LOD band), over the model batch's visible
 list, instead of for every agent.
 
-### Questions after 5.0
+### Decisions after 5.0 (the user, 2026-10-15)
+
+1. **The palette is adopted:** a compute pass writes each drawn agent's influence matrices once a
+   frame, and the hook reads one (rigid) or four (skinned).
+2. **One palette slot per visible model:** the pass runs after the model batch's cull, over its
+   compacted visible list, and the hook reads its slot by `instance_index`.
+3. **The demo's rigid Models move onto the palette now,** before the user's skinned animals.
+4. **WGSL snippets in loaders, not a class, for now** (the user: "if the snippets get usable more in
+   future, I could use the palette class"): the app owns the buffer and the pass, as with the vertex
+   hook. A class can wrap the same snippets later, if they are reused.
+
+**The build order becomes:**
+
+| Phase | Builds | Checked by |
+|---|---|---|
+| 5.0 ✅ | The cost spike (above) | Costs recorded |
+| 5.1 | `bakeSkinnedAnimation`; `GLBParser` reads normalized weights; tests; guide | Headless tests |
+| 5.2 | The palette snippets (sample into a slot; read one or four in a hook); a GPU test over a batch's visible list; guide | Headless + GPU test |
+| 5.3 | The demo's cow and fox on the palette, one slot per visible model; costs against the hook | Drives, measurements |
+| 5.4 | The user's skinned animals in Models mode (when they exist) | Drives, screenshots |
+
+### Phase 5.1 results — 2026-10-15
+
+Resumed Claude session `20c36f59-ab5e-4974-8dfb-d4d710b7ad75` from its local transcript, without
+spending Claude quota. Completed its uncommitted `bakeSkinnedAnimation`, shared sampling/welding
+refactor and normalized integer weight fix. The parser records multiple skins and additional
+influence sets so the bake can refuse them rather than silently discard data. Omitted inverse
+binds become identity. Invalid/negative/non-finite weights and malformed inverse binds are refused.
+
+**Coordinate clarification:** skinned vertices are rebased by one fixed invertible `M`, the rest
+skinning matrix of the joint carrying the greatest total weight. Table entries are
+`W_t(joint) · IBM(joint) · M⁻¹`; this keeps Mixamo's scale/orientation in model space and preserves
+the weighted pose exactly. The stored vertices are a rebased bind mesh, not necessarily the default
+posed surface when the file's rest pose differs from its bind pose. Only a bind-rest file has
+identity transforms at rest. Rigid attachments keep their world-rest vertices and rest-to-pose table.
+
+**Validation:** production build and TypeScript pass; IDE build reports no problems. Loaders tests:
+final development-build run 19 pass, 0 fail, 0 skipped (including parser compatibility on three
+rigid GLBs); production-build run 18 pass, 0 fail, one optional parser-corpus skip. Includes
+direct glTF evaluation plus `Animator` on the in-memory linear fixture, STEP and CUBICSPLINE,
+mixed rigid attachments, normalized byte/ushort weights, welding, bounds, frame blends/loop seam,
+named refusals, and type-checked/executed rigid and skinned guide examples. Both Mixamo dancers
+(56 joints each) and the butterfly (2 joints) pass direct evaluation: all vertices at three frames,
+sampled vertices at every other baked frame. Test corpus uses 5 fps, never copies assets into git.
+The shared refactor preserves rigid results byte-for-byte against the saved pre-refactor build,
+for looping/non-looping and welded/unwelded fixtures and all clips of cow/deer/fox.
+
+**Size (min+gzip, measured by the API test):** parser-only 3,415 B; rigid-only 3,479 B;
+skinned-only 4,617 B; complete loaders entry 8,389 B (previous entry 6,463 B). Tree-shaking checks
+confirm parser-only carries neither bake, rigid-only carries no skinned bake, and skinned-only
+carries neither parser nor rigid bake. No engine API changes, site edits, GPU integration or
+new assets in this phase. The palette snippets are not exported yet.
+
+### Questions after 5.0, as asked
 
 1. **Adopt the palette** (a compute pass per frame writes each drawn agent's influence matrices; the
    hook reads one or four)? *Recommended:* skinned at rigid's cost, rigid cheaper.

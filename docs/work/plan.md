@@ -329,3 +329,7 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   `bakeSkinnedAnimation`, beside the rigid one; a public WGSL sampling helper, `BAKED_POSE_WGSL`, in
   loaders; the Mixamo dancers, the butterfly and in-memory fixtures as test models while no rigged
   animal exists (the demo keeps the Kenney animals); a cost spike first (5.0).
+- **2026-10-15, after phase 5.0:** the spike measured a per-agent palette (skinned at 0.69–0.98× the
+  rigid hook, against 2.2–2.8× for sampling per vertex). The user adopted it, with one slot per
+  visible model, moved the demo's rigid Models onto it now, and chose WGSL snippets in loaders over a
+  class for now. Phases 5.1–5.4 as in the [design](../agents-skinned-models-design.md).

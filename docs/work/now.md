@@ -14,26 +14,31 @@ log, not here.
   - **The phase 4 review is committed:** `ChainPresets.anime()` as soft colours with crisp depth ink
     (`8b68286`); `InstanceDrawOptions.lod`, LOD by size on screen (`c56de95`); far cubes, fences and
     stock materials in the site (`ca81605`). See "Phase 4 review" in the design.
-- **Next:**
-  1. the bug the user reported: in Models mode the agent count does not switch (Darts and Arrows
-     switch);
-  2. phase 5, skinned models (the user's "10.5"), designed before it is built.
+- **Phase 5.0 committed** (`86216cf`): palette adopted, one slot per visible model after culling;
+  WGSL snippets in loaders, no class yet; move the demo's rigid cow/fox onto it before new animals.
+- **Phase 5.1 complete locally, uncommitted:** skinned bake, shared sampling/welding refactor,
+  normalized integer weights, named refusals, guide/tests. Resumed Claude's saved local session
+  `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`; no Claude quota used.
+- **Next:** phase 5.2 palette snippets + GPU visible-list/pose test; 5.3 rigid site migration and
+  costs; 5.4 user's Blender animals when available. Palette snippets are not exported yet.
+- Previously reported Models agent-count switching bug remains an open verification item; not
+  investigated by this phase's headless bake tests.
 - Open, not asked: the green clear colour reads as sky when the camera is low; catch rings dominate
   far views; the animals' palette is a stand-in.
 
 ## State of the repositories
 
-- **null-graph** (`master`, not pushed): clean after this session's records commit. `dist/` is a
-  development build.
+- **null-graph** (`master`, not pushed): phase 5.1 and Claude's phase 5.0 decision records remain
+  uncommitted. `dist/` is a development build. No new assets, commits, push or deployment.
 - **Site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): null-graph published to it
   alone through yalc (signature `d360757d…`, a production build of the code now committed). Eight
   unrelated files someone else staged (hosting files, two light demos) stay staged and uncommitted;
-  commit by path there. Most of the agents demos' other files are still untracked.
-- **Dev servers:** only the user's on 8082. Use another port for tests, and stop what you start.
-- **Green on 2026-10-15:** visibility, post and loaders headless; visibility GPU 9/9 on Node/NVIDIA,
-  Node/AMD, Chrome/AMD; each code commit validated alone in a temporary worktree; site `tsc`,
-  ESLint (0 errors), `check-site.mjs` 4/4; Chrome drives of Herd & Wolves GPU, its preview and
-  VisibilityMeshlets.
-- **Bundle:** visibility 14,035 B min+gzip; post 18,609 B; loaders 6,463 B.
+  commit by path there. Site untouched in 5.1; no yalc publish. Most other demo files are untracked.
+- **Dev servers:** prior note says user's on 8082; no server started in 5.1.
+- **5.1 green:** production/development builds, TypeScript and IDE build; final loaders run
+  **19 pass, 0 fail, 0 skipped** (parser compatibility enabled). Dancers/butterfly via `NG_SKINNED_GLB_DIR` to
+  site `public/`; direct glTF/Animator fixtures, guide examples and tree-shaking pass. Rigid
+  cow/deer/fox byte-exact against `%TEMP%/ng-d15-pre-skinned-loaders.mjs`.
+- **Bundle:** loaders entry 8,389 B min+gzip; parser 3,415 B; rigid 3,479 B; skinned 4,617 B.
 - **Another worktree exists:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`).
 - `package-lock.json` is ignored by git here; `venv/` needs `--cert venv/pip-ca-bundle.pem`.

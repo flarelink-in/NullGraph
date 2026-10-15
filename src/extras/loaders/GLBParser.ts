@@ -47,7 +47,8 @@ export class GLBParser {
             skin: skin,
             animations: animations,
             imageUrls: imageUrls,
-            nodes: gltf.nodes
+            nodes: gltf.nodes,
+            ...(gltf.skins?.length > 1 ? { skinCount: gltf.skins.length } : {})
         };
     }
 
@@ -80,6 +81,7 @@ export class GLBParser {
                     this.bakeTransform(geom, worldMatrix);
                 }
                 geom.node = nodeIndex;
+                if (Object.keys(primitive.attributes).some(name => /^(JOINTS|WEIGHTS)_[1-9]\d*$/.test(name))) geom.hasAdditionalInfluences = true;
                 geometries.push(geom);
             }
         }
@@ -131,7 +133,7 @@ export class GLBParser {
         const dataView = new DataView(buffer);
 
         // 5. UPGRADED READ ATTRIBUTE (Handles Floats AND Integers safely)
-        const readAttribute = (accessor: any, targetOffset: number, numComponents: number) => {
+        const readAttribute = (accessor: any, targetOffset: number, numComponents: number, scale = 1) => {
             if (!accessor) return;
             const bufferView = gltf.bufferViews[accessor.bufferView];
             const byteStride = bufferView.byteStride || (numComponents * (accessor.componentType === 5126 ? 4 : (accessor.componentType === 5123 ? 2 : 1)));
@@ -147,7 +149,7 @@ export class GLBParser {
                     else if (compType === 5123) val = dataView.getUint16(byteOffset, true); // UINT16 (Joints)
                     else if (compType === 5121) val = dataView.getUint8(byteOffset); // UINT8 (Joints)
 
-                    vertices[(i * stride) + targetOffset + j] = val;
+                    vertices[(i * stride) + targetOffset + j] = val * scale;
                 }
             }
         };
@@ -164,7 +166,9 @@ export class GLBParser {
             if (jointAccessor) readAttribute(jointAccessor, 8, 4);
             else for(let i=0; i<vertexCount; i++) { vertices[i*stride + 8] = 0; }
 
-            if (weightAccessor) readAttribute(weightAccessor, 12, 4);
+            // Weights may be normalized integers (glTF 2.0): 0..255 or 0..65535 stand for 0..1.
+            const unit = weightAccessor?.normalized ? ({ 5121: 1 / 255, 5123: 1 / 65535 } as Record<number, number>)[weightAccessor.componentType] ?? 1 : 1;
+            if (weightAccessor) readAttribute(weightAccessor, 12, 4, unit);
             else for(let i=0; i<vertexCount; i++) { vertices[i*stride + 12] = 1; }
         }
 
@@ -303,6 +307,11 @@ export class GLBParser {
         if (!gltf.skins || gltf.skins.length === 0) return null;
         const skin = gltf.skins[0];
         const joints = skin.joints;
+        if (skin.inverseBindMatrices === undefined) {
+            const inverseBindMatrices = new Float32Array(joints.length * 16);
+            for (let j = 0; j < joints.length; j++) inverseBindMatrices.set(MathUtils.identity(), j * 16);
+            return { joints, inverseBindMatrices, nodes: gltf.nodes };
+        }
         const accessor = gltf.accessors[skin.inverseBindMatrices];
         const bufferView = gltf.bufferViews[accessor.bufferView];
         const startByte = binBufferOffset + (bufferView.byteOffset || 0) + (accessor.byteOffset || 0);
