@@ -339,3 +339,6 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   class for now. Phases 5.1–5.4 as in the [design](../agents-skinned-models-design.md).
 - **2026-10-15:** phase 5.1 committed `e84e308`; 5.2 public palette snippets and visible-slot GPU
   verification implemented. Next 5.3: migrate demo rigid Models onto the visible palette and measure.
+- **2026-10-15:** 5.3 committed (site `17cd4af`, validation `84a04dd`). User requested commits,
+  `yalc:push`, 5.4 start and slowdown investigation. Contiguous producer writes improve AMD 16K;
+  asset-intake checker starts 5.4, but actual skinned-animal integration awaits the user's GLBs.

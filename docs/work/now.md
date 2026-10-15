@@ -27,7 +27,10 @@ log, not here.
 - Actual-site GPU checks 6/6 each Node/NVIDIA and Node/AMD, no errors or pixel differences.
   Chrome/AMD: 32 actions, six reviewed screenshots, zero errors; Models 4K/16K/64K, pause, resize,
   anime/grid, mode switching, selected inspector, teardown. Count-switch bug not reproduced.
-- **Next:** 5.4 user's Blender animals when available; sparse palettes/indirect dispatch are follow-ups.
+- **Follow-up site commit `f4566cd`:** contiguous slot/part producer layout fixes strided writes; AMD 16K old palette
+  8.95–9.45 ms → 7.77–7.83 ms; NVIDIA near hook parity. Four final GPU runs 12/12 each.
+- **5.4 started (intake only):** asset checker added; no skinned cow/fox found in site public GLBs.
+  Need user's GLBs and idle/walk/run/eat clips; integration/visual drive remains blocked on assets.
 - Open, not asked: the green clear colour reads as sky when the camera is low; catch rings dominate
   far views; the animals' palette is a stand-in.
 
@@ -39,8 +42,8 @@ log, not here.
   alone through yalc (signature `d360757d…`, a production build of the code now committed). Eight
   unrelated files someone else staged (hosting files, two light demos) stay staged and uncommitted;
   commit by path there. 5.3 touches only HerdWolvesGPU/index.ts and models.ts. No yalc publish.
-  Installed node_modules/null-graph/dist refreshed from local library for validation; reinstalling
-  the older .yalc package needs a refresh. No lockfile change. Most other demo files are untracked.
+  Latest follow-up ran `npm run yalc:push` successfully: production build refreshed all five
+  registered local consumers, including this site and its .yalc copy. Most other demo files are untracked.
 - **Dev servers:** prior note says user's on 8082; no server started in 5.1.
 - **5.3 site validation:** TypeScript, targeted ESLint, IDE build and production Vite build pass
   (51 s; existing chunk/deprecation warnings). React/worker host and ORT migration not retested.
