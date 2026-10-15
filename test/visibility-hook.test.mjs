@@ -51,6 +51,16 @@ function scene() {
     return { vis, bindings, configs, pass: { batches: [] } };
 }
 
+test('visible-slot hook opts into compacted instance_index without changing legacy hooks', () => {
+    const slotHook = { ...hook, instanceIndex: true,
+        wgsl: hook.wgsl.replace('inst: Instance)', 'inst: Instance, slot: u32)') };
+    const { vis, pass, configs } = scene();
+    vis.createInstanceDrawBatch(pass, 'part', 0, { vertexHook: slotHook });
+    assert.match(configs[0].shaderCode, /deform\(pos, normal, vi, inst, ii\)/);
+    assert.equal(new WgslReflect(configs[0].shaderCode).entry.vertex.length, 1);
+    assert.doesNotMatch(buildInstanceDrawWGSL({ vertexHook: hook }), /inst, ii\)/);
+});
+
 test('hook binds caller resources, fills empty groups and refuses collisions before allocating a batch', () => {
     const { vis, bindings, configs, pass } = scene();
     vis.createInstanceDrawBatch(pass, 'part', 0, { vertexHook: hook });

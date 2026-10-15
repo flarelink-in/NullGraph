@@ -333,3 +333,5 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   rigid hook, against 2.2–2.8× for sampling per vertex). The user adopted it, with one slot per
   visible model, moved the demo's rigid Models onto it now, and chose WGSL snippets in loaders over a
   class for now. Phases 5.1–5.4 as in the [design](../agents-skinned-models-design.md).
+- **2026-10-15:** phase 5.1 committed `e84e308`; 5.2 public palette snippets and visible-slot GPU
+  verification implemented. Next 5.3: migrate demo rigid Models onto the visible palette and measure.

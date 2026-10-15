@@ -5,8 +5,8 @@ skinned models") and §10, row 5. Cycle D, step D1, phase 5 (the user's "10.5").
 
 **Asked by the user** (2026-10-15, after phase 4 was committed): "you can start with 10.5".
 
-**Status:** phases 5.0 and 5.1 complete locally, 2026-10-15. Phase 5.2 next: palette snippets
-and GPU verification, then the demo's rigid Models migration (5.3). Phase 5.1 is not committed yet.
+**Status:** phase 5.0 committed `86216cf`, phase 5.1 committed `e84e308`; phase 5.2 implemented and
+validated, 2026-10-15. Next: the demo's rigid Models migration and cost comparison (5.3).
 
 ---
 
@@ -247,6 +247,41 @@ skinned-only 4,617 B; complete loaders entry 8,389 B (previous entry 6,463 B). T
 confirm parser-only carries neither bake, rigid-only carries no skinned bake, and skinned-only
 carries neither parser nor rigid bake. No engine API changes, site edits, GPU integration or
 new assets in this phase. The palette snippets are not exported yet.
+
+### Phase 5.2 results — 2026-10-15
+
+Public loaders snippets: `BAKED_POSE_WGSL` (row pose and math), `BAKED_SAMPLE_WGSL` (frame/clip
+sampling), `BAKED_PALETTE_WRITE_WGSL`, `BAKED_PALETTE_READ_WGSL` (one influence or weighted four).
+They declare no resources/bind groups/entry points. App owns allocation, clip/state selection,
+bindings, scheduling and teardown. Sampling supports wrapping loops (negative phases too), held
+ends, one-frame clips, table offsets and multiple models; palette supports base offsets/strides.
+
+**Integration touchpoint found:** the old hook had only `sourceIndex`, not its compacted slot.
+`InstanceVertexHook.instanceIndex: true` now opts into a fifth `slot: u32` argument. Existing
+four-argument hooks and no-hook WGSL remain unchanged; no core, instance-record or cull change.
+The producer uses `batch.storageBuffer[slot].sourceIndex` to select animation; the consumer reads
+the palette by `slot`, not source row. The GPU count is `batch.indirectBuffer` word 1.
+
+**Validation:** loaders 20/20 including all optional local models and rigid compatibility;
+visibility headless passes; production/development and IDE builds pass. New registered loaders
+GPU suite: 12/12 on Node/NVIDIA, Node/AMD and Chrome/AMD, zero GPU errors. Real cull filters row 0,
+frustum-culls row 2, compacts rows 1/3; palette matches independent blended glTF translations to
+4.8e-8. Four-influence hook renders 3,512 covered pixels, **zero differing pixels** versus CPU.
+Wrong source-row indexing changes 2,494 pixels; omitting deformation changes 1,536. One-influence
+reads, zero weights, nonzero baseVertex/table/palette offsets, spare stride, shrinking then empty
+counts on the same batch, loop seam/clamps/negative phases and normals checked. Existing visibility
+GPU suite 9/9 in Node/NVIDIA and Chrome/AMD. Initial Node adapter shorthand `adapter=amd` was rejected; rerun using
+the full adapter name passed (environment selection issue, no code defect).
+
+**Memory clarification:** work is per survivor, but an app must reserve capacity for the maximum
+survivors (not the previous frame's count). Snippets cannot size buffers on the GPU. Storage-binding,
+buffer-size and u32 addressing limits, per-view palette ownership and normal deformation caveats are
+documented in `docs/api/loaders.md`, with the complete executable GPU harness as an example.
+
+**Size:** snippets-only 786 B min+gzip; full loaders 9,106 B (5.1: 8,389 B); rigid-only 3,479 B and
+skinned-only 4,617 B unchanged; parser-only 3,414 B. Tree-shaking excludes snippets from bake/parser
+imports and excludes the parser/bakes from snippet-only imports. No site/yalc changes in 5.2;
+phase 5.3 must migrate the demo and measure its visible-list implementation before claiming speedups.
 
 ### Questions after 5.0, as asked
 

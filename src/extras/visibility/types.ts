@@ -96,6 +96,10 @@ export interface InstanceVertexHook {
     entries: GPUBindGroupEntry[];
     /** Dedicated bind group; default 2. Choose another group when lighting occupies 2. */
     group?: number;
+    /** Opt in to a fifth `slot: u32` deform argument: the compacted builtin instance_index.
+     * Use for a visible-slot palette; sourceIndex still identifies the original simulation row.
+     * Default false preserves the four-argument hook. */
+    instanceIndex?: boolean;
 }
 
 /**
