@@ -18,11 +18,15 @@ log, not here.
     came back at 4K before);
   - overlay fixes found at 256K; the site's documentation page rewritten; `docs/api/agents.md` and
     `inference.md` point to the demo on nullgraph.dev.
-- **Next action:** none scheduled. The user deploys the site, so that nullgraph.dev shows step 10
-  where the guides now point. The user is thinking about the demo's next look (animated low-poly
-  models, toon shading, a video of the capabilities) and Phase 2; nothing is decided. After C2,
-  the user's direction for brains is in `plan.md` (scope changes, 2026-10-15): keep ORT as the
-  reference, widen `MlpBrain` for the 3D cases. Not scheduled: step 5's scaling study.
+- **Cycle D, animated agents** (decided 2026-10-15, ahead of Phase 2;
+  [`../agents-animated-models-design.md`](../agents-animated-models-design.md)). Step D1: baked
+  rigid animation in loaders, a vertex hook in visibility (both public API), a Models draw mode and
+  a toon field in Herd & Wolves; the cow for the prey, the fox for the wolves; one accumulated
+  phase per agent. **Phase 0 measured, not committed:** `test/spikes/animated-models/`; posed,
+  welded cows cost 3.7 / 8.1 / 28.5 ms at 4K / 16K / 64K in Chrome on the AMD iGPU.
+- **Next action:** phase 1, `GLBParser`'s node per mesh and `bakeRigidAnimation` (welding by
+  default). Open: the field in Models mode only, or in every mode (design §11, item 5; default
+  Models only). The user deploys the site for step 10.
 
 ## State of the repositories
 

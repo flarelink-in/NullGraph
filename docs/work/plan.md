@@ -55,6 +55,15 @@ Note the clash: **"Phase 2"** (capital, a milestone after C2) is not a step's ph
 
 **C1 is a product on its own:** crowds, herds and RTS units with no ML.
 
+### Cycle D — animated agents (decided 2026-10-15)
+
+GPU agents drawn as animated low-poly models whose animation follows each agent's simulation
+state, the rendering backbone Phase 2's creatures will need, and the showcase of C1–C2.
+
+| Step | Delivers | Serves the goal by | Status |
+|---|---|---|---|
+| D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phase 0 ✅ (costs measured: posed, welded cows draw in 3.7 / 8.1 / 28.5 ms at 4K / 16K / 64K in Chrome on the AMD iGPU; welding halves the cost). Next: phase 1 |
+
 ### Other open work (outside Cycle C)
 
 - Agent kit follow-up: guidance fixes, a pinned-tarball trial, then release/tag (handoff "Agent kit").
@@ -293,3 +302,8 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   kernel, wider layers, discrete output heads, memory, per-agent weight rows, a sensor that reads
   app buffers. Recording and training stay in this repository's tools (`agents:record`,
   `agents:train`).
+- 2026-10-15: C2 complete. The user opened **Cycle D, animated agents**, ahead of Phase 2: baked
+  rigid (later skinned) animation in `null-graph/loaders` and a vertex hook in
+  `null-graph/visibility`, both public API, then a Models draw mode with a toon field in Herd &
+  Wolves; deer or cow for the prey, the fox for the wolves; one accumulated animation phase per
+  agent ([design](../agents-animated-models-design.md) §11).
