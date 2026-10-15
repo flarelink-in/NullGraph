@@ -16,7 +16,7 @@ const esbuild = createRequire(join(site, 'package.json'))('esbuild');
 try {
     const result = await esbuild.build({
         entryPoints: [join(demo, 'models.ts')], bundle: true, write: false, format: 'esm', platform: 'node',
-        alias: { 'null-graph/loaders': resolve('dist/loaders.js') },
+        alias: { 'null-graph/loaders': resolve('dist/loaders.js'), 'null-graph/visibility': resolve('dist/visibility.js') },
     });
     const m = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
     const source = readFileSync(join(demo, 'index.ts'), 'utf8');
@@ -52,6 +52,14 @@ try {
     console.log('ok field: real ground/grass shaders parse; Models first, Darts default, lazy cached asset entry');
     globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
     engine.device = { createBuffer: config => ({ ...config, destroy() {} }), queue: { writeBuffer() {} } };
+    engine.device.limits = { maxStorageBufferBindingSize: 128 * 1024 * 1024, maxBufferSize: 256 * 1024 * 1024 };
+    assert.equal(m.animalPaletteFits(engine, models, 4096, 3), true);
+    assert.equal(m.animalPaletteFits(engine, models, 1048576, 1), false);
+    const stages = [];
+    engine.createComputeStage = config => { stages.push(config); return config; };
+    engine.setComputePassBindGroup = () => {};
+    assert.ok(source.indexOf('...target.palettes') > source.indexOf('target.vis.getComputeStages()'));
+    assert.ok(source.indexOf('...target.palettes') < source.indexOf('...target.names.getComputeStages()', source.indexOf('...target.palettes')));
     for (const [name, model] of [['prey', models.prey], ['wolf', models.wolf]]) {
         assert.deepEqual(model.clips.map(c => c.name), ['idle', 'walk', 'run', 'eat']);
         const zs = Array.from({ length: model.vertexCount }, (_, i) => model.vertices[i * 8 + 2]);
@@ -64,6 +72,16 @@ try {
         const reflected = new WgslReflect(wgsl);
         assert.equal(reflected.entry.vertex.length, 1);
         assert.equal(reflected.entry.fragment.length, 1);
+        const palette = m.animalPalette(engine, model, model.partOfVertex, {}, {}, {}, 128, x => x);
+        assert.equal(palette.hook.instanceIndex, true);
+        assert.equal(palette.hook.entries.length, 2);
+        const stage = palette.attach({ storageBuffer: {}, indirectBuffer: {} });
+        assert.equal(new WgslReflect(stage.shaderCode).entry.compute.length, 1);
+        assert.deepEqual(stage.dispatchCount, [2, model.parts, 1]);
+        assert.ok(stage.shaderCode.includes('visible[slot].sourceIndex'));
+        assert.ok(stage.shaderCode.includes('slot >= drawArgs[1]'));
+        assert.ok(palette.hook.wgsl.includes('slot, animalPartOf[vi]'));
+        assert.equal(new WgslReflect(buildInstanceDrawWGSL({ vertexHook: palette.hook })).entry.vertex.length, 1);
         console.log(`ok ${name}: correct asset/palette, metre-sized mesh, clips, public hook and fragment parse`);
     }
     const def = defineAgents({ capacity: 4, world: { min: [-8, -8], max: [8, 8] }, cellSize: 8,

@@ -283,6 +283,58 @@ skinned-only 4,617 B unchanged; parser-only 3,414 B. Tree-shaking excludes snipp
 imports and excludes the parser/bakes from snippet-only imports. No site/yalc changes in 5.2;
 phase 5.3 must migrate the demo and measure its visible-list implementation before claiming speedups.
 
+### Phase 5.3 results — 2026-10-15
+
+Site commit `17cd4af`: the rigid cow/fox use the public snippets after their model draws' culls. Every normal,
+hover and selected batch owns its own palette: the lists compact independently, so sharing one by
+species would be wrong. Clip selection uses the survivor's `sourceIndex`; vertex reads use its
+compacted slot and the megabuffer's absolute vertex index. Fixed-step phase, idle/walk/run/eat
+blends, lazy Models loading and Darts startup are unchanged. The on-screen heading identifies the
+visible palette or vertex fallback. The memory estimate now includes the palette allocation.
+
+**Capacity policy:** reserve `count × parts × 48` bytes per draw, not the previous survivor count.
+Before allocation, check each storage binding/buffer limit and a 64 MiB combined palette budget.
+All model draws use the original hook if that budget is exceeded (64K in the local cow/fox demo).
+This avoids replacing a large-count draw with an allocation failure; far cubes never need a palette.
+Dispatch is `[ceil(capacity/64), parts, 1]`, guarded by indirect draw word 1; there is no CPU count
+readback. This still over-dispatches empty slots, and the hover/selection lists reserve full capacity.
+Packing these sparse lists or indirect-dispatching survivors is a possible follow-up, not a claim here.
+
+**Actual-site shader GPU comparison:** `test/spikes/animated-models/visible-palette.mjs` bundles the
+site's real model loader and both hooks against this library. Interleaved species/sources, all blend
+branches, nonzero baseVertex, and shrinking/empty/growing counts pass on Node/NVIDIA and Node/AMD:
+6/6 each, zero GPU errors, zero differing pixels (>2/255) with 32K–40K non-background pixels.
+
+Sequential isolated measurements, 512×512, two model batches with no LOD/post/simulation, 8 warmup
+frames then median of 16 timestamp samples (culls + palette when used + draw):
+
+| Adapter | Count | Legacy hook ms | Visible palette ms |
+|---|---:|---:|---:|
+| NVIDIA Turing | 128 | 0.393 | 0.393 |
+| NVIDIA Turing | 4,096 | 1.901 | 2.032 |
+| NVIDIA Turing | 16,384 | 12.517 | 12.452 |
+| AMD GCN-5 | 128 | 1.180 | 1.114 |
+| AMD GCN-5 | 4,096 | 3.604 | 3.867 |
+| AMD GCN-5 | 16,384 | 10.224 | 10.813 |
+
+**No reliable rigid speedup:** this workload shows approximately 7% overhead at 4K and little or
+negative benefit at 16K. Earlier concurrent runs varied substantially and are discarded. This
+establishes correctness and the skinned-consumer path, not a performance win. It does not supersede
+the phase 5.0 synthetic study or measure full-demo FPS.
+
+**Browser drive:** temporary isolated page bundles the actual `setupHerdWolvesGPU`, with the local
+library and site's existing public assets. Chrome/AMD: Darts → Models 4K → 16K → pause/anime/grid →
+resize → Arrows → Models 4K → selection → 64K vertex fallback → destroy; 32 actions, six reviewed screenshots,
+zero captured errors. Count-switch HUDs show 4K/16K/64K correctly; no fix required for the previously
+reported bug. The initial centre click missed; the final drive finds a real pick (source 3411)
+and selects it: the reviewed screenshot shows the prey's inspector. The React UI/worker host and ORT device migration were not
+retested by this isolated page. `prepare-demo.mjs` and `drive-palette.json` reproduce the drive.
+
+Site TypeScript, targeted ESLint, production Vite build (51 s), IDE build, loader tests and visibility
+headless suites pass. Build warnings are the existing large chunks/Node deprecation plus temporary
+output outside the site. Only the site's installed `node_modules/null-graph/dist` was refreshed for
+validation; no yalc publish, lockfile update, assets added, server stopped, push or deployment.
+
 ### Questions after 5.0, as asked
 
 1. **Adopt the palette** (a compute pass per frame writes each drawn agent's influence matrices; the
