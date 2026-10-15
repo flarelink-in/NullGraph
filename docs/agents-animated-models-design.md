@@ -172,7 +172,7 @@ per agent per batch; models add nothing per agent beyond that.
 | 1 ✅ | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests; results below (2026-10-15, uncommitted) |
 | 2 ✅ | The vertex hook; tests; guide | Headless + GPU test; results below (2026-10-15, uncommitted) |
 | 3 ✅ | The demo: Models mode, cow prey and fox wolves, clips from simulation state | Site typecheck, preparation/shader check and Chrome/AMD drives, 2026-10-15 |
-| 4 | The field, grass, toon, `anime` preset toggle; docs page | Drives, screenshots |
+| 4 | Implemented locally: Models-only field, grass, toon, `anime` preset toggle; docs page | Typecheck/build, shader check and Chrome drives; final notes below |
 | 5 | Skinned models (when the user has one) | Tests, drive |
 
 ## 11. Decisions (the user, 2026-10-15)
@@ -183,7 +183,7 @@ per agent per batch; models add nothing per agent beyond that.
    wolves. Phase 0 compares deer and cow.
 4. **Phase continuity: the smooth way,** one accumulated phase per agent (a float the simulation
    advances), not phases from age.
-5. **The field:** explained to the user, not answered yet. Default until then: Models mode only;
+5. **The field:** user approved starting D1.4 on 2026-10-15; use the documented default, Models mode only;
    darts and arrows keep the grid floor, whose lines match the simulation's 8 m cells.
 
 ### The questions as asked
@@ -355,3 +355,26 @@ in this session. Field/toon/post remain phase 4; skinning waits for phase 5.
 ### Phase 3 integration — 2026-10-15
 
 Cow prey and fox wolves implemented in the local site. Each step advances one wrapped phase float per agent; the public hook blends idle/walk/run and selects eat while resting. Model geometry and pose translations are scaled together for matching rest-pose picking. The absent external animal palette is replaced by four UV swatches sampled from the installed site palette; no assets added. Larger model draws use conservative queue-completion wall-time measurements on this GPU, not a fixed count cap. The site can refuse 64K/1M without submitting the predicted unsafe render. Optional `node test/spikes/animated-models/check-site.mjs` validates the actual site asset selection, scale, clip order and generated shaders. Chrome/AMD drives and site typecheck pass; field/grass/toon/post are not implemented here.
+
+### Phase 4 integration — 2026-10-15
+
+Implemented locally: Models-only green banded field, 768 deterministically scattered static grass
+patches, GPU frustum culling, faceted toon animal lighting and optional `ChainPresets.anime()`.
+The default Models look uses the faithful post chain; labels, catch rings and grid occupancy stay
+in a screen-format overlay after post. Post targets resize only when dimensions change. Darts
+and debug Arrows retain the grid and no post chain. Draw order is Models, Darts, debug Arrows;
+Darts remains the initial default. Existing mode switches still rebuild/reset the simulation.
+
+Cow/fox/grass GLBs and one shared public palette request start only on first Models selection,
+not demo setup. Loading/failure leaves the current non-model simulation running with a notice;
+assets are reused within the demo/device. No engine API changes or asset additions. The site
+documentation panel explains loading, animation, picking limits and scenery/post scope.
+
+Validation: site TypeScript/production build and IDE build pass, preparation/shader script extended
+for field/grass/default/order; Chrome/AMD stable 21-step drive, 14-step real viewport resize and
+occupancy-overlay drive, and injected missing-cow failure drive have no GPU errors or loss.
+Instrumented fetch shows exactly one worker request per scenery asset after first selection and
+none on repeat entry (forwarded page logs are duplicates, not requests). 16K was safely refused
+by the measured frame guard in this run; selection hit is not established by the click screenshot.
+Earlier drives overlapped Vite edits and reloaded; stable results exclude those interrupted runs.
+Artifacts: `C:/Users/Vikas/AppData/Local/Temp/ng-d1.4-{stable,resize,failure}`. Uncommitted.

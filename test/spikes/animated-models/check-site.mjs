@@ -19,6 +19,12 @@ try {
         alias: { 'null-graph/loaders': resolve('dist/loaders.js') },
     });
     const m = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+    const source = readFileSync(join(demo, 'index.ts'), 'utf8');
+    assert.ok(!source.includes('await loadHerdModels(engine)'), 'startup must not await model downloads');
+    assert.ok(source.includes("if (modelState !== 'idle') return"), 'repeat selections reuse the loaded assets');
+    const options = readFileSync(join(demo, 'options.ts'), 'utf8');
+    assert.ok(options.includes("['models', 'darts', 'arrows']"));
+    assert.ok(options.includes("drawAs: 'darts'"));
     const urls = [];
     globalThis.fetch = async url => {
         urls.push(url);
@@ -28,11 +34,25 @@ try {
     const textures = [];
     const engine = { textureManager: { load: async url => { textures.push(url); return {}; } } };
     const models = await m.loadHerdModels(engine);
-    assert.deepEqual(urls, ['/3dAssetsNotIncluded/animal-cow.glb', '/3dAssetsNotIncluded/animal-fox.glb']);
-    assert.deepEqual(textures, ['/textures/colormap.png', '/textures/colormap.png']);
+    assert.deepEqual(urls, ['/3dAssetsNotIncluded/animal-cow.glb', '/3dAssetsNotIncluded/animal-fox.glb', '/3dAssetsNotIncluded/patch-grass-foliage.glb']);
+    assert.deepEqual(textures, ['/textures/colormap.png']);
+    assert.ok(models.grass.vertices.length > 0);
+    const field = await esbuild.build({
+        entryPoints: [join(demo, 'field.ts')], bundle: true, write: false, format: 'esm', platform: 'node',
+        external: ['null-graph/*'],
+    });
+    // Extract the actual exported shader templates without resolving the site's engine package.
+    const fieldSource = readFileSync(join(demo, 'field.ts'), 'utf8');
+    for (const name of ['FIELD_FRAGMENT', 'GRASS_FRAGMENT']) {
+        const fragmentBody = fieldSource.match(new RegExp(`export const ${name} = /\\* wgsl \\*/ \x60([\\s\\S]*?)\x60;`))?.[1];
+        assert.ok(fragmentBody, `${name} exists`);
+        assert.equal(new WgslReflect(buildInstanceDrawWGSL({ fragmentBody })).entry.fragment.length, 1);
+    }
+    assert.ok(field.outputFiles[0].text.length > 0);
+    console.log('ok field: real ground/grass shaders parse; Models first, Darts default, lazy cached asset entry');
     globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
     engine.device = { createBuffer: config => ({ ...config, destroy() {} }), queue: { writeBuffer() {} } };
-    for (const [name, model] of Object.entries(models)) {
+    for (const [name, model] of [['prey', models.prey], ['wolf', models.wolf]]) {
         assert.deepEqual(model.clips.map(c => c.name), ['idle', 'walk', 'run', 'eat']);
         const zs = Array.from({ length: model.vertexCount }, (_, i) => model.vertices[i * 8 + 2]);
         assert.ok(Math.abs(Math.max(...zs) - Math.min(...zs) - (name === 'prey' ? 1.3 : 1.7)) < 1e-6);
