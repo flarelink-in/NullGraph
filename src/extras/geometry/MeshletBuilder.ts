@@ -178,7 +178,7 @@ export class MeshletBuilder {
         // tier reads vertices out of the pool directly (design doc §2.1 — the builder references,
         // never re-stores, vertices). LOD index arrays are meshlet-tier only, so each LOD's own
         // indices — not the megabuffer's copy — are meshletized below.
-        this.mega.addMesh(name, input.vertices, lodInputs[0].indices as number[] | Uint16Array);
+        this.mega.addMesh(name, input.vertices, lodInputs[0].indices);
 
         const offset = this.mega.getOffset(name);
         const baseVertex = offset.baseVertex;

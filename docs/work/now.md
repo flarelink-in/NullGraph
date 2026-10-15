@@ -1,53 +1,37 @@
 # Now — 2026-10-15
 
-**Rewrite this file at the end of every session; keep it under one screen.** History goes to the
-log, not here.
-
 ## Position
 
-- **Cycle C, milestone C2: complete.** Steps 6–10 are built and committed. Step 5's scaling study
-  (C1) is still deferred.
-- **Step 10, the live switch** ([`../agents-live-switch-design.md`](../agents-live-switch-design.md)):
-  10.0–10.4 committed (`9320373`, `22b67f8`, `ab3d9e1`, `072224d`, then 10.4's records after
-  `f8c4935`). **10.5 built, in the site, and recorded in the commit after `fd9211b`** ("Phase 10.5
-  results"):
-  - ONNX Runtime at every count, under the timeout guard: its run predicted from the runs measured
-    on this GPU, and measured first over 65,536 rows when nothing larger is measured. A refused
-    species runs its network on the built-in kernel;
-  - the steps' guard keeps its measurements across the device switch (a first ORT pick at 256K
-    came back at 4K before);
-  - overlay fixes found at 256K; the site's documentation page rewritten; `docs/api/agents.md` and
-    `inference.md` point to the demo on nullgraph.dev.
-- **Cycle D, animated agents** (decided 2026-10-15, ahead of Phase 2;
-  [`../agents-animated-models-design.md`](../agents-animated-models-design.md)). Step D1: baked
-  rigid animation in loaders, a vertex hook in visibility (both public API), a Models draw mode and
-  a toon field in Herd & Wolves; the cow for the prey, the fox for the wolves; one accumulated
-  phase per agent. **Phase 0 measured, not committed:** `test/spikes/animated-models/`; posed,
-  welded cows cost 3.7 / 8.1 / 28.5 ms at 4K / 16K / 64K in Chrome on the AMD iGPU.
-- **Next action:** phase 1, `GLBParser`'s node per mesh and `bakeRigidAnimation` (welding by
-  default). Open: the field in Models mode only, or in every mode (design §11, item 5; default
-  Models only). The user deploys the site for step 10.
+- **Cycle C, C2 complete.** Steps 6–10 committed; step 5's scaling study remains deferred.
+- **Cycle D, step D1: animated agents.** Design and phase 0 committed as `edecdf4`.
+  [Design/results](../agents-animated-models-design.md): cow prey, fox wolves, accumulated
+  phase per agent; no machine-specific model-count cap.
+- **Phase 1 built and validated, uncommitted.** Opus's rigid bake and parser node metadata;
+  Cline completed Uint32 index typing, size/tree-shaking tests, checked loader guide,
+  external-corpus comparison and regressions. No site changes or commits this session.
+- **Next: phase 2**, public visibility `vertexHook`, no-hook WGSL identity, GPU pose parity
+  and guide. Models mode/field remain phases 3–4. Field scope still open: default Models only
+  (design §11, item 5). Skinned models wait for the user's model (phase 5).
 
-## State of the repositories
+## Validation and limitations
 
-- **null-graph** (`master`, not pushed). 10.5's records are committed: the design's results,
-  `plan.md` (row 10, the horizon goal), `gotchas.md`, the parent's status and step 10 entry, the
-  two guides' pointers.
-- **The site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, no commits). The design's
-  10.1–10.5 results list every change there and what it replaced:
-  - its null-graph is this repository's build with the queue (yalc signature `f89220ed…`); 10.5
-    changed no library code. `node_modules/null-graph` is a copy (`gotchas.md`);
-  - its menu and the page's tab title say "Herd & Wolves (GPU brains)" since 10.5 (was "GPU
-    arrows");
-  - the user's dev server runs on 8081 (down on 2026-10-15). No test server is left running.
-- **ONNX Runtime 1.30.0 is out;** the repository and step 10 use 1.29.0 (D4).
-- **`package-lock.json` is ignored by git here.** `dist/index.js` and its map are tracked although
-  `dist` is ignored: commit them when core changes.
-- **`venv/`** (ignored) needs `--cert venv/pip-ca-bundle.pem` for `pip` ([`gotchas.md`](./gotchas.md)).
-- **Another worktree exists:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`).
-  Remove its `node_modules` junction first with `cmd /c rmdir`, then `git worktree remove`.
-- **Green on 2026-10-15:** after 10.5's docs, agents 83, inference 24 and agent-kit 4 headless;
-  `check-site.mjs` 16/16; the demo's drives clean on the dev server and on a build. Earlier the
-  same day: core, profiler, and the `inference` GPU suite, 17/17 on three host/GPU pairs.
-- **Bundle** (unchanged by 10.5): core 6,191 B; agents 20,209 B (C2 ceiling 21,495 B); the
-  inference entry: reader 2,847 B (line 2,900 B), adapter with `OrtBrain` 3,064 B (line 3,100 B).
+- Development build + TypeScript and IDE build pass. All existing headless scripts pass.
+- Loaders **8/8** with corpus options: **193 site GLBs** preserve prior output apart from node
+  metadata. Fox/deer/cow poses within 1.6e-7 of glTF at samples; no model files added.
+- Node/Dawn GPU: core **8/8**, visibility **6/6**, agents **137/137**, zero GPU errors.
+  No browser drives or new posed-model GPU parity test in phase 1.
+- Min+gzip: parser 3,207 B; bake 3,261 B; full loaders 6,463 B (+2,267 B versus saved old entry).
+  Regression ceilings 3,300 / 3,400 / 6,700 B. Parser-only apps tree-shake the bake away.
+- Existing limitations unchanged: uneven-scale normals, no material/vertex colours; at 30 fps,
+  blended run poses deviate up to 36.7 mm between samples. See the guide/design for constraints.
+
+## Repository state
+
+- **null-graph:** `master`; phase 1 uncommitted. `dist/` rebuilt in development mode;
+  tracked core dist files unchanged. `package-lock.json` ignored.
+- **Site:** `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, untouched this session.
+  Installed library remains the step 10 build; no yalc push or deployment. Restart Vite after
+  refresh (node_modules is a copy). The user deploys the site.
+- Optional compatibility test needs `NG_GLB_COMPAT_DIR` and `NG_GLB_OLD_LOADER`; see design.
+  Old build: local Claude temp session `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`,
+  `scratchpad/old/loaders.js`. Animal models remain local and ignored; never commit them.

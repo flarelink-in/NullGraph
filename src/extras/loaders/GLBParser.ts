@@ -46,7 +46,8 @@ export class GLBParser {
             meshes: geometries,
             skin: skin,
             animations: animations,
-            imageUrls: imageUrls
+            imageUrls: imageUrls,
+            nodes: gltf.nodes
         };
     }
 
@@ -78,6 +79,7 @@ export class GLBParser {
                 if (!isSkinned) {
                     this.bakeTransform(geom, worldMatrix);
                 }
+                geom.node = nodeIndex;
                 geometries.push(geom);
             }
         }

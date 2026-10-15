@@ -62,7 +62,7 @@ state, the rendering backbone Phase 2's creatures will need, and the showcase of
 
 | Step | Delivers | Serves the goal by | Status |
 |---|---|---|---|
-| D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phase 0 ✅ (costs measured: posed, welded cows draw in 3.7 / 8.1 / 28.5 ms at 4K / 16K / 64K in Chrome on the AMD iGPU; welding halves the cost). Next: phase 1 |
+| D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phases 0–1 ✅: measured model costs; rigid bake, node metadata, tests and checked guide built and validated (phase 1 uncommitted). Parser compatibility on 193 GLBs; loaders 8/8; headless suites green; core/visibility/agents GPU 151/151. Next: phase 2, vertex hook |
 
 ### Other open work (outside Cycle C)
 
