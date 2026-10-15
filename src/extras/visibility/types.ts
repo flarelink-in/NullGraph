@@ -86,7 +86,19 @@ export interface VisibilityMaterial {
     useSmoothRamp?: boolean;
 }
 
-/** Options for a single instance-tier draw batch (one per unique mesh). */
+/** Model-space deformation for instance-tier draws; resources remain caller-owned. */
+export interface InstanceVertexHook {
+    /** Defines fn deform(pos: vec3<f32>, normal: vec3<f32>, vi: u32, inst: Instance) -> Deformed.
+     * Deformed (provided by visibility) has position and normal, both vec3<f32>. */
+    wgsl: string;
+    /** Binding declarations at `group`, emitted verbatim (no automatic group rewriting). */
+    bindings: string;
+    entries: GPUBindGroupEntry[];
+    /** Dedicated bind group; default 2. Choose another group when lighting occupies 2. */
+    group?: number;
+}
+
+/** Options for an instance-tier draw batch (one per unique mesh). */
 export interface InstanceDrawOptions {
     /**
      * Camera uniform for BOTH the cull stage and the draw (shadows-design.md §9.3). Default:
@@ -110,6 +122,8 @@ export interface InstanceDrawOptions {
     fragmentBody?: string;
     /** Vertex attribute declarations matching the mega vertex layout. Defaults to StandardLayout. */
     vertexAttributesWGSL?: string;
+    /** Runs before the instance model transform. Not compatible with a full shaderCode override. */
+    vertexHook?: InstanceVertexHook;
     /** GPUVertexBufferLayout[] for the mega vertex buffer. Defaults to StandardLayout's descriptor. */
     vertexLayouts?: GPUVertexBufferLayout[];
     /** Extra group-1+ bindings the fragment needs (a material), emitted verbatim. */

@@ -110,7 +110,7 @@
     "test:post": "node test/post-arena.test.mjs && node test/post-pool.test.mjs && node test/post-shader-gen.test.mjs",
     "test:geometry": "node test/geometry-meshlets.test.mjs",
     "test:loaders": "node --test test/loaders-*.test.mjs",
-    "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs && node test/visibility-lifecycle.test.mjs",
+    "test:visibility": "node test/visibility-cull.test.mjs && node test/material-bridge.test.mjs && node test/visibility-lifecycle.test.mjs && node --test test/visibility-hook.test.mjs",
     "test:shadows": "node test/shadows-csm.test.mjs",
     "test:picking": "node test/picking.test.mjs",
     "test:text": "node test/text.test.mjs",

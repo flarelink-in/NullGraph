@@ -20,6 +20,8 @@ import {
 import { MegabufferBuilder, Primitives, StandardLayout } from '../../dist/geometry.js';
 import { mat4 } from 'gl-matrix';
 import { harnessEnv } from '../gpu/harness-env.mjs';
+import { GLBParser, bakeRigidAnimation } from '../../dist/loaders.js';
+import { glb, box, quat } from '../glb-fixtures/build.mjs';
 
 const { log, check, fatal, finish, saveImage } = harnessEnv('__VISIBILITY_RESULTS__');
 
@@ -279,6 +281,101 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
     vis.destroy();
     t.color.destroy(); t.depth.destroy();
     engine.clearPasses();
+}
+
+// V5 — public hook: a baked two-part GLB against independently CPU-posed geometry.
+// Padding geometry tests absolute vertex_index; sparse source rows test sourceIndex after cull.
+{
+    const nodes = [{ children: [1, 2] }, { mesh: 0, translation: [-0.7, 0, 0] }, { mesh: 0, translation: [0.7, 0.3, 0] }];
+    const primitive = box([-0.3, -0.25, -0.2], [0.3, 0.25, 0.2]);
+    const bytes = glb({ nodes, meshes: [{ primitives: [primitive] }], animations: [{ name: 'turn',
+        samplers: [{ times: [0, 1], values: [...quat([0, 0, 1], 0), ...quat([0, 0, 1], 90)] },
+            { times: [0, 1], values: [-0.7, 0, 0, -0.4, 0.4, 0] }],
+        channels: [{ sampler: 0, node: 0, path: 'rotation' }, { sampler: 1, node: 1, path: 'translation' }] }] });
+    const baked = bakeRigidAnimation(GLBParser.parse(bytes), { clips: ['turn'], weld: false });
+    const pool = new MegabufferBuilder(8);
+    pool.addMesh('padding', new Float32Array(24), [0, 1, 2]);
+    const offset = pool.addMesh('animated', baked.vertices, baked.indices);
+    const frames = [0, 7, 0, 19];
+    // Direct glTF pose: rotate each node's translated local box. No baked transforms are read here.
+    const posed = frame => {
+        const t = frame / 30, a = t * Math.PI / 2, c = Math.cos(a), s = Math.sin(a), verts = [];
+        for (let part = 0; part < 2; part++) {
+            const tx = part === 0 ? -0.7 + 0.3 * t : 0.7, ty = part === 0 ? 0.4 * t : 0.3;
+            for (let i = 0; i < primitive.positions.length / 3; i++) {
+                const x = primitive.positions[i * 3] + tx, y = primitive.positions[i * 3 + 1] + ty;
+                const nx = primitive.normals[i * 3], ny = primitive.normals[i * 3 + 1];
+                verts.push(c * x - s * y, s * x + c * y, primitive.positions[i * 3 + 2],
+                    c * nx - s * ny, s * nx + c * ny, primitive.normals[i * 3 + 2], ...primitive.uvs.slice(i * 2, i * 2 + 2));
+            }
+        }
+        return new Float32Array(verts);
+    };
+    pool.addMesh('cpu1', posed(frames[1]), baked.indices);
+    pool.addMesh('cpu3', posed(frames[3]), baked.indices);
+    const partOf = new Uint32Array(pool.build().megaVertices.length / 8).fill(99);
+    partOf.set(baked.partOfVertex, offset.baseVertex);
+    const upload = data => {
+        const b = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(b, 0, data);
+        return b;
+    };
+    const buffers = [upload(partOf), upload(baked.transforms), upload(new Uint32Array(frames))];
+    const camera = new Camera(45, 1, 0.1, 100);
+    camera.updateView([0, 0, 8], [0, 0, 0]);
+    engine.updateCamera(camera);
+    const hook = {
+        bindings: `@group(2) @binding(0) var<storage, read> partOf: array<u32>;
+            @group(2) @binding(1) var<storage, read> poses: array<vec4<f32>>;
+            @group(2) @binding(2) var<storage, read> frameOf: array<u32>;`,
+        entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })),
+        wgsl: `fn deform(pos: vec3<f32>, normal: vec3<f32>, vi: u32, inst: Instance) -> Deformed {
+            let base = (frameOf[inst.sourceIndex] * ${baked.parts}u + partOf[vi]) * 3u;
+            let a = poses[base]; let b = poses[base + 1u]; let c = poses[base + 2u];
+            let p = vec4<f32>(pos, 1.0);
+            return Deformed(vec3<f32>(dot(a, p), dot(b, p), dot(c, p)),
+                vec3<f32>(dot(a.xyz, normal), dot(b.xyz, normal), dot(c.xyz, normal)));
+        }`,
+    };
+    const fragmentBody = `@fragment fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+        return vec4<f32>((normalize(in.worldNormal) * 0.3 + vec3<f32>(0.5)) * (0.8 + 0.2 * in.uv.x), 1.0);
+    }`;
+    const render = async kind => {
+        const vis = new VisibilitySystem(engine, { maxInstances: 4 });
+        vis.setGeometry(pool);
+        const target = makeTargets(`V5 ${kind}`);
+        if (kind === 'cpu') {
+            vis.createInstanceDrawBatch(target.pass, 'cpu1', 1, { fragmentBody });
+            vis.createInstanceDrawBatch(target.pass, 'cpu3', 3, { fragmentBody });
+        } else vis.createInstanceDrawBatch(target.pass, 'animated', 0, { fragmentBody, ...(kind === 'hook' ? { vertexHook: hook } : {}) });
+        const rows = new InstanceBuffer(4);
+        for (let i = 0; i < 4; i++) {
+            const model = mat4.create();
+            mat4.translate(model, model, [i === 1 ? -1.1 : 1.1, -0.3, 0]);
+            mat4.rotateY(model, model, 0.25);
+            mat4.scale(model, model, [0.8, 1.1, 0.7]);
+            rows.write(i, model, [0, 0, 0, baked.bounds.radius], i % 2 === 0 ? 99 : kind === 'cpu' ? i : 0);
+        }
+        vis.setInstances(rows.data, 4);
+        vis.upload();
+        engine.render([...vis.getComputeStages(), target.pass]);
+        const pixels = await readColor(target.color);
+        await saveImage(`visibility-v5-${kind}`, pixels, S, S);
+        vis.destroy(); target.color.destroy(); target.depth.destroy(); engine.clearPasses();
+        return pixels;
+    };
+    const cpu = await render('cpu'), gpu = await render('hook'), rest = await render('rest');
+    let bad = 0, changed = 0, covered = 0;
+    for (let i = 0; i < cpu.length; i += 4) {
+        if (cpu[i] || cpu[i + 1] || cpu[i + 2]) covered++;
+        if ([0, 1, 2].some(k => Math.abs(cpu[i + k] - gpu[i + k]) > 2)) bad++;
+        if ([0, 1, 2].some(k => Math.abs(cpu[i + k] - rest[i + k]) > 2)) changed++;
+    }
+    check('V5: baked hook matches CPU glTF poses, including normals, baseVertex and sparse sourceIndex',
+        covered > 500 && bad <= 8, `${covered} covered pixels; ${bad} differ by >2/255 (at most 8 edge pixels allowed)`);
+    check('V5 watched failing: removing the hook differs from the posed reference',
+        changed > 200, `${changed} pixels differ in the rest-pose draw`);
+    buffers.forEach(b => b.destroy());
 }
 
 await finish('All visibility GPU tests passed.');

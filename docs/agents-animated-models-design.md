@@ -14,7 +14,7 @@ real animals in Blender later; this lays the plumbing. Phase 2's creatures will 
 rendering backbone.
 
 **Status:** decided with the user, 2026-10-15 (§11): Cycle D, step 1. Phase 0 measured (results
-at the end); phase 1 built and validated, uncommitted. Phase 2 next.
+at the end); phase 1 committed (`f538ffe`), phase 2 built and validated, uncommitted. Phase 3 next.
 
 ---
 
@@ -170,7 +170,7 @@ per agent per batch; models add nothing per agent beyond that.
 |---|---|---|
 | 0 | Spike: fox baked by a script, drawn with a hacked shader at 4K–64K | Costs (§8), recorded here |
 | 1 ✅ | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests; results below (2026-10-15, uncommitted) |
-| 2 | The vertex hook; tests; guide | Headless + GPU test |
+| 2 ✅ | The vertex hook; tests; guide | Headless + GPU test; results below (2026-10-15, uncommitted) |
 | 3 | The demo: Models mode, fox and pig, clips from the agent state | Drives, screenshots |
 | 4 | The field, grass, toon, `anime` preset toggle; docs page | Drives, screenshots |
 | 5 | Skinned models (when the user has one) | Tests, drive |
@@ -258,7 +258,7 @@ colours here), LOD.
 
 ## Phase 1 results — 2026-10-15: rigid animation bake
 
-**Built by Opus, completed and validated by Cline; uncommitted.** Parser node metadata and
+**Built by Opus, completed and validated by Cline; committed as `f538ffe`.** Parser node metadata and
 `bakeRigidAnimation` are exported from loaders. The bake samples LINEAR, STEP and CUBICSPLINE,
 supports looping and endpoint-inclusive one-shots, welds exact position/uv/part matches by
 default, and reports bounds over sampled poses and convex blends (not unsampled glTF motion).
@@ -305,3 +305,49 @@ build used here is in local Claude temp session `20c36f59-ab5e-4974-8dfb-d4d710b
 
 **Not run:** browser GPU regressions, posed-model GPU parity, demo drives, animated shadows or
 post-processing. **Next: phase 2**, the public vertex hook, its GPU pose test and guide.
+
+## Phase 2 results — 2026-10-15: public vertex hook
+
+**Built and validated, uncommitted.** `InstanceDrawOptions.vertexHook` uses the §4 contract,
+exported as `InstanceVertexHook`. Visibility provides `Deformed { position, normal }`, invokes
+`deform(pos, normal, vi, inst)` in model space before the instance transform, then applies the
+instance's inverse-transpose normal matrix. No vertex attributes, row layouts, cull kernels or
+per-frame CPU work were added. Without a hook the default and custom-attribute/fragment WGSL
+are byte-identical to D1.1 (SHA-256 snapshots captured before editing).
+
+**Binding composition:** a dedicated group defaults to 2; the caller's WGSL declares the same
+literal group. Rejects group 0, fractional/out-of-device groups, numeric material/lighting/extra
+binding group collisions, mismatched hook group declarations and `shaderCode` plus hook,
+before creating a batch. Unoccupied intervening groups are bound empty (needed by auto-layout
+pipelines). Hook buffers remain caller-owned. Stock material at 1 plus clustered lighting at 2
+can use a hook at 3; group attributes are not rewritten. This is instance-tier only. Animated
+shadows and posed picking are not automatically wired.
+
+**Headless:** the two hook tests were observed failing before implementation, then green.
+`test/visibility-hook.test.mjs` now has **5/5** tests: no-hook identity, WGSL parse/transform order,
+binding/refusal checks, all six stock material families, and the guide's actual example compiled
+against declarations, bundled and executed on a stand-in engine. Existing visibility, loaders,
+shadows, picking and agents suites pass; loaders' external compatibility test explicitly skips
+without options (the phase 1 run checked all 193 files).
+
+**Real GPU:** V5 in the visibility suite builds a two-part GLB entirely in memory, bakes it,
+and renders two source rows at different frames through the public hook. Its reference applies
+the fixture's glTF rotations/translations directly on the CPU, without reading the bake's
+transforms. Padding geometry ensures a nonzero baseVertex; sparse source rows (1 and 3) catch
+visible-index/sourceIndex confusion. An animated parent, normal-coloured fragment, and a
+non-uniform instance transform exercise placement and normals. **1,874 covered pixels, zero
+pixels differ by >2/255**; the allowed edge tolerance is eight pixels. Drawing without the hook
+differs at **2,843 pixels**, demonstrating the comparison detects missing deformation.
+
+The complete visibility GPU suite is **8/8, zero GPU errors**, independently on **Node/NVIDIA,
+Node/AMD, Chrome/AMD**. No model assets enter git. Guide: `docs/api/visibility.md`; the loaders
+guide now points to the implemented hook rather than calling it a future API.
+
+**Size:** identical esbuild browser ESM/minify settings, `gl-matrix` external, default gzip;
+full visibility entry **13,220 → 13,747 B min+gzip (+527 B)**, within the 0.5–1 KB estimate.
+Baseline loaded the two changed runtime source files from `f538ffe` through an esbuild plugin;
+the core bundle remains unchanged. Development/TypeScript and IDE builds pass.
+
+**Next: phase 3**, Models mode in Herd & Wolves, fox/cow clips driven from simulation state
+and an accumulated per-agent phase. No site edits, yalc push, commit of phase 2 or deployment
+in this session. Field/toon/post remain phase 4; skinning waits for phase 5.

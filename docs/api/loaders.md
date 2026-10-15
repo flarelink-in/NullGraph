@@ -82,8 +82,9 @@ are not baked. The meshes become one material draw; separate material colours ar
 
 Upload `partOfVertex` and `animation.transforms` once as storage buffers shared by all instances.
 Selecting clips/phases and deforming vertices is the application's shader's job; the bake alone
-does not animate a draw. The visibility vertex hook is the next phase of the animated-agents
-design, not part of this preparation API. Skinned models use the separate system below.
+does not animate a draw. Use the instance-tier `vertexHook` in `null-graph/visibility` to apply
+the table before the model transform (see the visibility guide). Skinned models use the
+separate system below.
 
 ## Hardware-Accelerated Skeletal Animations
 NullGraph splits the heavy lifting: the CPU evaluates the animation timeline, and the GPU handles the vertex skinning. The `SkeletonManager` bridges the gap, allowing you to animate complex characters efficiently.
