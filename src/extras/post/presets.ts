@@ -11,7 +11,8 @@
 // Stage order used by every chain is the canonical EFFECT_ORDER in
 // chainOrder.ts (see the doc's §2 for the reasoning): HDR effects before
 // Tonemap; stylization on display-referred values after; FXAA after Outline so
-// ink edges get smoothed; grain last so it stays crisp.
+// ink edges get smoothed; grain last so it stays crisp. One exception: `anime`
+// runs FXAA before Outline, so its ink stays one pixel sharp.
 
 import { Bloom, type BloomOptions } from './Bloom';
 import { SSAO, type SSAOOptions } from './SSAO';
@@ -153,13 +154,18 @@ export const ChainPresets = {
         new Bloom({ ...BloomPresets.subtle, mips: 4 }),
         new Tonemap(TonemapPresets.neutral)],
 
-    /** Toon shading with ink outlines. Best with gbuffer.depth for silhouettes. */
+    /**
+     * Soft colors with crisp ink: a light glow on the brightest tones, authored colors kept,
+     * and one-pixel silhouettes from depth alone. No posterize and no luma lines, which ink
+     * every shading band and texture edge. FXAA runs BEFORE Outline, unlike the canonical
+     * order, so the ink is drawn on the smoothed image and stays one pixel sharp. Needs
+     * gbuffer.depth: without it Outline falls back to luma edges.
+     */
     anime: (): Effect[] => [
-        new Bloom(BloomPresets.natural),
-        new Tonemap(TonemapPresets.filmic),
-        new CelShade({ bands: 5, softness: 0.06, saturation: 1.2 }),
-        new Outline({ thickness: 1.5, strength: 0.8 }),
-        new FXAA()],
+        new Bloom({ threshold: 0.8, knee: 0.4, intensity: 0.2, mips: 5 }),
+        new Tonemap(TonemapPresets.faithful),
+        new FXAA(),
+        new Outline({ thickness: 1, lumaSensitivity: 0, strength: 0.85, color: [0.06, 0.06, 0.08] })],
 
     /** Harder bands, thicker ink, punchier color than `anime`. */
     comic: (): Effect[] => [
