@@ -23,8 +23,9 @@ uncommitted unless the user says otherwise.
 
 **Status:** decided with the user, 2026-10-14 (§12). Phase 10.0 measured on 2026-10-14 (results at
 the end). After it the user revised two decisions (§12): D5, Vite serves ONNX Runtime's own files;
-D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14, and 10.3 and
-10.4 on 2026-10-15 (results at the end); phase 10.5 follows (§13).
+D6, no cap on the agents ORT runs over. Phases 10.1 and 10.2 built on 2026-10-14, and 10.3, 10.4
+and 10.5 on 2026-10-15 (results at the end). **Every phase is built: step 10 is complete, and with
+it C2.**
 
 ---
 
@@ -212,7 +213,7 @@ As built under B:
 | Latency | ~~Stated: "acts on the frame before"~~. **As built:** measured, as the frames from the one that asked for the runs to the first one after ONNX Runtime's last submission for them | Not A6's marker method: it says when the results can first be acted on |
 | The last switch | `performance.now()` around `setBrain` | Under 1 ms when prepared |
 | ONNX Runtime's start-up | Its import, `OrtRuntime.create`, the switch, and each model's first load and first run, shown while a species runs on it | The device switch's pause, broken down |
-| Runs per second | Runs resolved per wall second, per species, over the last 2 s | With `thinkEvery: 3` at 60 steps a second, 20 |
+| Runs per second | Runs resolved per wall second, per species, ~~over the last 2 s~~. **As built (phase 10.5):** over its last 20 runs within 10 s, with one decimal below 10 | With `thinkEvery: 3` at 60 steps a second, 20. At 256K agents on the AMD iGPU a run lands every 2–3 s, and a 2 s window read 0 |
 
 The page's performance widget keeps showing the frame's CPU and GPU time. An ORT run lands
 between two frames' measurements, so the widget's GPU time does not include it; the overlay's
@@ -242,7 +243,22 @@ page's device is then lost, and here that is the ORT device, which the engine sh
 - Where a run would exceed the demo's step limit (`STEP_LIMIT_MS`, 600 ms), the species stays on
   Network, with the reason on screen.
 - None of phase 10.0's runs came near it: 306 ms at 1M on the AMD iGPU.
-- Phase 10.5 builds the guard.
+
+**As built in phase 10.5** (its results at the end):
+- **The prediction:** from the largest count whose runs were measured on this GPU, at or below the
+  one asked, growing as the steps' guard predicts a step: cost per agent × (N / M)^0.25. At the
+  count itself, the measurement is used as it is: a count whose own runs measure over the limit is
+  refused, and its species leave ONNX Runtime.
+- **The measurement:** a system's runs, ONNX Runtime's submissions bracketed (§8), once three
+  frames of them are timed. Without timestamps, `run()` times stand in, the larger of the two
+  species', which overstate it.
+- **Refused:** as this section says, a species that asked for ONNX Runtime runs its network on the
+  built-in kernel (on the rules if its network did not compile), and the overlay says why.
+- **With nothing measured,** ONNX Runtime runs up to 65,536 agents, as the steps do
+  (`SAFE_UNMEASURED`). **Above that, it is measured first**, where this section was silent: one
+  model over 65,536 rows of scratch buffers, run once to compile, then four runs bracketed, their
+  median. The steps' guard does the same in its own way: it builds its smallest size first. So a
+  visitor who first picks ONNX Runtime at 256K or 1M is not refused for lack of a measurement.
 
 ## 10. Failure and teardown
 
@@ -304,7 +320,7 @@ copies from here: its rule, networks and `.onnx` files.
 | 10.2 ✅ | Network prepared on its first pick (no hitch); the rules as a copy of the scenario's texts, checked by the teacher's hash (D3); the switch line on the overlay | Drive: switches compile nothing; a changed rule is reported |
 | 10.3 ✅ | ORT: the device switch (D1), the third choice in the controls, the ORT brains prepared and warmed up, failures handled | Drive: the device switch, switches to ORT and back, a refused model |
 | 10.4 ✅ | Timings: sense and think timed apart, ONNX Runtime's run, start-up, the overlay's lines | Drive and screenshots; numbers recorded |
-| 10.5 | The stress test with ORT at every count (D6), under the timeout guard (§9); the site's documentation page; the guides' pointer to the demo | Drive at each count; step 10 closed, and with it C2 |
+| 10.5 ✅ | The stress test with ORT at every count (D6), under the timeout guard (§9); the site's documentation page; the guides' pointer to the demo | Drive at each count; step 10 closed, and with it C2 |
 
 Each phase leaves the demo running. Every check is watched failing first, where a check can fail.
 
@@ -852,3 +868,132 @@ the build:
 - **the site in another browser, or on the NVIDIA GPU** (Chrome on Windows takes the iGPU);
 - **why ONNX Runtime's runs cost more in the demo than in phase 10.0's spike;**
 - **latency by A6's marker method:** the real networks cannot carry a marker.
+
+## Phase 10.5 results — 2026-10-15: ONNX Runtime at every count, under the guard; the documentation page; the guides' pointer
+
+**What changed in the site** (no commits there; the files before 10.5 are kept in the session's
+scratch folder):
+
+| File | Now | Before |
+|---|---|---|
+| `HerdWolvesGPU/index.ts` | The guard over ONNX Runtime's runs (§9, as built): `judgeOrt`, `learnOrt`, `measureOrt`. The steps' guard keeps its measurements across the device switch on the same adapter (finding 1). Overlay fixes (findings 2–4) | ONNX Runtime unguarded; the steps' measurements lost at the switch |
+| `HerdWolvesGPU/runProbe.ts` | `collect(done, failed?)`: a read that cannot happen says so, so the guard's measurement never waits forever | `collect(done)` |
+| `…/controls/herd-gpu-controls.tsx` | The ONNX Runtime caption: it runs at every size, except where this GPU's runs predict over 600 ms per run, and then the network runs on the built-in kernel | 10.4's caption |
+| `HerdWolvesGPUDocumentation.ts` | Rewritten for step 10: three brains switched live (`prepareBrain`, `setBrain(brain, { species })`, the `.onnx` checked against the `.mlp.json`), ONNX Runtime in the page (the device switch, runs between frames, one call at a time), the rules as the scenario's copy, five timing groups and ONNX Runtime's lines, ONNX Runtime under the guard, the scope of step 10 | Phase 4.4's page: four timing groups, rules or a network |
+| `src/layouts/config-nav-dashboard.tsx`, `src/pages/dashboard/AgentsExperiments/HerdWolvesGPU.tsx` | The menu entry and the tab title: `Herd & Wolves (GPU brains)`, asked by the user. `(GPU, live brains)` was cut off in the menu, which fits about 27 characters in bold | `Herd & Wolves (GPU arrows)`, from phase 3.5 |
+
+**In this repository:** the guides point to the demo. `docs/api/agents.md` (under its
+introduction) and `docs/api/inference.md` (under "Use `mlpFromOnnx` and `MlpBrain` when the
+network fits them") name the test site's page, `/dashboard/agents/herd-wolves-gpu` on
+nullgraph.dev, and what it shows. Their tests read only the code blocks, which did not change.
+
+**The guard, as the console tells it** (one line per verdict, per system):
+- `guard: ONNX Runtime at 4,096 agents allowed: not measured on this GPU yet; it runs unmeasured up to 65,536 agents`;
+- `guard: ONNX Runtime at 16,384 agents allowed: ~9 ms per run predicted on this GPU (405 ns per agent at 4,096), within the 600 ms safety limit`;
+- `guard: ONNX Runtime at 262,144 agents waits: measuring ONNX Runtime on this GPU over 65,536 agents before it runs over 262,144…`,
+  then `ONNX Runtime measured on this GPU: 21.09 ms per run over 65,536 agents, 322 ns per agent (the median of 4 runs, its submissions bracketed)`;
+- refused: `guard: ONNX Runtime at 16,384 agents refused: ONNX Runtime over 16,384 agents: ~10 ms per run predicted on this GPU (430 ns per agent at 4,096), over the 1 ms safety limit` (a lowered limit, below).
+
+On the overlay, a refused species reads `network 24→64→64→64→2 · ONNX Runtime over the safety
+limit`, and the warning line gives the verdict, ending `: the network runs on the built-in kernel
+instead`.
+
+**ONNX Runtime at each count** (Chrome on the AMD iGPU, both species on ONNX Runtime, the dev
+server; the climb 4K → 16K → 64K → 256K, each count predicted from the one before):
+
+| Agents | Guard's prediction (from) | GPU work per run, measured | `run()`: prey; wolves | Actions late | Step (GPU) |
+|---|---|---|---|---|---|
+| 4,096 | unmeasured: allowed | 1.68 ms (1.36 back at 4K) | 3.30; 1.00 ms | 1 frame | 3.8 ms |
+| 16,384 | ~9 ms (4,096) | 5.70 ms | 4.50; 1.00 ms | 1 frame | 7.6 ms |
+| 65,536 | ~33 ms (16,384) | 15.43 ms | 91.2; 84.6 ms | 2 frames | 66.3 ms |
+| 262,144 | ~95 ms (65,536) | 55.64 ms | 472; 463 ms | 2 frames | 417 ms |
+| 1,048,576 | — | — | — | — | refused by the steps' guard: ~2.3 s per step predicted (1,579 ns per agent at 262,144) |
+
+- **Every prediction ran high,** the safe side: 1.6× to 2.1× the run measured afterwards here, and
+  1.1× to 1.8× on the build (below).
+- **At 1M on this iGPU, the steps' guard refuses the build,** before ONNX Runtime is asked, and
+  the demo stays at 262,144. ONNX Runtime's own guard at 1M is checked only with a lowered limit
+  (below). At 256K, one run is 56 ms of GPU work, against a 417 ms step, 94% of it the
+  neighbour queries.
+- **At 256K the first `run()` of each model took 2.0–2.5 s,** and later ones 0.46–1.04 s. That is
+  wall time: the runs wait for the GPU to finish the steps queued before them, 417 ms each. Their
+  own GPU work was 55.6–55.9 ms per run.
+- **Runs a second at 256K: 0.7 per species,** a run every third step at about 2 frames a second.
+- **First pick at 256K, the guard's measurement path** (the climb 4K → 64K → 256K on the rules,
+  then both species to ONNX Runtime), measured from the click:
+
+  | Part | Time |
+  |---|---|
+  | The device switch: import 84 ms, `OrtRuntime.create` 4,368 ms, the demo destroyed 1,543 ms (its 256K steps finishing), the engine 12 ms, the demo loaded 132 ms | 6.1 s |
+  | The `.onnx` files checked and the first frames, to the guard's first verdict | 1.5 s |
+  | The guard's measurement: a model loaded, its compile run, four runs bracketed, each behind a 440 ms step | 12.8 s |
+  | Each model loaded and prepared (2.9 s), then its warm-up run (2.0–2.5 s) | 5.3 s |
+  | **ONNX Runtime deciding for both species** | **25.7 s** |
+
+  At 4K the same pick takes about 1 s (10.3, 10.4).
+
+**Found in 10.5:**
+1. **The device switch lost the steps' guard measurements, so the first ORT pick at 256K came
+   back at 4K.** The switch loads the demo again, which started with nothing measured. It built
+   its smallest size first and measured it while the GPU was still busy with the switch (1,570 ns
+   per agent, about twice the usual), then refused the count the visitor had climbed to:
+   `262,144 agents: ~1.2 s per step predicted on this GPU (1,570 ns per agent at 4,096), over the
+   600 ms safety limit, so the demo stays at 4,096`. The demo now keeps those measurements across
+   the switch when the new device's adapter is the old one's (vendor, architecture, device,
+   description); another adapter starts afresh. **Watched failing:** that drive, on the code
+   before the change; after it, the same drive came back at 256K and measured ONNX Runtime there.
+2. **The wolves' line wrapped at 256K with ONNX Runtime and printed over the catches line**
+   (`ñãm̃ẽd catches`). It is 85 characters at 256K (16,384 wolves) and 84 at 16K, which fitted.
+   The guard's note on the species line would make it longer still. The wolves' notes (`rest 5 s
+   after a catch`, `first 256 named`) are now added only while the line stays within 80
+   characters.
+3. **`runs a second` read 0 at 256K.** A run lands every 2–3 s there, and the window was 2 s,
+   rounded to a whole number. It is now the last 20 runs within 10 s, with one decimal below 10
+   (§8).
+4. **The overlay's lines held 128 glyphs, and the guard's refusal is 141–150:** its end was cut
+   (`…the network runs on the built-in`). Lines now hold 192 glyphs.
+5. **From a fresh page, the steps' guard refuses a direct jump from 4K to 256K on this iGPU**:
+   4K measured at 930 ns per agent gives ~690 ms per step at 256K. That is the guard as phase 3.5
+   built it, predicting from the largest size measured; a visitor climbs. Drives that need 256K
+   climb 4K → 64K → 256K.
+
+**Checks:**
+- **The site's own:** `tsc` passes; ESLint reports nothing in the four files; Prettier: the new code
+  is formatted as the site's, and the older differences in `index.ts` (`readState`) and the
+  controls were left as they were.
+- **`check-site.mjs`:** 16/16.
+- **The guard refusing,** watched with its limit lowered to 1 ms for two drives, then restored:
+  - **at 4K, by its own runs:** allowed unmeasured, it ran, measured 2 ms per run, and both
+    species moved to the network (0.1–0.3 ms, compiled ahead);
+  - **at 16K, by prediction:** ~9–10 ms predicted from 4K. ONNX Runtime never ran there, not even
+    its warm-up, and both species took the network;
+  - read by eye: both species lines, and the warning line in full once lines held 192 glyphs.
+- **Without GPU timestamps,** forced off in `RunProbe` for one drive, then restored: the guard used
+  `run()` times, 3 ms at 4K, 8 ms at 16K and 232 ms at 64K, where the runs wait behind 65 ms
+  steps for about 15 ms of work. It is safe and strict: on this iGPU it would refuse 256K. The
+  overlay read `no GPU timestamps here`. Before that drive, the two species' `run()` times were
+  found to overwrite each other in the guard; it now takes the larger.
+- **The drives,** in Chrome on the AMD iGPU, each clean (no error in the page or the worker):
+  - the dev server: the climb with ONNX Runtime (30 steps, 6 screenshots), the first pick at 256K
+    before and after finding 1's change, the refusals twice, no timestamps;
+  - a production build (`vite build`, served by `vite preview`), with the final code:
+    - **the climb with ONNX Runtime** (30 steps, 6 screenshots). Predicted against measured, GPU
+      work per run: 16K ~6 against 3.36 ms, 64K ~18 against 15.98 ms, 256K ~89 against 55.54 ms;
+      4K 0.97 ms. At 1M the steps' guard refused the build (~2.3 s per step predicted). The start:
+      1.08 s;
+    - **the first pick at 256K** (22 steps, 5 screenshots): the device switch in 5.2 s; the guard's
+      measurement in 12.9 s, 17.34 ms per run over 65,536 rows (265 ns per agent), so ~98 ms
+      predicted at 256K; both species on ONNX Runtime 23.0 s after the click, then 55.0 ms of GPU
+      work per run. Read by eye at +10 s: both species lines `measuring ONNX Runtime…` and the
+      warning line `measuring ONNX Runtime on this GPU over 65,536 agents before it runs over
+      262,144…`; at +16 s, `warming up ONNX Runtime…`.
+- **The build** emits what 10.4's did: ONNX Runtime's chunk (116,633 B), its `.wasm` once
+  (25,749,873 B), `null-graph/inference`'s chunk (13.71 kB) and both `.onnx` files.
+- **In this repository** nothing but the docs changed. The suites that read them pass: agents
+  83/83 and inference 24/24 (the two guides' examples among them), agent-kit 4/4.
+
+**Not run:**
+- **ONNX Runtime at 1M agents,** and its guard refusing at the real limit: on this iGPU the steps'
+  guard refuses 1M first. The refusal path ran with a lowered limit;
+- **Chrome on the NVIDIA GPU, and other browsers** (Deferred);
+- **a device without timestamps:** none here; the fallback ran with timestamps forced off.

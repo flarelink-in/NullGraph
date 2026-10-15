@@ -4,15 +4,10 @@
 `src/extras/spatial/` (the uniform grid physics P2 shares)
 **Package:** `null-graph/agents` — opt-in subpath; core untouched. The optional ONNX Runtime path
 goes through a separate, generic `null-graph/inference` subpath (§9.4); ORT is never bundled.
-**Status:** 🔨 **C1 steps 1–2 done** — 29 CPU checks including U2/U3; GPU grid/query production
-wrappers and debug draws validated on Node/Dawn and Chrome (AMD GCN-5). See
-[`api/agent-grid.md`](./api/agent-grid.md). Steps 3–4 are designed and phased in
-[`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md), accepted 2026-10-11. Its phase 3.0,
-spike S3, is measured (§13, C0); phase 3.1's GPU system skeleton is implemented and validated
-(phase 3.2 sensing also complete: 36 headless agent checks; 63/63 GPU checks on both hosts).
-Phase 3.3, the act generator, is next.
-No live GPU agent simulation ships yet. Phase 1 = Cycle C (C0 spikes → C1 rules → C2 neural brains); the C0 spikes gate
-§9.4's ONNX Runtime defaults, and their numbers go back into this document.
+**Status:** ✅ **C1 and C2 are built** (2026-10-15): steps 1–4 and 6–10, each designed in a
+document of its own, linked from §13. Step 5's scaling study is deferred. Every step's status and
+the decisions taken: [`work/plan.md`](./work/plan.md) §3 and §5. Phase 2 (§13, "Deferred") is not
+started.
 **Depends on:** Cycle A (headless runs, device adoption, the ORT seam), Cycle B (`sourceIndex`, public
 `vis.instanceBuffer`, labels that follow GPU buffers, picking), physics P2's grid spec (built here).
 **Terminology:** *agents* here are simulated entities — units, creatures, pedestrians. The kit for
@@ -904,6 +899,13 @@ C1 alone is a product: crowds, herds and RTS-style units, with no ML anywhere.
    by `mlpFromOnnx` alike.
 10. **Demo:** switch Rules / Network (WGSL) / Network (ORT) live, with per-step timings on screen;
     A8 cloning quality.
+    **Built in phases 10.0–10.5** in the test site's Herd & Wolves demo, designed in
+    [`agents-live-switch-design.md`](./agents-live-switch-design.md) and decided with the user
+    2026-10-14. Each species switches live between the rule, its trained network on `MlpBrain`
+    and the same network on ONNX Runtime, every switch compiled ahead. The overlay times sense and
+    think apart, and ONNX Runtime's own GPU work per run. ONNX Runtime runs at every count, under
+    the timeout guard. A8 was measured in step 7 (phase 7.9). ✅ **Step 10 is complete, and with it
+    C2 (2026-10-15).**
 
 Every regression test is watched failing on broken code before it passes
 ([design-principles](./design-principles.md) §13).

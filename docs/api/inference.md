@@ -18,6 +18,12 @@ built-in kernel's GPU time for the same network, a 6.4 MB download, and up to 1.
 ([cost](#what-onnx-runtime-costs)). It is for the networks `MlpBrain` cannot run: deeper or wider,
 or with other operators.
 
+**Both, side by side:** the test site's Herd & Wolves demo ([nullgraph.dev](https://nullgraph.dev/),
+`/dashboard/agents/herd-wolves-gpu`) runs one trained network as `MlpBrain` and through ONNX
+Runtime (`OrtBrain`), switched live per species, with each one's GPU time on screen. Before it
+runs an `.onnx` file, it reads the file with `mlpFromOnnx` and checks that it holds the
+`.mlp.json`'s weights, bit for bit.
+
 ## Load a network
 
 ```ts

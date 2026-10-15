@@ -248,3 +248,21 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   `refreshHud`; `TextSystem.setLabel` reports no line count). Phase 10.3 found ONNX Runtime's
   start-failure reason printed over the last-switch line. Keep text that can be long, such as
   warnings, on the last line.
+  - **The species lines can grow too** (phase 10.5): the wolves' line at 256K with ONNX Runtime
+    was 85 characters and printed over the catches line; 84 fitted. The wolves' notes are now
+    added only while the line stays within 80 characters (`fit`).
+  - **Each line holds a fixed number of glyphs** (`ScreenText`'s `glyphsPerLine`; spaces take
+    none), and longer text is cut without a word. At 128 the guard's refusal (141–150) lost its
+    end; it is 192 now.
+- **`npm run drive`'s `waitFor` matches any console line since the page loaded,** not only the
+  lines printed after the step starts (`lines.some(…)` in `test/gpu/drive-page.mjs`). A wait for a
+  line that appeared before passes at once: a count visited a second time, a line each new system
+  prints again, a state already past. In phase 10.5 a screenshot meant to show "measuring" showed
+  what came after it. Wait for a line only the new state prints, or use a fixed `wait`.
+- **Herd & Wolves' steps' guard refuses a direct jump from 4K to 256K on the AMD iGPU** (phase
+  10.5). It predicts from the largest size measured, and 4K's 600–930 ns per agent (the most right
+  after a load) × 64^0.25 gives 443–690 ms per step at 256K, against its 600 ms limit. The refusal
+  holds until another size is picked. Drives that need 256K climb: 4K → 64K → 256K.
+  - **ONNX Runtime's device switch loads the demo again.** Before phase 10.5 that emptied the
+    measurements, and a first ORT pick at 256K came back at 4K. They are now kept for the same
+    adapter (`stepCosts` in `index.ts`).

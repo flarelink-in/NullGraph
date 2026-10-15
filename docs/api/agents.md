@@ -9,6 +9,11 @@ outside the package ([a trained network](#a-trained-network)). An `.onnx` file i
 ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
 ([inference.md](./inference.md)).
 
+**See it running:** the test site's Herd & Wolves demo ([nullgraph.dev](https://nullgraph.dev/),
+`/dashboard/agents/herd-wolves-gpu`) runs on this API, from 4,096 to 1M agents as far as the GPU
+allows. Each species switches live between the rule, its trained network on `MlpBrain` and the
+same network on ONNX Runtime, and the overlay shows what each brain costs on the GPU.
+
 ## Minimal rule simulation
 
 The host supplies an initialized `NullGraph`, camera updates and elapsed time in **seconds**.
