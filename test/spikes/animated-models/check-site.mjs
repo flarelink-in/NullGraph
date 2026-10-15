@@ -24,7 +24,13 @@ try {
     assert.ok(source.includes("if (modelState !== 'idle') return"), 'repeat selections reuse the loaded assets');
     const options = readFileSync(join(demo, 'options.ts'), 'utf8');
     assert.ok(options.includes("['models', 'darts', 'arrows']"));
-    assert.ok(options.includes("drawAs: 'darts'"));
+    const optionBundle = await esbuild.build({
+        entryPoints: [join(demo, 'options.ts')], bundle: true, write: false, format: 'esm', platform: 'node',
+    });
+    const { HERD_DEFAULTS } = await import(`data:text/javascript;base64,${Buffer.from(optionBundle.outputFiles[0].text).toString('base64')}`);
+    assert.equal(HERD_DEFAULTS.drawAs, 'models');
+    assert.equal(HERD_DEFAULTS.preyBrain, 'network');
+    assert.equal(HERD_DEFAULTS.wolfBrain, 'network');
     const urls = [];
     globalThis.fetch = async url => {
         urls.push(url);
@@ -49,7 +55,7 @@ try {
         assert.equal(new WgslReflect(buildInstanceDrawWGSL({ fragmentBody })).entry.fragment.length, 1);
     }
     assert.ok(field.outputFiles[0].text.length > 0);
-    console.log('ok field: real ground/grass shaders parse; Models first, Darts default, lazy cached asset entry');
+    console.log('ok field: real ground/grass shaders parse; Models/network defaults, lazy cached asset entry');
     globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
     engine.device = { createBuffer: config => ({ ...config, destroy() {} }), queue: { writeBuffer() {} } };
     engine.device.limits = { maxStorageBufferBindingSize: 128 * 1024 * 1024, maxBufferSize: 256 * 1024 * 1024 };
