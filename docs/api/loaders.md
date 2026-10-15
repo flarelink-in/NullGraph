@@ -86,7 +86,65 @@ does not animate a draw. Use the instance-tier `vertexHook` in `null-graph/visib
 the table before the model transform (see the visibility guide). Skinned models use the
 separate system below.
 
-## Hardware-Accelerated Skeletal Animations
+## Baked skinned animation (crowds)
+
+`bakeSkinnedAnimation` is the four-influence companion to `bakeRigidAnimation`, exported from
+`null-graph/loaders`. It evaluates the skeleton once at load time, not once per agent per frame.
+The rigid bake and its one-influence format remain available unchanged.
+
+```ts
+import { GLBParser, bakeSkinnedAnimation } from 'null-graph/loaders';
+
+export async function prepareSkinnedModel(url: string) {
+    const glb = await GLBParser.load(url);
+    try {
+        const animation = bakeSkinnedAnimation(glb, { fps: 30 });
+        return {
+            animation,
+            bounds: [0, 0, 0, animation.bounds.radius] as const,
+        };
+    } finally {
+        // This example keeps geometry/animation only, not the source material textures.
+        GLBParser.disposeImages(glb);
+    }
+}
+```
+
+Options and clip timing are the same as the rigid bake. The result has `vertices` (eight floats,
+`StandardLayout`), `indices`, `vertexCount`, `indexCount`, `frames`, `clips` and `bounds`, plus:
+
+- `influencesOfVertex`: four `u32` indices per vertex; unused slots have index and weight zero.
+- `weightsOfVertex`: four `f32` weights per vertex, normalized to sum to one.
+- `influences`: the table width; `influenceNodes`: the skin's joint nodes in their original order,
+  followed by the nodes of rigid mesh attachments. An attachment has one influence of weight one.
+- `transforms`: frame-major, influence-major, three rows of four floats. Influence `j` of frame `f`
+  starts at `(f * influences + j) * 12`. Pose the vertex by summing the four transformed positions
+  times their weights. Blend table rows linearly between frames, then blend clips as needed.
+
+Skinning uses joint world transforms times inverse-bind matrices; the skinned mesh node's own
+transform is ignored. To put bind-space geometry at the model's scale/orientation, the bake chooses
+one fixed invertible transform `M` (the rest skinning matrix of the joint with the greatest total
+weight), stores positions transformed by `M`, and stores `W(joint) * IBM(joint) * inverse(M)` in the
+table. This preserves the exact weighted pose even if the file's default pose is not its bind pose;
+in that case the stored vertices alone are **not** the default posed surface. Normals are transformed
+by `M`'s inverse transpose and normalized; animated non-uniform scale still requires appropriate
+normal deformation in the application. Bounds cover sampled weighted positions and convex blends,
+not unsampled continuous motion. Welding requires exact position, UV, influence and weight matches.
+
+The parser reads normalized `UNSIGNED_BYTE`/`UNSIGNED_SHORT` weights as floats and treats omitted
+inverse-bind matrices as identity. The bake rejects multiple skins, additional influence sets
+(`JOINTS_1`/`WEIGHTS_1`), zero-total, negative or non-finite weights, invalid joint indices, missing
+nodes, malformed inverse binds, singular rebasing transforms, and the same invalid clip/timing
+inputs as the rigid bake. Morph targets and separate material colours are not baked.
+
+Upload influences, weights and the transform table once. When using a megabuffer, pad both per-vertex
+arrays to its full vertex count and offset by `mesh.baseVertex * 4`, since `vertex_index` includes
+the base vertex. This bake alone does not animate a draw. The planned palette snippets (D1 phase
+5.2) will sample into one matrix slot per **visible model**, after culling; they are not exported
+yet. The existing Herd & Wolves demo stays on its rigid models until the palette integration and
+the user's skinned animals are ready.
+
+## Hardware-Accelerated Skeletal Animations (one CPU-evaluated character)
 NullGraph splits the heavy lifting: the CPU evaluates the animation timeline, and the GPU handles the vertex skinning. The `SkeletonManager` bridges the gap, allowing you to animate complex characters efficiently.
 
 ```ts

@@ -16,7 +16,7 @@ const TYPES = { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3', 4: 'VEC4', 16: 'MAT4' };
 export function glb({ nodes, meshes = [], animations = [], skins, scene = [0], extra = {} }) {
     const parts = [], bufferViews = [], accessors = [];
     let length = 0;
-    const accessor = (values, size, kind = 'f32', minMax = false) => {
+    const accessor = (values, size, kind = 'f32', minMax = false, normalized = false) => {
         const [componentType, Type] = COMPONENTS[kind];
         const bytes = new Uint8Array(new Type(values).buffer);
         length = Math.ceil(length / 4) * 4;
@@ -24,6 +24,7 @@ export function glb({ nodes, meshes = [], animations = [], skins, scene = [0], e
         bufferViews.push({ buffer: 0, byteOffset: length, byteLength: bytes.length });
         length += bytes.length;
         const a = { bufferView: bufferViews.length - 1, componentType, count: values.length / size, type: TYPES[size] };
+        if (normalized) a.normalized = true;
         if (minMax) {
             a.min = Array.from({ length: size }, (_, k) => Math.min(...values.filter((_, i) => i % size === k)));
             a.max = Array.from({ length: size }, (_, k) => Math.max(...values.filter((_, i) => i % size === k)));
@@ -42,8 +43,10 @@ export function glb({ nodes, meshes = [], animations = [], skins, scene = [0], e
                     POSITION: accessor(p.positions, 3, 'f32', true),
                     ...(p.normals ? { NORMAL: accessor(p.normals, 3) } : {}),
                     ...(p.uvs ? { TEXCOORD_0: accessor(p.uvs, 2) } : {}),
-                    ...(p.joints ? { JOINTS_0: accessor(p.joints, 4, 'u8') } : {}),
-                    ...(p.weights ? { WEIGHTS_0: accessor(p.weights, 4) } : {}),
+                    ...(p.joints ? { JOINTS_0: accessor(p.joints, 4, p.jointType ?? 'u8') } : {}),
+                    ...(p.weights ? { WEIGHTS_0: accessor(p.weights, 4, p.weightType ?? 'f32', false, p.weightsNormalized ?? false) } : {}),
+                    ...(p.joints1 ? { JOINTS_1: accessor(p.joints1, 4, 'u8') } : {}),
+                    ...(p.weights1 ? { WEIGHTS_1: accessor(p.weights1, 4) } : {}),
                 },
                 indices: accessor(p.indices, 1, p.indexType ?? 'u16'),
             })),
@@ -59,7 +62,7 @@ export function glb({ nodes, meshes = [], animations = [], skins, scene = [0], e
                 channels: a.channels.map(c => ({ sampler: c.sampler, target: { node: c.node, path: c.path } })),
             })),
         } : {}),
-        ...(skins ? { skins: skins.map(s => ({ joints: s.joints, inverseBindMatrices: accessor(s.inverseBindMatrices, 16) })) } : {}),
+        ...(skins ? { skins: skins.map(s => ({ joints: s.joints, ...(s.inverseBindMatrices ? { inverseBindMatrices: accessor(s.inverseBindMatrices, 16) } : {}) })) } : {}),
         ...extra,
     };
     json.buffers = [{ byteLength: length }];
