@@ -266,3 +266,10 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   - **ONNX Runtime's device switch loads the demo again.** Before phase 10.5 that emptied the
     measurements, and a first ORT pick at 256K came back at 4K. They are now kept for the same
     adapter (`stepCosts` in `index.ts`).
+- **The site's agents demos share the preview's `scene.ts`** (D1 phase 4 review). Herd & Wolves
+  GPU, SpatialGrid and ThinkKernel import its helpers (darts, `dartMaterials`, `WORLD_HALF`, …).
+  Before removing or changing an export there, search all of `AgentsExperiments/`: on
+  2026-10-15 a search cut short by `head` missed two of them, and only `tsc` caught it.
+- **One `wheel` step of `npm run drive` can cross most of an orbit's zoom range.** Herd & Wolves
+  zooms by a share of the current distance per event, so ±900 jumped from 190 m to about 15 m.
+  For known views, start from the page's own default (190 m) and step by ±150.

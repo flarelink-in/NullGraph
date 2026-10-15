@@ -62,7 +62,7 @@ state, the rendering backbone Phase 2's creatures will need, and the showcase of
 
 | Step | Delivers | Serves the goal by | Status |
 |---|---|---|---|
-| D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phases 0–2 ✅: model costs measured; rigid bake committed `f538ffe`; public vertex hook and checked guide built/validated (phase 2 uncommitted). No-hook WGSL unchanged; visibility GPU 8/8 on Node/NVIDIA, Node/AMD, Chrome/AMD. Next: phase 3, Models mode and accumulated phase |
+| D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phases 0–3 ✅: costs measured; rigid bake `f538ffe`; vertex hook `75824a7`; Models mode in the site (`77c8e92` there, checks `fdf3ede`). Phase 4 ✅: built by Cline (site `850ab4f`, records `e96af9d`), then reviewed with the user ("Phase 4 review" in the design): the new `anime()` preset `8b68286`, LOD bands in visibility `c56de95`, far cubes, fences and stock materials in the site `ca81605`. Next: phase 5 (skinned models) |
 
 ### Other open work (outside Cycle C)
 
@@ -314,3 +314,12 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   requested Models → Darts → debug Arrows ordering, Darts default, and public model/palette assets
   fetched on demand. Implemented locally with static culled grass, toon bands, optional anime
   post and the site documentation panel. No engine API changes or model assets added.
+
+- **2026-10-15, D1 phase 4 review:** after seeing D1.4, the user asked for a new anime look
+  ("sharp lines and softer look"), the post chain wired through `ChainPresets` as other demos do,
+  far animals as white and orange cubes, broken and leaning fences at the field's edge, and stock
+  materials where custom shaders were used ("the preview and darts"). Decided: `ChainPresets.anime()`
+  itself changes (a library look change; the VisibilityMeshlets demo uses it too); LOD bands by size
+  on screen become public API in `null-graph/visibility` (`InstanceDrawOptions.lod`); fences are built
+  from boxes in stock toon wood, Models mode only; the animals, field and grass keep their own
+  fragments ([design](../agents-animated-models-design.md), "Phase 4 review").

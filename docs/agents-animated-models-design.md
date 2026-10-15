@@ -172,7 +172,7 @@ per agent per batch; models add nothing per agent beyond that.
 | 1 ✅ | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests; results below (2026-10-15, uncommitted) |
 | 2 ✅ | The vertex hook; tests; guide | Headless + GPU test; results below (2026-10-15, uncommitted) |
 | 3 ✅ | The demo: Models mode, cow prey and fox wolves, clips from simulation state | Site typecheck, preparation/shader check and Chrome/AMD drives, 2026-10-15 |
-| 4 | Implemented locally: Models-only field, grass, toon, `anime` preset toggle; docs page | Typecheck/build, shader check and Chrome drives; final notes below |
+| 4 | Implemented locally: Models-only field, grass, toon, `anime` preset toggle; docs page. Reviewed with the user: new `anime()`, LOD bands, far cubes, fences, stock materials ("Phase 4 review") | Typecheck/build, shader check and Chrome drives; U41, U42, V6; final notes below |
 | 5 | Skinned models (when the user has one) | Tests, drive |
 
 ## 11. Decisions (the user, 2026-10-15)
@@ -378,3 +378,118 @@ none on repeat entry (forwarded page logs are duplicates, not requests). 16K was
 by the measured frame guard in this run; selection hit is not established by the click screenshot.
 Earlier drives overlapped Vite edits and reloaded; stable results exclude those interrupted runs.
 Artifacts: `C:/Users/Vikas/AppData/Local/Temp/ng-d1.4-{stable,resize,failure}`. Uncommitted.
+
+## Phase 4 review — 2026-10-15: the look, far cubes, fences, stock materials
+
+**Asked by the user** (2026-10-15, after D1.4): change the anime post effect ("sharp lines and softer
+look"; zoomed out "looks bad"), and how it is wired ("`* as postmodule` instead of something like
+chain presets"); far animals as "orange or white colored cubes" (LOD); fences at the field's edges,
+"some broken and some angled but still toon shaded"; check the demo's use of visibility; use the
+built-in materials instead of custom shaders "for the preview and darts"; check both demos (Herd &
+Wolves GPU and its CPU preview).
+
+### What the check found
+
+1. **The old `anime` chain** (Bloom `natural`, Tonemap `filmic`, CelShade 5 bands, Outline with luma
+   edges, FXAA after the ink), rendered side by side by a look spike (below):
+   - CelShade posterizes the whole frame, so the field's soft bands became hard lime and olive
+     blotches, on top of the animals' own toon bands;
+   - Outline's luma Sobel inks every band edge, grass blade and palette swatch: doubled lines;
+   - FXAA after the ink smears a line into a soft grey band 2–3 px wide;
+   - zoomed out, the 3 px depth and luma edges cover whole animals: grey noise over the field, and a
+     thick dark field border.
+2. **The wiring:** `import type * as PostModule` plus a runtime `import('null-graph/post')`, kept in
+   a `postModule` variable. The site's VisibilityMeshlets demo imports `{ PostChain, ChainPresets }`.
+3. **Visibility, as the demo uses it: correct.** The agents' rows are written on the GPU
+   (`toInstances`, `setInstanceCount`) and `upload()` writes cull parameters only. Each batch culls
+   every row (six batches, species × normal/hover/selected); the scenery is a second, static system.
+   No occlusion, which is right for a field seen from above. **What was missing: level of detail.**
+   The instance tier had none (only the meshlet tier selects LODs), so every animal drew its whole
+   model at any size.
+4. **Custom WGSL where stock materials fit:** the darts in both Herd demos (`litFragment`), and in
+   the SpatialGrid and ThinkKernel demos, which import the same helper from the preview's
+   `scene.ts`. The preview's ground (`GROUND_FRAGMENT`) is debug-ui's `groundGrid`, copied.
+5. **No fence model:** the site's `structure-fence*.glb` are roofed market stalls (rendered to check).
+6. **Seen, not changed:** the scene pass's green clear colour reads as a green sky when the camera
+   is low; the amber catch rings dominate the far views; the cows' yellow dots come from the
+   stand-in palette mapping (the animals' own palette is not in the site).
+
+### The look spike
+
+`test/spikes/anime-look/` renders the demo's scene headless (its field and grass fragments, 768
+grass patches, 3,840 cows in herds and 256 foxes, the demo's orbit) under a chain, at four zooms
+(close 12 m, mid 40 m, default 190 m, far 340 m), and tiles the frames into one sheet:
+`node test/spikes/anime-look/run.mjs [--out dir] [--chains a,b] [--zooms close,far]`. The models and
+the palette are read from the site's `public/` (`NG_SITE_PUBLIC`), never copied here.
+`NG_LOOK_FENCE=1 NG_LOOK_ZOOM=edge` adds the site's own `fence.ts` and looks at it from inside the
+field. Read by eye: CelShade and luma lines made the blotches and the noise; the existing effects
+in another order with other parameters were enough; AgX washed this scene grey; a heavier grade
+(lift, low contrast) went dull; 1.5× supersampling only slightly smoothed the ink.
+
+### Decisions (the user, 2026-10-15)
+
+1. **Change `ChainPresets.anime()` itself** (not a new preset); `comic()` stays the hard look.
+2. **Level of detail by size on screen, in `null-graph/visibility`** (public API).
+3. **Fences built from boxes** (no asset), stock ToonMaterial, Models mode only.
+4. **The animals, field and grass keep their own fragments;** the darts (both demos) move to stock
+   materials and the preview's ground to `groundGrid`.
+
+### Built
+
+Committed on the user's word after Cline's D1.4 (null-graph `e96af9d`, site `850ab4f`): the preset
+`8b68286`, the LOD bands `c56de95`, the site `ca81605`, then these records.
+
+- **post:** `anime()` is Bloom (threshold 0.8, knee 0.4, intensity 0.2, 5 mips) → Tonemap
+  `faithful` → FXAA → Outline (1 px, `lumaSensitivity: 0`, strength 0.85, charcoal ink). FXAA runs
+  before Outline, against the canonical order, so the ink stays one pixel sharp. `EFFECT_ORDER` and
+  `orderChain()` are unchanged, and the exception is documented (`post-presets.md` §2 and its table,
+  `api/post.md`). Post entry 18,589 → 18,609 B min+gzip (+20 B).
+- **visibility:** `InstanceDrawOptions.lod: { minPixels?, maxPixels? }` (`InstanceLodBand`). A batch
+  draws its mesh index's rows only while their bounding sphere's diameter on screen is in the band,
+  measured as the meshlet tier measures size (nearest distance, vertical field of view,
+  `params.screenSize.y`). Two batches over one mesh index with adjoining bands draw each row once,
+  as the model near and a stand-in far. The test is baked into the batch's cull, after the frustum
+  test and before occlusion; without a band the cull WGSL is byte for byte what it was (SHA-256, with
+  and without occlusion). A band with no bound, a bound that is not a finite number ≥ 0, or
+  `minPixels` ≥ `maxPixels` is refused before the batch is made. Guide: `api/visibility.md`, "Level of
+  detail by size on screen". Visibility entry 13,747 → 14,035 B min+gzip (+288 B, above the
+  100–200 B guessed; most of it is the refusal's message and the WGSL).
+- **The site** (`ca81605` there):
+  - Herd & Wolves GPU: `{ PostChain, ChainPresets }` imported statically, the lazy post import gone
+    (the assets still load on the first Models pick);
+  - Models: each species' model batch takes `lod: { minPixels: 22 }`, and a cube batch over the same
+    rows `lod: { maxPixels: 22 }` (`ANIMAL_LOD_PX`). The cube is the rest pose's box shrunk to the
+    body, white for cows and orange for foxes, stock Lambert. Hovered and selected animals keep the
+    model at every size. The cubes sit after every hooked mesh in the megabuffer, so `partOf` needs
+    no entries for them;
+  - `fence.ts`: one ring of posts just outside the agents' bounds (2.4 m apart, 1.1–1.4 m tall, each
+    leaning up to 4°, one in ten 10–22°), two rails from each post to the next; one rail in eight
+    gone, one in twelve snapped, with one end nailed and the other in the grass. Deterministic per
+    field size (`rand01`). Drawn in the field's static system with two stock ToonMaterials (posts
+    darker than rails): about 800 rows at 4K agents, 13K at 1M;
+  - the darts of both Herd demos: `dartMaterials` in the preview's `scene.ts`, stock Lambert with the
+    half-Lambert wrap, and Emissive with its GPU pulse for the selected agent; the preview's ground
+    row and mesh replaced by `groundGrid`; `litFragment` and `GROUND_FRAGMENT` removed;
+  - SpatialGrid and ThinkKernel moved to stock Lambert too (they imported `litFragment`), and
+    ThinkKernel's ground row to `groundGrid`.
+
+### Validation
+
+- **Headless:** U41 (no band, no change: the hashes; banded culls parse; the test's place in the
+  kernel) and U42 (the band reaches each batch's cull; seven malformed bands refused with nothing
+  made; adjoining bands split every size). Watched failing: the band not passed to the cull (U42,
+  V6), the size test reversed (U41, U42, V6), the refusal removed (U42). `test:visibility` (now with
+  `visibility-lod.test.mjs`), `test:post` (214 shader modules), `test:loaders` 7/7 and 1 skipped.
+- **GPU:** V6, two batches with adjoining bands at 24 px over 2,000 rows: near 850 = 850, far
+  949 = 949 against the CPU mirror, 201 out of view. Visibility suite 9/9 on Node/NVIDIA, Node/AMD
+  and Chrome/AMD.
+- **Site:** `tsc --noEmit` clean; ESLint no errors (2 older warnings in SpatialGrid);
+  `check-site.mjs` 4/4. Drives in Chrome/AMD on a separate Vite server (8093), all clean: Darts;
+  Models with and without anime at stepped zooms (cubes at ~100 m; models near and cubes far at
+  ~50 m); a click selecting Wolf 103 (amber Emissive dart, inspector, follow); the preview demo;
+  VisibilityMeshlets under the new `anime()`. The fence close up was read from the look spike's
+  render of the site's `fence.ts`, since the demo's camera cannot reach the edge.
+
+**Not done:** the green clear colour, the catch rings' weight at distance, the animals' real
+palette, shadows. The site's servers on 8081 and 8082 still hold the old library in memory: restart
+with `npm run dev -- --force`.

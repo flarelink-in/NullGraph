@@ -1,44 +1,39 @@
 # Now — 2026-10-15
 
+**Rewrite this file at the end of every session; keep it under one screen.** History goes to the
+log, not here.
+
 ## Position
 
 - **Cycle C, C2 complete.** Steps 6–10 committed; step 5's scaling study remains deferred.
-- **Cycle D, step D1: animated agents.** Design/phase 0 committed `edecdf4`; phase 1 (rigid bake,
-  parser node metadata, tests and guide) committed **`f538ffe`** at the user's request.
-- **Phase 2 committed `75824a7`.** Public instance-tier `vertexHook`, model-space
-  deformation, dedicated bind-group validation, unchanged no-hook WGSL, guide and GPU pose test.
-  [Design/results](../agents-animated-models-design.md). User called these phases “10.1/10.2”;
-  they are D1.1/D1.2, not the already-completed live-switch phases.
-- **Phase 3 implemented:** Models mode in the site: cow prey, fox wolves; animation from simulation
-  state and one accumulated phase float per agent. No machine-specific count caps. Field/toon/post
-  are next (phase 4); field scope defaults to Models only (design §11, item 5 still open).
-  Skinned models wait for the user's model (phase 5).
+- **Cycle D, step D1: animated agents** ([design](../agents-animated-models-design.md)). The user
+  calls its phases "10.1–10.5".
+  - **Phases 0–4 committed.** Costs `edecdf4`; rigid bake `f538ffe`; vertex hook `75824a7`; Models
+    mode (site `77c8e92`, checks `fdf3ede`); Cline's D1.4 field, grass, toon and anime (site
+    `850ab4f`, records `e96af9d`).
+  - **The phase 4 review is committed:** `ChainPresets.anime()` as soft colours with crisp depth ink
+    (`8b68286`); `InstanceDrawOptions.lod`, LOD by size on screen (`c56de95`); far cubes, fences and
+    stock materials in the site (`ca81605`). See "Phase 4 review" in the design.
+- **Next:**
+  1. the bug the user reported: in Models mode the agent count does not switch (Darts and Arrows
+     switch);
+  2. phase 5, skinned models (the user's "10.5"), designed before it is built.
+- Open, not asked: the green clear colour reads as sky when the camera is low; catch rings dominate
+  far views; the animals' palette is a stand-in.
 
-## Validation and limitations
+## State of the repositories
 
-- Development build + TypeScript and IDE build pass. Visibility, loaders, shadows, picking,
-  agents headless regressions pass; five new hook checks include all stock material families
-  and the actual guide example compiled, bundled and run.
-- Visibility GPU **8/8** on Node/NVIDIA, Node/AMD and Chrome/AMD, zero GPU errors.
-  New baked-rig comparison: 1,874 covered pixels, zero differ by >2/255; no-hook control differs
-  at 2,843 pixels. Exercises baseVertex, sparse sourceIndex, animated parent and normals.
-- Full visibility entry **13,220 → 13,747 B min+gzip (+527 B)**. Core bundle unchanged.
-- Phase 1 validated 193 site GLBs against the old parser. Parser normal/colour limitations
-  unchanged; at 30 fps blended run poses deviate up to 36.7 mm between samples.
-- Hook does not propagate automatically to shadow casters or posed picking. Group 2 conflicts
-  with clustered lighting: choose a dedicated group (normally 3), matching WGSL declarations.
-
-## Repository state
-
-- **null-graph:** `master`; D1.1 and D1.2 committed; D1.3 site committed `77c8e92`; site check and notes added. `dist/` development build;
-  tracked core dist files unchanged. `package-lock.json` ignored. No push.
-- **Site:** `D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`, Models integration implemented.
-  Installed library and `.yalc` dist refreshed; Vite restarted with `--force` on port 8081. No deployment.
-- D1.3 validation: site `tsc --noEmit`, IDE build, visibility/loaders regressions and scenario/network
-  parity pass. `test/spikes/animated-models/check-site.mjs` checks real site preparation and shaders.
-  Chrome/AMD drives switch modes, pause, adjust speed and request 4K/16K/64K/1M: zero GPU errors.
-  Larger counts can be refused by measured queue-completion render cost, separately from step cost.
-  Animals' external palette is absent; four UV swatches map to the installed site palette (no new assets).
-- Optional GLB compatibility test needs `NG_GLB_COMPAT_DIR` and `NG_GLB_OLD_LOADER`; old build
-  in local Claude temp session `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`, `scratchpad/old/loaders.js`.
-  Models stay local/ignored; never commit them.
+- **null-graph** (`master`, not pushed): clean after this session's records commit. `dist/` is a
+  development build.
+- **Site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): null-graph published to it
+  alone through yalc (signature `d360757d…`, a production build of the code now committed). Eight
+  unrelated files someone else staged (hosting files, two light demos) stay staged and uncommitted;
+  commit by path there. Most of the agents demos' other files are still untracked.
+- **Dev servers:** only the user's on 8082. Use another port for tests, and stop what you start.
+- **Green on 2026-10-15:** visibility, post and loaders headless; visibility GPU 9/9 on Node/NVIDIA,
+  Node/AMD, Chrome/AMD; each code commit validated alone in a temporary worktree; site `tsc`,
+  ESLint (0 errors), `check-site.mjs` 4/4; Chrome drives of Herd & Wolves GPU, its preview and
+  VisibilityMeshlets.
+- **Bundle:** visibility 14,035 B min+gzip; post 18,609 B; loaders 6,463 B.
+- **Another worktree exists:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`).
+- `package-lock.json` is ignored by git here; `venv/` needs `--cert venv/pip-ca-bundle.pem`.
