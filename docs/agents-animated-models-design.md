@@ -14,7 +14,7 @@ real animals in Blender later; this lays the plumbing. Phase 2's creatures will 
 rendering backbone.
 
 **Status:** decided with the user, 2026-10-15 (§11): Cycle D, step 1. Phase 0 measured (results
-at the end); phase 1 next.
+at the end); phase 1 built and validated, uncommitted. Phase 2 next.
 
 ---
 
@@ -169,7 +169,7 @@ per agent per batch; models add nothing per agent beyond that.
 | Phase | Builds | Checked by |
 |---|---|---|
 | 0 | Spike: fox baked by a script, drawn with a hacked shader at 4K–64K | Costs (§8), recorded here |
-| 1 | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests |
+| 1 ✅ | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests; results below (2026-10-15, uncommitted) |
 | 2 | The vertex hook; tests; guide | Headless + GPU test |
 | 3 | The demo: Models mode, fox and pig, clips from the agent state | Drives, screenshots |
 | 4 | The field, grass, toon, `anime` preset toggle; docs page | Drives, screenshots |
@@ -255,3 +255,53 @@ adapter was named, on this day.)
 
 **Not run:** shadows, post-processing, picking with posed models, the colormap texture (flat
 colours here), LOD.
+
+## Phase 1 results — 2026-10-15: rigid animation bake
+
+**Built by Opus, completed and validated by Cline; uncommitted.** Parser node metadata and
+`bakeRigidAnimation` are exported from loaders. The bake samples LINEAR, STEP and CUBICSPLINE,
+supports looping and endpoint-inclusive one-shots, welds exact position/uv/part matches by
+default, and reports bounds over sampled poses and convex blends (not unsampled glTF motion).
+`MegabufferBuilder.addMesh` accepts Uint32 indices (type-only); MeshletBuilder's narrowing cast
+is removed. The loader guide's actual preparation example type-checks, bundles and runs on an
+in-memory GLB. No model files were added.
+
+**Validation:** development build including TypeScript, IDE build and diff whitespace checks
+pass. `npm run test:loaders` passes **8/8** with external corpus options enabled. U37–U40 use
+an in-memory fixture and independent CPU evaluator. The optional animal test reads ignored
+local models. The compatibility test compares **193 GLBs** recursively under the site's
+`public/` with Opus's saved pre-change loaders build: all previous fields and typed-array values
+agree. Blob URLs are normalized by creation order; layout callbacks are compared by their
+returned descriptors rather than function identity.
+
+Fox/deer/cow frame poses agree with glTF within **1.6e-7**, static/rest within **2.4e-7**.
+Welding yields **423 / 524 / 418** vertices. Four-clip tables are **19,584 / 16,320 / 19,584 B**.
+Local bakes took **7–37 ms**, varying with test concurrency. At 30 fps, blending between samples
+deviates up to **36.7 mm** for run, **4.8 mm** for walk. Higher fps trades memory for accuracy.
+
+All existing headless scripts pass: core, profiler, cameras, agent-kit, post, geometry,
+visibility, shadows, picking, text, agents (83 Node tests), inference (24), environment.
+Node/Dawn GPU regressions pass: visibility **6/6**, core **8/8**, agents **137/137**, zero GPU
+errors. Visibility/core used NVIDIA (core also tests adoption on AMD); agents used AMD.
+
+**Size:** esbuild browser ESM, minified, `gl-matrix` external, default gzip: parser-only
+**3,207 B**, bake-only **3,261 B**, full entry **6,463 B** min+gzip. The saved old full entry
+rebundled identically is **4,196 B**: **+2,267 B**, above the 0.5–1 KB estimate. Regression
+ceilings are **3,300 / 3,400 / 6,700 B** respectively; they record measured cost, not a
+user-approved revision of the estimate. Parser-only imports carry no bake; bake-only imports
+carry no parser; an unused entry leaves no code (all tested).
+
+**Known limitations, unchanged:** parser rest normals use the node matrix, not inverse
+transpose (wrong under uneven scale, including the cow's head). Material colour factors and
+vertex colours are not preserved. The bake combines meshes into one material draw; morph
+weights are ignored and skins refused. Welded flat-shaded models need face-normal reconstruction
+in the fragment shader. These constraints are explicit in the guide.
+
+**Reproduce corpus comparison:** set `NG_GLB_COMPAT_DIR` to an external GLB directory and
+`NG_GLB_OLD_LOADER` to a previous ESM loaders build, then run `npm run test:loaders`. Without
+both, that check explicitly skips; without local animal models their check also skips. The old
+build used here is in local Claude temp session `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`,
+`scratchpad/old/loaders.js`.
+
+**Not run:** browser GPU regressions, posed-model GPU parity, demo drives, animated shadows or
+post-processing. **Next: phase 2**, the public vertex hook, its GPU pose test and guide.

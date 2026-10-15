@@ -26,7 +26,7 @@ export class MegabufferBuilder {
         this.vertexStrideFloats = vertexStrideFloats;
     }
 
-    public addMesh(name: string, meshVertices: Float32Array | number[], meshIndices: Uint16Array | number[]): MeshOffset {
+    public addMesh(name: string, meshVertices: Float32Array | number[], meshIndices: Uint16Array | Uint32Array | number[]): MeshOffset {
         // 1. Calculate the offsets before adding the new data
         // baseVertex is the number of VERTICES currently in the buffer, not the number of floats!
         const baseVertex = this.vertices.length / this.vertexStrideFloats;
