@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 // Shared chunks
 // ---------------------------------------------------------------------------
+import type { InstanceVertexHook } from './types';
 
 /** Camera uniform — must match core/Camera.ts (108 floats) and materials/CommonChunks.ts. */
 export const CAMERA_STRUCT_WGSL = /* wgsl */ `
@@ -509,7 +510,11 @@ struct VertexOut {
  * (`@builtin(instance_index)`). The default vertex attributes match `StandardLayout`
  * (position@0, normal@1, uv@2); supply `vertexAttributesWGSL` to match a different layout.
  */
-export function buildInstanceDrawWGSL(opts: DrawShaderOptions & { vertexAttributesWGSL?: string } = {}): string {
+export function buildInstanceDrawWGSL(opts: DrawShaderOptions & {
+    vertexAttributesWGSL?: string;
+    vertexHook?: Pick<InstanceVertexHook, 'wgsl' | 'bindings'>;
+} = {}): string {
+    const hook = opts.vertexHook;
     const attrs = opts.vertexAttributesWGSL ?? `
         @location(0) pos: vec3<f32>,
         @location(1) normal: vec3<f32>,
@@ -522,18 +527,22 @@ ${VERTEX_OUT_WGSL}
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
-${opts.extraBindings ?? ''}
+${opts.extraBindings ?? ''}${hook ? `
+struct Deformed { position: vec3<f32>, normal: vec3<f32> };
+${hook.bindings}
+${hook.wgsl}
+` : ''}
 
 @vertex
 fn vs_main(${attrs}
-    @builtin(instance_index) ii: u32,
+    @builtin(instance_index) ii: u32,${hook ? '\n    @builtin(vertex_index) vi: u32,' : ''}
 ) -> VertexOut {
     let inst = instances[ii];
-    let world = inst.model * vec4<f32>(pos, 1.0);
+    ${hook ? 'let deformed = deform(pos, normal, vi, inst);\n    ' : ''}let world = inst.model * vec4<f32>(${hook ? 'deformed.position' : 'pos'}, 1.0);
     var out: VertexOut;
     out.clipPos = camera.viewProj * world;
     out.worldPos = world.xyz;
-    out.worldNormal = normalize(normalMatrixFromModel(inst.model) * normal);
+    out.worldNormal = normalize(normalMatrixFromModel(inst.model) * ${hook ? 'deformed.normal' : 'normal'});
     out.uv = uv;
     out.ecsColor = vec3<f32>(1.0);   // no per-instance tint; see VERTEX_OUT_WGSL
     return out;

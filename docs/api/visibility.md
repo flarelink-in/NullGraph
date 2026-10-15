@@ -97,6 +97,65 @@ vis.setGeometry(mega, pack);                // pack optional → instance tier o
 | `lodErrorPx` | `1.0` | Larger ⇒ coarser LODs sooner. |
 | `mode` | `'single-phase'` | `'two-phase'` is reserved and **throws**. |
 
+## Model-space vertex hooks (instance tier)
+
+`createInstanceDrawBatch` accepts `vertexHook: { wgsl, bindings, entries, group? }`.
+The generated vertex stage calls your function before the instance model transform:
+`fn deform(pos: vec3<f32>, normal: vec3<f32>, vi: u32, inst: Instance) -> Deformed`.
+Visibility supplies `struct Deformed { position: vec3<f32>, normal: vec3<f32> }`.
+Return both values in model space; visibility then applies the instance model matrix and its
+inverse-transpose normal matrix. UVs and the stock material fragment contract are unchanged.
+
+This complete batch-registration example type-checks and runs in `npm run test:visibility`:
+
+```ts
+import type { RenderPassNode } from 'null-graph';
+import { VisibilitySystem } from 'null-graph/visibility';
+
+// offsets is STORAGE: one vec4<f32> per source row, xyz = model-space displacement.
+export function addDeformedBatch(vis: VisibilitySystem, pass: RenderPassNode,
+    meshName: string, meshIndex: number, offsets: GPUBuffer) {
+    return vis.createInstanceDrawBatch(pass, meshName, meshIndex, {
+        vertexHook: {
+            group: 2,
+            bindings: '@group(2) @binding(0) var<storage, read> offsets: array<vec4<f32>>;',
+            entries: [{ binding: 0, resource: { buffer: offsets } }],
+            wgsl: `fn deform(pos: vec3<f32>, normal: vec3<f32>, vi: u32, inst: Instance) -> Deformed {
+                return Deformed(pos + offsets[inst.sourceIndex].xyz, normal);
+            }`,
+        },
+    });
+}
+```
+
+- **`vi` is absolute:** indexed draws include the mesh's `baseVertex`. Per-vertex storage
+  (such as `bakeRigidAnimation().partOfVertex`) must be padded/placed at that mesh's offset in
+  the whole mega vertex pool, not indexed from zero for every mesh.
+- **`inst.sourceIndex` is the original row**, not the compacted visible-list index. Agents use
+  `sourceIndex - firstInstance` to address their own record. Never assume cull output order.
+- **Bindings use a dedicated group**, default **2**. Their WGSL is emitted verbatim: `group`
+  chooses where `entries` bind, it does not rewrite declarations. Group 0 is engine-owned.
+  Choose group 3 (and declare `@group(3)`) when clustered lighting uses 2; stock materials
+  normally use 1. Other lighting/environment bindings can occupy further groups: check your
+  layout and `device.limits.maxBindGroups`. Numeric group collisions with generated material
+  or extra bindings are refused. Keep group attributes literal and do not hide declarations
+  behind WGSL constant expressions. Unoccupied intervening groups are bound empty automatically.
+- **Composition:** works with `material`, `fragmentBody`, `extraBindings` and custom vertex
+  attributes named `pos`, `normal`, `uv`. A full `shaderCode` override plus a hook is refused;
+  use one or the other. Meshlet draws do not support the hook.
+- **Bounds and passes:** culling and picking are not deformed. Supply a sphere covering all
+  displayed poses (the rigid bake reports one). Shadow caster passes need matching deformation
+  in their own vertex stage; hooks are not automatically propagated to `ShadowSystem`.
+- **Ownership:** buffers stay caller-owned. Update them through the queue or compute stages
+  before drawing; keep them alive until all batches using them have been removed. The hook
+  adds no per-instance CPU updates or new vertex attributes.
+
+For baked rigid animation, upload the part indices and 3×4 transform rows once, select a frame
+from each source row's animation state, and apply its part's rows in `deform`. Transform normals
+with the inverse transpose of that part transform when scaling is non-uniform. See the
+[loaders guide](./loaders.md#baked-rigid-animation-many-instances-one-shared-table) for packing
+and sampling. With no hook, generated instance draw WGSL is byte-for-byte unchanged.
+
 ## 3. Fill instances (zero-copy, worker-fillable)
 
 Instances are 96 bytes each (24 floats): a column-major model matrix, an object-space bounding

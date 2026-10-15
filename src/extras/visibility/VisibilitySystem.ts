@@ -255,6 +255,22 @@ export class VisibilitySystem {
         const materialGroup = options.materialGroupIndex ?? 1;
         const wgsl = this.resolveMaterialWGSL(
             options.material, options.fragmentBody, options.extraBindings, materialGroup);
+        const hook = options.vertexHook, hookGroup = hook?.group ?? 2;
+        const occupied = new Set<number>([0]);
+        if (hook) {
+            const refuse = (why: string): never => { throw new Error(`VisibilitySystem: vertexHook ${why}`); };
+            if (options.shaderCode !== undefined) refuse('cannot be combined with shaderCode; use the generated vertex stage.');
+            if (!Number.isInteger(hookGroup) || hookGroup < 1 || hookGroup >= (this.device.limits.maxBindGroups ?? 4)) {
+                refuse('group must be a whole number above 0 and below device.limits.maxBindGroups.');
+            }
+            const groups = (code: string) => [...code.matchAll(/@group\(\s*(\d+)\s*\)/g)].map(m => Number(m[1]));
+            for (const group of groups(`${wgsl.extraBindings ?? ''}\n${wgsl.fragmentBody ?? ''}`)) occupied.add(group);
+            if (options.material || options.materialEntries) occupied.add(materialGroup);
+            if (occupied.has(hookGroup)) refuse(`group ${hookGroup} is already used by the material, lighting or extra bindings; choose a dedicated group.`);
+            if (groups(`${hook.bindings}\n${hook.wgsl}`).some(g => g !== hookGroup)) {
+                refuse(`bindings must declare only group ${hookGroup}; group numbers are not rewritten.`);
+            }
+        }
         // §9.3 (shadows-design.md): a shadow cascade points this batch at its own camera and
         // runs without Hi-Z. Both default to today's behavior.
         const camera = options.camera ?? this.engine.ctx.cameraUniformBuffer;
@@ -287,6 +303,14 @@ export class VisibilitySystem {
         }
         if (options.materialEntries) {
             this.engine.setRenderPassBindGroup(batch, options.materialEntries, materialGroup);
+        }
+
+        if (hook) {
+            // Auto-layout pipelines require empty intervening bind groups to be set as well.
+            for (let group = 1; group < hookGroup; group++) {
+                if (!occupied.has(group)) this.engine.setRenderPassBindGroup(batch, [], group);
+            }
+            this.engine.setRenderPassBindGroup(batch, hook.entries, hookGroup);
         }
 
         const paramsBuffer = this.createParamsBuffer();
