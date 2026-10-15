@@ -139,8 +139,8 @@ skinned model to test with.
 ## 7. The demo
 
 - **Options:** "Draw agents as": Darts | Models | Arrows. Models: wolves as the fox, prey as the
-  pig (until the user's own animals), drawn up to `HERD_MODEL_MAX` agents, which phase 0 sets
-  from measurements like the darts' 262,144, and that falls back to darts above it, with the
+  cow (until the user's own animals), subject to this GPU's measured draw safety guard,
+  without a machine-specific count cap, with the
   reason on screen. Hover, click and the inspector work as with darts (rest-pose picking).
 - **The field:** in Models mode, a ground plane with a toon-shaded grass colour (a gentle noise
   of two greens and soft bands), and grass patches (`patch-grass-foliage.glb`) scattered as
@@ -171,7 +171,7 @@ per agent per batch; models add nothing per agent beyond that.
 | 0 | Spike: fox baked by a script, drawn with a hacked shader at 4K–64K | Costs (§8), recorded here |
 | 1 ✅ | `GLBParser` node per mesh; `bakeRigidAnimation`; tests; guide | Headless tests; results below (2026-10-15, uncommitted) |
 | 2 ✅ | The vertex hook; tests; guide | Headless + GPU test; results below (2026-10-15, uncommitted) |
-| 3 | The demo: Models mode, fox and pig, clips from the agent state | Drives, screenshots |
+| 3 ✅ | The demo: Models mode, cow prey and fox wolves, clips from simulation state | Site typecheck, preparation/shader check and Chrome/AMD drives, 2026-10-15 |
 | 4 | The field, grass, toon, `anime` preset toggle; docs page | Drives, screenshots |
 | 5 | Skinned models (when the user has one) | Tests, drive |
 
@@ -351,3 +351,7 @@ the core bundle remains unchanged. Development/TypeScript and IDE builds pass.
 **Next: phase 3**, Models mode in Herd & Wolves, fox/cow clips driven from simulation state
 and an accumulated per-agent phase. No site edits, yalc push, commit of phase 2 or deployment
 in this session. Field/toon/post remain phase 4; skinning waits for phase 5.
+
+### Phase 3 integration — 2026-10-15
+
+Cow prey and fox wolves implemented in the local site. Each step advances one wrapped phase float per agent; the public hook blends idle/walk/run and selects eat while resting. Model geometry and pose translations are scaled together for matching rest-pose picking. The absent external animal palette is replaced by four UV swatches sampled from the installed site palette; no assets added. Larger model draws use conservative queue-completion wall-time measurements on this GPU, not a fixed count cap. The site can refuse 64K/1M without submitting the predicted unsafe render. Optional `node test/spikes/animated-models/check-site.mjs` validates the actual site asset selection, scale, clip order and generated shaders. Chrome/AMD drives and site typecheck pass; field/grass/toon/post are not implemented here.
