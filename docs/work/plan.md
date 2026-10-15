@@ -309,3 +309,8 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   agent ([design](../agents-animated-models-design.md) §11).
 
 - **2026-10-15, D1.3:** Models mode implemented in the site with cow prey and fox wolves (user reconfirmed cow/deer instead of pig). D1.2 committed `75824a7`. D1.4 field/grass/toon/post remains next; see now.md and the animated-model design.
+
+- **2026-10-15, D1.4:** User approved proceeding with the documented Models-only field scope and
+  requested Models → Darts → debug Arrows ordering, Darts default, and public model/palette assets
+  fetched on demand. Implemented locally with static culled grass, toon bands, optional anime
+  post and the site documentation panel. No engine API changes or model assets added.
