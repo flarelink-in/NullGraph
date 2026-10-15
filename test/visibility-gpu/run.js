@@ -9,6 +9,8 @@
 //       frame 0 (no depth history) and a frame with the wall moved both draw everything
 //   V4  rows owned by the GPU: after setInstanceCount, upload() writes no rows, so rows written
 //       straight into vis.instanceBuffer are culled and drawn (agents design §9.1)
+//   V6  level of detail by size on screen: two batches with adjoining bands over one mesh index
+//       draw each in-view row exactly once, as the CPU mirror of the size says
 //
 // Two hosts, one file (test/gpu/harness-env.mjs): `npm run test:gpu`, or
 // `npm run dev:serve` → http://localhost:3000/test/visibility-gpu/.
@@ -376,6 +378,58 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
     check('V5 watched failing: removing the hook differs from the posed reference',
         changed > 200, `${changed} pixels differ in the rest-pose draw`);
     buffers.forEach(b => b.destroy());
+}
+
+// ---------------------------------------------------------------------------
+// V6 — level of detail by size on screen (animated-models design, "Phase 4 review"): one set of
+// rows, a near batch (sphere, minPixels) and a far batch (cube, maxPixels) under the same mesh
+// index. Each in-view row is drawn by exactly one of them, as the CPU mirror of the band says.
+// ---------------------------------------------------------------------------
+{
+    const T = 24;                                          // px: the band boundary
+    const vis = new VisibilitySystem(engine, { maxInstances: 2000 });
+    vis.setGeometry(mega);
+    const t = makeTargets('V6 scene');
+    const near = vis.createInstanceDrawBatch(t.pass, 'sphere', SPHERE, { lod: { minPixels: T } });
+    const far = vis.createInstanceDrawBatch(t.pass, 'cube', SPHERE, { lod: { maxPixels: T } });
+    const fov = 60, eye = [0, 6, 12];
+    const camera = new Camera(fov, 1, 0.1, 600);
+    camera.updateView(eye, [0, 0, -100]);
+    engine.updateCamera(camera);
+    const planes = extractFrustumPlanes(camera.viewProjectionMatrix);
+    const sizeOf = ws => ws[3] * S / (Math.max(Math.hypot(ws[0] - eye[0], ws[1] - eye[1], ws[2] - eye[2]) - ws[3], camera.near) * Math.tan(fov * Math.PI / 360));
+    // Rows spread evenly in size on screen, from 3 to 150 px, placed along the view at the distance
+    // that gives each its size, with a sideways offset inside the view; one row in ten behind the
+    // eye. Rows within 2% of the boundary are left out, so float rounding cannot move one across.
+    const dir = [0, -6, -112].map(v => v / Math.hypot(6, 112)), side = [1, 0, 0];
+    const buf = new InstanceBuffer(2000), m = mat4.create(), ws = [0, 0, 0, 0];
+    const kept = { near: 0, far: 0, out: 0 };
+    let n = 0;
+    for (let i = 0; n < 2000 && i < 4000; i++) {
+        const s = 0.5 + (i % 7) * 0.25, target = 3 * 50 ** ((i % 997) / 997);
+        const d = 0.5 * s * S / (target * Math.tan(fov * Math.PI / 360)) * (i % 10 === 9 ? -1 : 1);
+        const lateral = Math.sin(i * 1.7) * 0.4 * Math.abs(d) * Math.tan(fov * Math.PI / 360);
+        mat4.fromTranslation(m, [0, 1, 2].map(k => eye[k] + dir[k] * d + side[k] * lateral));
+        mat4.scale(m, m, [s, s, s]);
+        worldSphereFromModel(m, LOCAL_BOUNDS[SPHERE], ws);
+        const px = sizeOf(ws);
+        if (Math.abs(px - T) < 0.02 * T) continue;
+        buf.write(n++, m, LOCAL_BOUNDS[SPHERE], SPHERE);
+        if (!sphereInFrustum(planes, ws[0], ws[1], ws[2], ws[3])) kept.out++;
+        else if (px >= T) kept.near++;
+        else kept.far++;
+    }
+    vis.setInstances(buf.data, n);
+    vis.upload();
+    engine.render([...vis.getComputeStages(), t.pass]);
+    const gpu = { near: (await readArgs(near))[1], far: (await readArgs(far))[1] };
+    await saveImage('visibility-v6-lod', await readColor(t.color), S, S);
+    check('V6: each row is drawn by exactly one LOD band, as the CPU mirror of the size says',
+        gpu.near === kept.near && gpu.far === kept.far && kept.near > 50 && kept.far > 50 && kept.out > 0,
+        `${n} rows: near (sphere, ≥ ${T} px) gpu=${gpu.near} cpu=${kept.near}; far (cube, < ${T} px) gpu=${gpu.far} cpu=${kept.far}; out of view ${kept.out}`);
+    vis.destroy();
+    t.color.destroy(); t.depth.destroy();
+    engine.clearPasses();
 }
 
 await finish('All visibility GPU tests passed.');

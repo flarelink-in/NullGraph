@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 // Shared chunks
 // ---------------------------------------------------------------------------
-import type { InstanceVertexHook } from './types';
+import type { InstanceLodBand, InstanceVertexHook } from './types';
 
 /** Camera uniform — must match core/Camera.ts (108 floats) and materials/CommonChunks.ts. */
 export const CAMERA_STRUCT_WGSL = /* wgsl */ `
@@ -253,6 +253,22 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 export interface CullShaderOptions {
     /** Include the Hi-Z occlusion test + pyramid binding. Default false. */
     occlusion?: boolean;
+    /** Instance tier: keep only the rows whose on-screen size is in this band. */
+    lod?: InstanceLodBand;
+}
+
+/** WGSL for a band's test, after the frustum test; empty without one, so the shader is unchanged. */
+function lodBandWGSL(band: InstanceLodBand | undefined): string {
+    const tests = [
+        band?.minPixels !== undefined ? `px < ${band.minPixels}` : '',
+        band?.maxPixels !== undefined ? `px >= ${band.maxPixels}` : '',
+    ].filter(Boolean);
+    if (!tests.length) return '';
+    return `
+    let px = ws.w * params.screenSize.y /
+        (max(length(ws.xyz - camera.eyePos) - ws.w, camera.zNear) * tan(camera.fovRads * 0.5));
+    if (${tests.join(' || ')}) { return; }
+`;
 }
 
 /**
@@ -289,7 +305,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ws = worldSphereFromModel(inst.model, inst.boundsCenter);
     let planes = frustumPlanes(camera.viewProj);
     if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return; }
-
+${lodBandWGSL(opts.lod)}
     ${occlusion ? `if ((inst.flags & 1u) == 0u) {
         if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return; }
     }` : ''}

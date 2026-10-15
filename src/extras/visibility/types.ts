@@ -98,6 +98,18 @@ export interface InstanceVertexHook {
     group?: number;
 }
 
+/**
+ * The on-screen sizes, in pixels, at which an instance batch draws a row: the diameter of its
+ * bounding sphere, measured as the meshlet tier's LOD measures it (from the sphere's nearest
+ * distance, the vertical field of view and the cull's screen height). A row is drawn while
+ * `minPixels <= size < maxPixels`; a bound left out is open. Two batches of one mesh index with
+ * adjoining bands draw each row exactly once, as a near mesh or a far one.
+ */
+export interface InstanceLodBand {
+    minPixels?: number;
+    maxPixels?: number;
+}
+
 /** Options for an instance-tier draw batch (one per unique mesh). */
 export interface InstanceDrawOptions {
     /**
@@ -124,6 +136,13 @@ export interface InstanceDrawOptions {
     vertexAttributesWGSL?: string;
     /** Runs before the instance model transform. Not compatible with a full shaderCode override. */
     vertexHook?: InstanceVertexHook;
+    /**
+     * Level of detail by size on screen: this batch draws its mesh index's rows only while they
+     * are this large. Give a near mesh `{ minPixels: 12 }` and a far one (a cube) `{ maxPixels: 12 }`
+     * under the same mesh index, and each row is drawn by exactly one of them. Checked in the
+     * batch's own cull, one comparison per row; without it the cull is unchanged.
+     */
+    lod?: InstanceLodBand;
     /** GPUVertexBufferLayout[] for the mega vertex buffer. Defaults to StandardLayout's descriptor. */
     vertexLayouts?: GPUVertexBufferLayout[];
     /** Extra group-1+ bindings the fragment needs (a material), emitted verbatim. */
