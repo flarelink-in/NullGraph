@@ -19,11 +19,15 @@ log, not here.
 - **Phase 5.1 committed `e84e308`:** skinned bake, shared sampling/welding refactor,
   normalized integer weights, named refusals, guide/tests. Resumed Claude's saved local session
   `20c36f59-ab5e-4974-8dfb-d4d710b7ad75`; no Claude quota used.
-- **Phase 5.2 implemented/validated:** four public palette/pose WGSL snippets; opt-in
+- **Phase 5.2 committed `49c5a4a`:** four public palette/pose WGSL snippets; opt-in
   `vertexHook.instanceIndex` passes compacted slot as fifth deform argument; existing hooks unchanged.
-- **Next:** 5.3 rigid site palette migration and costs; 5.4 user's Blender animals when available.
-- Previously reported Models agent-count switching bug remains an open verification item; not
-  investigated by this phase's headless bake tests.
+- **Phase 5.3 site committed `17cd4af`:** cow/fox per-visible-draw palettes after culling; Darts default/lazy assets
+  unchanged; 64 MiB total palette budget/device limits, legacy hook fallback at 64K locally.
+- No reliable rigid speedup: 4K NVIDIA hook/palette 1.901/2.032 ms; AMD 3.604/3.867 ms (512²).
+- Actual-site GPU checks 6/6 each Node/NVIDIA and Node/AMD, no errors or pixel differences.
+  Chrome/AMD: 32 actions, six reviewed screenshots, zero errors; Models 4K/16K/64K, pause, resize,
+  anime/grid, mode switching, selected inspector, teardown. Count-switch bug not reproduced.
+- **Next:** 5.4 user's Blender animals when available; sparse palettes/indirect dispatch are follow-ups.
 - Open, not asked: the green clear colour reads as sky when the camera is low; catch rings dominate
   far views; the animals' palette is a stand-in.
 
@@ -34,8 +38,14 @@ log, not here.
 - **Site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): null-graph published to it
   alone through yalc (signature `d360757d…`, a production build of the code now committed). Eight
   unrelated files someone else staged (hosting files, two light demos) stay staged and uncommitted;
-  commit by path there. Site untouched in 5.1; no yalc publish. Most other demo files are untracked.
+  commit by path there. 5.3 touches only HerdWolvesGPU/index.ts and models.ts. No yalc publish.
+  Installed node_modules/null-graph/dist refreshed from local library for validation; reinstalling
+  the older .yalc package needs a refresh. No lockfile change. Most other demo files are untracked.
 - **Dev servers:** prior note says user's on 8082; no server started in 5.1.
+- **5.3 site validation:** TypeScript, targeted ESLint, IDE build and production Vite build pass
+  (51 s; existing chunk/deprecation warnings). React/worker host and ORT migration not retested.
+  Artifacts in `%TEMP%/ng-herd-palette-selection/`, `ng-visible-palette-{nvidia,amd}.json`;
+  reproducible scripts in `test/spikes/animated-models/`. Temporary public page removed after drive.
 - **5.2 green:** production/development builds, TypeScript, IDE build; loaders **20/20**, visibility
   headless; palette GPU **12/12** Node/NVIDIA, Node/AMD, Chrome/AMD, zero errors; visibility GPU
   **9/9** Node/NVIDIA and Chrome/AMD. Dancers/butterfly via `NG_SKINNED_GLB_DIR` to

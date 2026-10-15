@@ -64,6 +64,10 @@ state, the rendering backbone Phase 2's creatures will need, and the showcase of
 |---|---|---|---|
 | D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phases 0–3 ✅: costs measured; rigid bake `f538ffe`; vertex hook `75824a7`; Models mode in the site (`77c8e92` there, checks `fdf3ede`). Phase 4 ✅: built by Cline (site `850ab4f`, records `e96af9d`), then reviewed with the user ("Phase 4 review" in the design): the new `anime()` preset `8b68286`, LOD bands in visibility `c56de95`, far cubes, fences and stock materials in the site `ca81605`. Next: phase 5 (skinned models) |
 
+Phase 5 update (2026-10-15): 5.1 skinned bake and 5.2 palette snippets committed; 5.3 site rigid
+palette migration validated, with bounded allocation/legacy fallback and no reliable rigid speedup.
+Next is 5.4, when the user's skinned animals are available. See the skinned-models design results.
+
 ### Other open work (outside Cycle C)
 
 - Agent kit follow-up: guidance fixes, a pinned-tarball trial, then release/tag (handoff "Agent kit").
