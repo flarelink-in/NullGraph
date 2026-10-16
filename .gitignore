@@ -8,6 +8,8 @@ git_commit.sh
 git-commit.py
 docs/post-presets.md
 tools/agents/out
+tools/film/out
+test/spikes/films/out
 firebase.json
 # 3D models are never committed (the user's rule, 2026-10-15): spikes and tests copy them in locally,
 # e.g. the Kenney assets of the test site into test/spikes/animated-models/models/.
