@@ -21,6 +21,8 @@ import type { MeshletPack } from '../geometry/MeshletBuilder';
 import { HiZPyramid } from './HiZPyramid';
 import {
     buildInstanceCullWGSL,
+    buildInstanceScatterWGSL,
+    INSTANCE_CULL_GROUP,
     buildMeshletInstanceCullWGSL,
     buildMeshletCullWGSL,
     buildInstanceDrawWGSL,
@@ -34,11 +36,17 @@ import type { VisibilityConfig, InstanceDrawOptions, MeshletDrawOptions, Visibil
 const MESHLET_DRAW_INDEX_COUNT = 124 * 3;
 
 interface CullStageRecord {
-    stage: ComputeStageNode;
+    /**
+     * In order. The instance tier: cull, then scatter (design doc §14: survivors in source order).
+     * The meshlet tier: its one stage, still compacting with atomicAdd (§14.4, phase 2).
+     */
+    stages: ComputeStageNode[];
     paramsBuffer: GPUBuffer;
+    /** The instance tier's scratch: visibility bits and block counts. */
+    scratch?: GPUBuffer[];
     /** meshIndex filter for instance-tier culls; unused (0) for meshlet-tier stages. */
     meshIndex: number;
-    /** The draw batch this stage feeds — the key for {@link VisibilitySystem.getCullStage}. */
+    /** The draw batch these stages feed — the key for {@link VisibilitySystem.getCullStages}. */
     batch?: RenderBatch;
     /** The pass `batch` was created into — what {@link VisibilitySystem.removeDrawBatch} detaches it from. */
     pass?: RenderPassNode;
@@ -120,6 +128,13 @@ export class VisibilitySystem {
         }
         if (!config.maxInstances || config.maxInstances < 1) {
             throw new Error('VisibilitySystem: config.maxInstances must be at least 1.');
+        }
+        // The instance cull dispatches one workgroup of INSTANCE_CULL_GROUP per that many instances.
+        const groups = Math.ceil(config.maxInstances / INSTANCE_CULL_GROUP);
+        const maxGroups = engine.device.limits?.maxComputeWorkgroupsPerDimension ?? 65535;
+        if (groups > maxGroups) {
+            throw new Error(`VisibilitySystem: config.maxInstances ${config.maxInstances} needs ${groups} cull workgroups; this device ` +
+                `dispatches at most ${maxGroups} (${maxGroups * INSTANCE_CULL_GROUP} instances).`);
         }
 
         this.occlusion = config.hiZ !== undefined;
@@ -323,24 +338,45 @@ export class VisibilitySystem {
             this.engine.setRenderPassBindGroup(batch, hook.entries, hookGroup);
         }
 
+        // Design doc §14: cull (bits + block counts), then scatter (offsets, survivors in source order,
+        // the draw count). No global atomic: the draw order is the same every run.
         const paramsBuffer = this.createParamsBuffer();
-        const stage = this.engine.createComputeStage({
+        const blocks = Math.ceil(this.config.maxInstances / INSTANCE_CULL_GROUP);
+        const scratchBuffer = (label: string, words: number) => this.device.createBuffer({
+            label: `NullGraph_VisCull${label}`, size: Math.max(16, words * 4), usage: GPUBufferUsage.STORAGE,
+        });
+        const bits = scratchBuffer('Bits', blocks * 8);
+        const counts = scratchBuffer('BlockCounts', blocks);
+        const cull = this.engine.createComputeStage({
             name: `Instance Cull: ${meshName}`,
             shaderCode: buildInstanceCullWGSL({ occlusion, lod }),
-            dispatchCount: () => [Math.ceil(this.instanceCount / 64), 1, 1],
-            preClearBuffers: [{ buffer: batch.indirectBuffer!, offset: 4, data: new Uint32Array([0]) }],
+            dispatchCount: () => [Math.ceil(this.instanceCount / INSTANCE_CULL_GROUP), 1, 1],
         });
-        this.engine.setComputePassBindGroup(stage, [
+        this.engine.setComputePassBindGroup(cull, [
             { binding: 0, resource: { buffer: camera } },
             { binding: 1, resource: { buffer: this.instanceBuffer } },
-            { binding: 2, resource: { buffer: batch.storageBuffer } },
-            { binding: 3, resource: { buffer: batch.indirectBuffer! } },
+            { binding: 2, resource: { buffer: bits } },
+            { binding: 3, resource: { buffer: counts } },
             { binding: 4, resource: { buffer: paramsBuffer } },
             ...(occlusion ? [{ binding: 5, resource: this.hiZ!.view }] : []),
         ], 0);
+        // At least one workgroup: with no instances, it writes the draw count 0.
+        const scatter = this.engine.createComputeStage({
+            name: `Instance Cull Scatter: ${meshName}`,
+            shaderCode: buildInstanceScatterWGSL(),
+            dispatchCount: () => [Math.max(1, Math.ceil(this.instanceCount / INSTANCE_CULL_GROUP)), 1, 1],
+        });
+        this.engine.setComputePassBindGroup(scatter, [
+            { binding: 0, resource: { buffer: paramsBuffer } },
+            { binding: 1, resource: { buffer: this.instanceBuffer } },
+            { binding: 2, resource: { buffer: bits } },
+            { binding: 3, resource: { buffer: counts } },
+            { binding: 4, resource: { buffer: batch.storageBuffer } },
+            { binding: 5, resource: { buffer: batch.indirectBuffer! } },
+        ], 0);
 
         const record: CullStageRecord = {
-            stage, paramsBuffer, meshIndex, batch, pass,
+            stages: [cull, scatter], paramsBuffer, scratch: [bits, counts], meshIndex, batch, pass,
             hizRect: options.hizRect,
             screenSize: options.screenSize,
         };
@@ -437,7 +473,7 @@ export class VisibilitySystem {
         ], 0);
 
 
-        const record: CullStageRecord = { stage, paramsBuffer, meshIndex: 0, batch, pass };
+        const record: CullStageRecord = { stages: [stage], paramsBuffer, meshIndex: 0, batch, pass };
         this.meshletTierCulls.push(record);
         // Seeded at registration for the same reason as the instance tier — see there.
         this.writeParams(record);
@@ -451,21 +487,23 @@ export class VisibilitySystem {
 
     /**
      * The ordered compute stages to splice into the render sequence BEFORE the scene pass:
-     * `[...hiZBuild, ...instanceCulls, meshletInstanceCull, ...meshletCulls]`. Built once and
+     * `[...hiZBuild, ...instance culls, ...their scatters, meshletInstanceCull,
+     * ...meshletCulls]`. Built once and
      * cached; the camera is read from the shared engine uniform, so no per-call camera is needed.
      */
     /**
-     * The cull stage that feeds `batch`, or `null` if this system did not create it.
+     * The compute stages that feed `batch`, in order, or `[]` if this system did not create it.
+     * The instance tier's are two: cull, then scatter (design doc §14: survivors in source
+     * order); the meshlet tier's, one.
      *
-     * The stage still rides this system's compute chain; the handle exists so an owner can gate
-     * it with `stage.enabled = false` when it knows the draw is suppressed this frame. The shadow
-     * atlas does exactly that for cached tiles (shadows-atlas-design.md §8) — a tile that is not
-     * being re-rendered should not pay for its caster cull either.
+     * They still ride this system's compute chain. The handles exist so that an owner can gate them
+     * with `enabled = false` when it knows the draw is suppressed this frame (the shadow atlas does
+     * that for cached tiles, shadows-atlas-design.md §8), or run them in a sequence of its own (the
+     * Picker, ProbeVolume). Gate or run all of them, in this order.
      */
-    public getCullStage(batch: RenderBatch): ComputeStageNode | null {
-        for (const rec of this.instanceTierCulls) if (rec.batch === batch) return rec.stage;
-        for (const rec of this.meshletTierCulls) if (rec.batch === batch) return rec.stage;
-        return null;
+    public getCullStages(batch: RenderBatch): ComputeStageNode[] {
+        for (const rec of [...this.instanceTierCulls, ...this.meshletTierCulls]) if (rec.batch === batch) return [...rec.stages];
+        return [];
     }
 
     /**
@@ -486,6 +524,7 @@ export class VisibilitySystem {
             if (i < 0) continue;
             const [rec] = list.splice(i, 1);
             rec.paramsBuffer.destroy();
+            rec.scratch?.forEach(b => b.destroy());
             if (rec.pass) this.engine.clearBatch(rec.pass, batch);
             this.computeChain = null;
             return true;
@@ -502,10 +541,12 @@ export class VisibilitySystem {
 
         const chain: ComputeStageNode[] = [];
         if (this.hiZ) chain.push(...this.hiZ.getBuildStages());
-        chain.push(...this.instanceTierCulls.map(r => r.stage));
+        // Every batch's cull, then every scatter: each batch keeps its own order, and no dispatch
+        // waits on the one just before it.
+        for (let pass = 0; pass < 2; pass++) chain.push(...this.instanceTierCulls.map(r => r.stages[pass]));
         if (this.meshletTierCulls.length > 0) {
-            chain.push(this.getMeshletInstanceCull().stage);
-            chain.push(...this.meshletTierCulls.map(r => r.stage));
+            chain.push(...this.getMeshletInstanceCull().stages);
+            chain.push(...this.meshletTierCulls.flatMap(r => r.stages));
         }
 
         this.computeChain = chain;
@@ -566,7 +607,7 @@ export class VisibilitySystem {
             { binding: 6, resource: { buffer: paramsBuffer } },
             ...(this.occlusion ? [{ binding: 7, resource: this.hiZ!.view }] : []),
         ], 0);
-        this.meshletInstanceCull = { stage, paramsBuffer, meshIndex: 0 };
+        this.meshletInstanceCull = { stages: [stage], paramsBuffer, meshIndex: 0 };
         return this.meshletInstanceCull;
     }
 
@@ -671,7 +712,10 @@ export class VisibilitySystem {
         this.countersBuffer?.destroy();
         this.staticIndexBuffer?.destroy();
         this.hiZ?.destroy();
-        for (const rec of [...this.instanceTierCulls, ...this.meshletTierCulls]) rec.paramsBuffer.destroy();
+        for (const rec of [...this.instanceTierCulls, ...this.meshletTierCulls]) {
+            rec.paramsBuffer.destroy();
+            rec.scratch?.forEach(b => b.destroy());
+        }
         this.meshletInstanceCull?.paramsBuffer.destroy();
         this.meshletParamsBuffer?.destroy();
         this.computeChain = null;

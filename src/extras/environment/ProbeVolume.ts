@@ -41,8 +41,8 @@ interface CaptureSlot {
     views: BuiltView[];
     /** [face][mesh] indirect draw batches. */
     batches: RenderBatch[][];
-    /** [face][mesh] cull stages feeding the batches — gated with the viewports, same loop (§9). */
-    cullStages: (ComputeStageNode | null)[][];
+    /** [face][mesh] cull stages feeding the batches (two per batch: visibility-design §14) — gated with the viewports, same loop (§9). */
+    cullStages: ComputeStageNode[][][];
 }
 
 interface CaptureMeshRecord {
@@ -107,7 +107,7 @@ export class ProbeVolume {
     private reflCameraBuffers: GPUBuffer[] = [];
     private reflViews: BuiltView[] = [];
     private reflBatches: RenderBatch[][] = [];
-    private reflCullStages: (ComputeStageNode | null)[][] = [];
+    private reflCullStages: ComputeStageNode[][][] = [];
 
     // --- placeholders for bindings 12/13 when no ReflectionProbes is attached ---
     private readonly placeholderCube: GPUTexture;
@@ -451,13 +451,13 @@ export class ProbeVolume {
                     targetFormat: 'rgba16float',
                 });
                 slot.batches[f].push(batch);
-                const cull = this.vis.getCullStage(batch);
-                slot.cullStages[f].push(cull);
-                if (cull) this.captureCullStages.push(cull);
+                const culls = this.vis.getCullStages(batch);
+                slot.cullStages[f].push(culls);
+                this.captureCullStages.push(...culls);
                 // A suppressed tile suppresses its draw AND its cull in one place (design-§9):
                 // slots start idle, so start them suppressed.
                 batch.viewport = ZERO_VIEWPORT;
-                if (cull) cull.enabled = false;
+                for (const cull of culls) cull.enabled = false;
                 this.applyToBatch(batch, lights);
                 if (this.shadows) this.shadows.applyToBatch(batch);
             }
@@ -480,11 +480,11 @@ export class ProbeVolume {
                 targetFormat: 'rgba16float',
             });
             this.reflBatches[f].push(batch);
-            const cull = this.vis.getCullStage(batch);
-            this.reflCullStages[f].push(cull);
-            if (cull) this.captureCullStages.push(cull);
+            const culls = this.vis.getCullStages(batch);
+            this.reflCullStages[f].push(culls);
+            this.captureCullStages.push(...culls);
             batch.viewport = ZERO_VIEWPORT;
-            if (cull) cull.enabled = false;
+            for (const cull of culls) cull.enabled = false;
             this.applyToBatch(batch, record.lights);
             if (this.shadows) this.shadows.applyToBatch(batch);
         }
@@ -540,8 +540,7 @@ export class ProbeVolume {
             for (let f = 0; f < 6; f++) {
                 for (let mi = 0; mi < slot.batches[f].length; mi++) {
                     slot.batches[f][mi].viewport = active ? slot.tileRects[f] : ZERO_VIEWPORT;
-                    const cull = slot.cullStages[f][mi];
-                    if (cull) cull.enabled = active;
+                    for (const cull of slot.cullStages[f][mi]) cull.enabled = active;
                 }
             }
             this.projStages[s].enabled = active;
@@ -571,8 +570,7 @@ export class ProbeVolume {
         for (let f = 0; f < 6; f++) {
             for (let mi = 0; mi < this.reflBatches[f].length; mi++) {
                 this.reflBatches[f][mi].viewport = active ? this.reflTileRects[f] : ZERO_VIEWPORT;
-                const cull = this.reflCullStages[f][mi];
-                if (cull) cull.enabled = active;
+                for (const cull of this.reflCullStages[f][mi]) cull.enabled = active;
             }
         }
     }
@@ -660,7 +658,7 @@ export class ProbeVolume {
      * Capture caster culls are VisibilitySystem stages and arrive via `vis.getComputeStages()`,
      * exactly like the shadow atlas's caster culls — splicing them in twice would double-dispatch
      * the same compaction. Design-principles §9 is still honoured: ProbeVolume gates them (with
-     * the viewports) through `getCullStage(batch)`. This getter therefore returns an empty array;
+     * the viewports) through `getCullStages(batch)`. This getter therefore returns an empty array;
      * it exists so the §2 pipeline shape reads the same on every subsystem.
      */
     public getCaptureStages(): ComputeStageNode[] {

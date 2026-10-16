@@ -199,8 +199,8 @@ introduced to remove.
 Gating one is not gating the operation. Set both in the same function so they cannot drift, and
 write the test that fails when only one is set (U12).
 
-`ComputeStageNode.enabled` exists for this, and `VisibilitySystem.getCullStage(batch)` is how an
-owner reaches the stage feeding a draw it owns.
+`ComputeStageNode.enabled` exists for this, and `VisibilitySystem.getCullStages(batch)` is how an
+owner reaches the stages feeding a draw it owns (gate them all).
 
 ---
 

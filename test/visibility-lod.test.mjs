@@ -16,10 +16,12 @@ import { MegabufferBuilder } from '../dist/geometry.js';
 import { standIn } from './stand-in-engine.mjs';
 
 const sha = code => createHash('sha256').update(code).digest('hex');
-// Captured from the build before the band existed (2026-10-15).
+// The band-free cull, as built since the stable draw order (visibility-design §14, 2026-10-16), which
+// replaced the hashes captured before the band existed (2026-10-15). What U41 keeps: no band, an
+// undefined one and an empty one all build exactly this shader.
 const BEFORE = {
-    plain: '3ce6397f40b988317317234922eb8443686d68fe3508e0d19682d28512c2c8f6',
-    occlusion: '3ed43b23637aeb4b44e9005b955d3882d7782d10e3a9c2dd839da3dcd14b5df8',
+    plain: '00d3c32a389d66d544dacf81a6a1af4f21c3c61f5144c61c2d6c54626588cde3',
+    occlusion: 'b70acb7506a36fee518645d20e665b39ba35d853a46be45f427efc05a5aa7e2b',
 };
 
 test('U41: no band leaves the cull as it was; a band is tested after the frustum, before occlusion', () => {
@@ -31,9 +33,10 @@ test('U41: no band leaves the cull as it was; a band is tested after the frustum
         for (const occlusion of [false, true]) {
             const code = buildInstanceCullWGSL({ occlusion, lod });
             assert.equal(new WgslReflect(code).entry.compute.length, 1, `${JSON.stringify(lod)} parses`);
-            assert.ok(code.includes(`if (${test_}) { return; }`), `${JSON.stringify(lod)}: ${test_}`);
+            assert.ok(code.includes(`if (${test_}) { return false; }`), `${JSON.stringify(lod)}: ${test_}`);
             const at = name => code.indexOf(name);
-            assert.ok(at('sphereInFrustum(planes') < at('let px') && at('let px') < at('atomicAdd(&drawArgs'), 'the band sits between the frustum test and the slot');
+            const survival = code.indexOf('return true;', at('fn survives'));
+            assert.ok(at('sphereInFrustum(planes') < at('let px') && at('let px') < survival, 'the band sits between the frustum test and survival');
             if (occlusion) assert.ok(at('let px') < at('occludedByHiZ(ws'), 'and before the occlusion test');
         }
     }
@@ -63,8 +66,11 @@ test('U42: a band reaches the batch\'s cull; malformed bands are refused before 
     vis.createInstanceDrawBatch(pass, 'model', 0, { lod: { minPixels: 12 } });
     vis.createInstanceDrawBatch(pass, 'cube', 0, { lod: { maxPixels: 12 } });
     vis.createInstanceDrawBatch(pass, 'model', 1);
-    assert.deepEqual(stages.map(s => s.shaderCode.match(/if \((px[^)]*)\)/)?.[1] ?? null), ['px < 12', 'px >= 12', null]);
-    assert.equal(sha(stages[2].shaderCode), BEFORE.plain, 'a batch without a band culls as before');
+    // Two stages a batch: cull, then scatter (visibility-design §14); the band lives in the cull.
+    assert.equal(stages.length, 6, 'two stages a batch');
+    const culls = stages.filter(s => s.name.startsWith('Instance Cull: '));
+    assert.deepEqual(culls.map(s => s.shaderCode.match(/if \((px[^)]*)\)/)?.[1] ?? null), ['px < 12', 'px >= 12', null]);
+    assert.equal(sha(culls[2].shaderCode), BEFORE.plain, 'a batch without a band culls as before');
 
     const before = { stages: stages.length, configs: configs.length };
     for (const lod of [{}, { minPixels: -1 }, { maxPixels: NaN }, { minPixels: Infinity }, { maxPixels: '12' },

@@ -11,7 +11,7 @@ globalThis.GPUMapMode ??= { READ: 1, WRITE: 2 };
 
 const { mat4 } = await import('gl-matrix');
 const { NullGraph, Camera } = await import('../dist/index.js');
-const { VisibilitySystem, InstanceBuffer, buildInstanceCullWGSL, INSTANCE_SOURCE_INDEX_OFFSET } = await import('../dist/visibility.js');
+const { VisibilitySystem, InstanceBuffer, buildInstanceScatterWGSL, INSTANCE_SOURCE_INDEX_OFFSET } = await import('../dist/visibility.js');
 const { MegabufferBuilder, Primitives, StandardLayout } = await import('../dist/geometry.js');
 const P = await import('../dist/picking.js');
 
@@ -151,8 +151,8 @@ await check('W1: pick shaders — entry points, flat integer varyings, baked tag
     throws(() => P.buildPickFragmentWGSL(0), /positive integer/, 'tag 0');
 });
 
-await check('W2: the instance cull writes each survivor\'s source index (picking-design §5)', () => {
-    const cull = buildInstanceCullWGSL({});
+await check('W2: the instance cull writes each survivor\'s source index (picking-design §5; its scatter pass, visibility-design §14)', () => {
+    const cull = buildInstanceScatterWGSL();
     assert(/survivor\.sourceIndex = i;/.test(cull) && /outInstances\[slot\] = survivor;/.test(cull),
         'compacted copies would lose their source index — pick and per-instance lookups return garbage');
     assert(INSTANCE_SOURCE_INDEX_OFFSET === 23, `offset ${INSTANCE_SOURCE_INDEX_OFFSET}`);
@@ -213,8 +213,11 @@ await check('K1: addInstances — a pick batch on the system\'s own cull, disabl
     const src = picker.addInstances(vis, 'cube', 0, { label: 'cubes' });
     assert(src.tag === 1 && src.kind === 'instances' && src.label === 'cubes', JSON.stringify(src));
     const chain = vis.getComputeStages();
-    assert(chain.length === 2, `the pick cull must ride the system's chain (got ${chain.length} stages)`);
-    assert(chain[1].enabled === false, 'the pick cull is enabled outside a pick — the app frame would pay for it');
+    // Each batch culls in two stages: cull, then scatter (visibility-design §14).
+    assert(chain.length === 4, `the pick cull must ride the system's chain (got ${chain.length} stages, expected 2 batches × 2)`);
+    const idle = chain.filter(s => s.enabled === false);
+    assert(idle.length === 2 && idle.every(s => s.name.endsWith(': cube')),
+        'the pick batch\'s cull and scatter must both ride disabled outside a pick — the app frame would pay for them');
     assert(state.writes.some(([, o, d]) => o === 4 && d instanceof Uint32Array && d[0] === 0),
         'indirect instanceCount was not zeroed — engine.render() with no sequence would draw the pick batch');
 });

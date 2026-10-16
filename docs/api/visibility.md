@@ -136,7 +136,9 @@ export function addDeformedBatch(vis: VisibilitySystem, pass: RenderPassNode,
   (such as `bakeRigidAnimation().partOfVertex`) must be padded/placed at that mesh's offset in
   the whole mega vertex pool, not indexed from zero for every mesh.
 - **`inst.sourceIndex` is the original row**, not the compacted visible-list index. Agents use
-  `sourceIndex - firstInstance` to address their own record. Never assume cull output order.
+  `sourceIndex - firstInstance` to address their own record. The instance tier writes survivors in
+  ascending source order (visibility-design §14), but `slot` still shifts as instances enter and
+  leave the view.
 - **Bindings use a dedicated group**, default **2**. Their WGSL is emitted verbatim: `group`
   chooses where `entries` bind, it does not rewrite declarations. Group 0 is engine-owned.
   Choose group 3 (and declare `@group(3)`) when clustered lighting uses 2; stock materials
@@ -230,7 +232,10 @@ real rendering. See §6.
 one's index in your `InstanceBuffer` into the record's last field — `sourceIndex` in WGSL,
 `INSTANCE_SOURCE_INDEX_OFFSET` (= 23) on the CPU. A custom instance-tier shader reads
 `instances[instance_index].sourceIndex` to look up per-instance data the record does not hold;
-picking uses it to report your index. **`vis.instanceBuffer`** is public (read-only): the GPU copy
+picking uses it to report your index. The compacted list is in **ascending source order**, the same
+every frame and every run. So the draw order is stable, and overlapping instances do not trade depth
+ties between frames (visibility-design §14; the meshlet tier's order is not defined yet).
+**`vis.instanceBuffer`** is public (read-only): the GPU copy
 of your records, for other GPU consumers — e.g. labels that follow instances
 (`TextSystem` `follow: { buffer: vis.instanceBuffer, strideFloats: 24, positionOffset: 12 }`).
 

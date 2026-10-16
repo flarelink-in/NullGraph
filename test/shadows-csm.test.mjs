@@ -620,7 +620,7 @@ check('U10 (atlas): a full atlas evicts the FAR light, not the one next to the c
 
 // === U11/U12: per-slot draw state is proportional, and cached tiles cost nothing ============
 // A mock engine + a fake VisibilitySystem: ShadowSystem only needs `createInstanceDrawBatch` and
-// `getCullStage` from the latter, so the atlas bookkeeping is exercisable without a device.
+// `getCullStages` from the latter, so the atlas bookkeeping is exercisable without a device.
 function mockAtlasRig() {
     const counts = { casterBatches: 0, clearBatches: 0 };
     const stages = new Map();
@@ -644,7 +644,7 @@ function mockAtlasRig() {
             stages.set(batch, { name: `cull ${meshName}`, enabled: true });
             return batch;
         },
-        getCullStage: (batch) => stages.get(batch) ?? null,
+        getCullStages: (batch) => (stages.has(batch) ? [stages.get(batch)] : []),
     };
     return { engine, visibility, counts, stages };
 }

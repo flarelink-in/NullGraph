@@ -111,20 +111,25 @@ await check('L2: removeDrawBatch drops the stage, releases its params, detaches 
     const pass = engine.createPass({ name: 'scene', isMainScreenPass: true });
     const keep = vis.createInstanceDrawBatch(pass, 'ground', 0);
     const drop = vis.createInstanceDrawBatch(pass, 'sphere', 1);
-    const dropStage = vis.getCullStage(drop);
-    const keepStage = vis.getCullStage(keep);
-    assert(vis.getComputeStages().includes(dropStage), 'precondition: both stages in the chain');
+    // Two stages a batch: cull, then scatter (visibility-design §14).
+    const dropStages = vis.getCullStages(drop);
+    const keepStages = vis.getCullStages(keep);
+    assert(dropStages.length === 2 && keepStages.length === 2, `expected two cull stages a batch, got ${dropStages.length} and ${keepStages.length}`);
+    assert(dropStages.every(s => vis.getComputeStages().includes(s)), 'precondition: both batches\' stages in the chain');
 
     // The record is TypeScript-private, not runtime-private; reading it is the only way to name
     // the exact params buffer that must be released.
-    const paramsOfDrop = vis['instanceTierCulls'].find(r => r.batch === drop).paramsBuffer;
+    const recordOfDrop = vis['instanceTierCulls'].find(r => r.batch === drop);
+    const paramsOfDrop = recordOfDrop.paramsBuffer, scratchOfDrop = recordOfDrop.scratch;
     assert(vis.removeDrawBatch(drop) === true, 'removeDrawBatch returned false for its own batch');
     assert(mock.destroyed.has(paramsOfDrop), 'the removed stage\'s CullParams buffer was not destroyed');
+    assert(scratchOfDrop.length === 2 && scratchOfDrop.every(b => mock.destroyed.has(b)),
+        'the removed batch\'s cull scratch (bits, block counts) was not destroyed');
 
     const chain = vis.getComputeStages();
-    assert(!chain.includes(dropStage), 'the removed batch\'s cull stage is still in the compute chain (cache not invalidated?)');
-    assert(chain.includes(keepStage), 'removing one batch dropped another');
-    assert(vis.getCullStage(drop) === null, 'getCullStage still resolves the removed batch');
+    assert(dropStages.every(s => !chain.includes(s)), 'the removed batch\'s cull stages are still in the compute chain (cache not invalidated?)');
+    assert(keepStages.every(s => chain.includes(s)), 'removing one batch dropped another');
+    assert(vis.getCullStages(drop).length === 0, 'getCullStages still resolves the removed batch');
     assert(!pass.batches.includes(drop) && pass.batches.includes(keep), 'the batch was not detached from its pass');
     assert(mock.destroyed.has(drop.storageBuffer) && mock.destroyed.has(drop.indirectBuffer),
         'the removed batch\'s own draw buffers were not destroyed');
@@ -143,7 +148,7 @@ await check('L3: ShadowSystem.destroy unregisters its casters from the SHARED Vi
     shadows.registerCaster('sphere', 1);
     shadows.registerCaster('ground', 0);
     const during = vis.getComputeStages().length;
-    assert(during === before + 4, `expected 2 casters x 2 cascades = 4 new cull stages, got ${during - before}`);
+    assert(during === before + 8, `expected 2 casters x 2 cascades x 2 stages (cull, scatter) = 8 new cull stages, got ${during - before}`);
 
     shadows.destroy();
     const after = vis.getComputeStages().length;
@@ -169,8 +174,9 @@ await check('U18: setInstanceCount(n) — upload() writes no instance rows, and 
     assert(params.length === 1, `expected the cull's params written once by upload(), saw ${params.length}`);
     const u32 = new Uint32Array(mock.writes.get(params[0]).at(-1));
     assert(u32[0] === 130, `the cull params carry instanceCount ${u32[0]}, expected 130`);
-    const groups = vis.getCullStage(batch).dispatchCount[0];
-    assert(groups === 3, `the cull dispatches ${groups} workgroups for 130 instances, expected 3`);
+    const [cull, scatter] = vis.getCullStages(batch).map(s => s.dispatchCount[0]);
+    assert(cull === 1 && scatter === 1,
+        `the cull and scatter dispatch ${cull} and ${scatter} workgroups for 130 instances, expected 1 each (256 a group)`);
 
     // setInstances switches back to the CPU array.
     const inst = new InstanceBuffer(2);

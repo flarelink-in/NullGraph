@@ -488,7 +488,7 @@ function makeMockRig() {
             pass.addBatch(b);
             return b;
         },
-        getCullStage: (b) => visCull.get(b) ?? null,
+        getCullStages: (b) => (visCull.has(b) ? [visCull.get(b)] : []),
     };
     const lights = { getBindGroupEntries: () => [{ binding: 0, resource: { buffer: {} } }, { binding: 1, resource: { buffer: {} } }] };
     return { engine, device, renders, stages, env, vis, visBatches, visCull, lights };
