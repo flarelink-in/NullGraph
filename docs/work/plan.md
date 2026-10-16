@@ -63,6 +63,7 @@ state, the rendering backbone Phase 2's creatures will need, and the showcase of
 | Step | Delivers | Serves the goal by | Status |
 |---|---|---|---|
 | D1 | `bakeRigidAnimation` (loaders), `vertexHook` (visibility), "Draw agents as: Models" and a toon field in Herd & Wolves ([design](../agents-animated-models-design.md), phases 0–5) | Agents that look like animals, not darts, at thousands per frame | Design decided 2026-10-15 (§11 there). Phases 0–3 ✅: costs measured; rigid bake `f538ffe`; vertex hook `75824a7`; Models mode in the site (`77c8e92` there, checks `fdf3ede`). Phase 4 ✅: built by Cline (site `850ab4f`, records `e96af9d`), then reviewed with the user ("Phase 4 review" in the design): the new `anime()` preset `8b68286`, LOD bands in visibility `c56de95`, far cubes, fences and stock materials in the site `ca81605`. Next: phase 5 (skinned models) |
+| D2 | Offline films: a general core of compute records (any GPU buffer, by declared layout; agents a preset), render records (frames to ffmpeg), checkpoints and replay, headless under Node in `tools/film/`; a browser export planned as D2.4 ([design](../offline-films-design.md), phases D2.0–D2.4) | Exact, smooth video of scenes however slowly they compute (first a Herd & Wolves showcase at the demo's counts; 1M as a stress film), brains never late, and records to re-render and measure without computing again | Design revision 2, 2026-10-16. Decided (§19 there): Network brains; ffmpeg 9.0.2 installed; tracks every 6 steps; copies of the site's files with a drift check; general rather than agent-specific; 1M a stress test; camera tooling later. **D2.0 ✅ measured 2026-10-16** (`test/spikes/films/`, "Phase D2.0 results" in the design): with the network brains, 1M steps at 0.62 s on the GTX 1650, `thinkEvery` 60 saves ~30% at 16K and 3.5% at 1M; the Models draw is 4–14 ms at 16K–1M; `libx264` at 41–66 fps is the bottleneck at showcase counts; NVENC needs a newer driver; a 1M track save is 20 MB, zstd ×1.5–1.9. Decided on these numbers: `thinkEvery` 3; the showcase at 64K. Next: D2.1 |
 
 Phase 5 update (2026-10-15): 5.1 skinned bake and 5.2 palette snippets committed; 5.3 site rigid
 palette migration validated, with bounded allocation/legacy fallback and no reliable rigid speedup.
@@ -342,3 +343,14 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 - **2026-10-15:** 5.3 committed (site `17cd4af`, validation `84a04dd`). User requested commits,
   `yalc:push`, 5.4 start and slowdown investigation. Contiguous producer writes improve AMD 16K;
   asset-intake checker starts 5.4, but actual skinned-animal integration awaits the user's GLBs.
+- **2026-10-16:** the user opened **offline films** ("the recording infra") ahead of Phase 2, and
+  asked for a formal definition first. Chosen after the options: frames and state logs; headless
+  under Node first, with a browser export kept as a planned phase; Herd & Wolves first; the first
+  target a one-minute 60 fps film of about 1M agents thinking about once a second. Designed as
+  Cycle D, step D2 ([design](../offline-films-design.md)), tools only, no library change; its
+  questions (§18 there) wait on the user. D1's phase 5.4 still waits for the skinned animals.
+- **2026-10-16, D2 revised:** the user asked for a general design, "compute records and then render
+  records", not one specific to agents; 1M agents became a stress test, and the first film a
+  showcase at the demo's counts. The site's look files are copied into this repository for
+  development, with a drift check. Camera authoring and input capture are left for later. ffmpeg
+  9.0.2 was installed by the user.

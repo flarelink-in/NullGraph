@@ -273,3 +273,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
 - **One `wheel` step of `npm run drive` can cross most of an orbit's zoom range.** Herd & Wolves
   zooms by a share of the current distance per event, so ±900 jumped from 190 m to about 15 m.
   For known views, start from the page's own default (190 m) and step by ±150.
+- **ffmpeg 9's `h264_nvenc` fails on this machine's NVIDIA driver** (D2.0, 2026-10-16): "Driver does
+  not support the required nvenc API version. Required: 13.1 Found: 13.0 … minimum required Nvidia
+  driver for nvenc is 610.00". The GTX 1650 has driver 581.83. Fed through a pipe, ffmpeg quits
+  before reading, and Node reports only `write EOF`; read ffmpeg's stderr for the reason. Use
+  `libx264`, or update the driver.
+- **ffmpeg 9 ignores `-color_primaries` and `-color_trc` on output after a filter:** the stream is
+  tagged from the frames, and both came out "unknown". Tag them in the filter chain instead:
+  `…,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`.
+  Check with `ffprobe -show_entries stream=color_space,color_primaries,color_transfer`.

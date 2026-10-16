@@ -128,7 +128,8 @@
     "dev": "concurrently \"npm run watch:lib\" \"npm run watch:test-ui\" \"npm run dev:serve\"",
     "preview": "npx serve dist-web-test",
     "spike:animated-models": "node test/gpu/run-harness.mjs test/spikes/animated-models/run.js __ANIM_SPIKE_RESULTS__",
-    "spike:skinned-models": "node test/gpu/run-harness.mjs test/spikes/skinned-models/run.js __SKIN_SPIKE_RESULTS__"
+    "spike:skinned-models": "node test/gpu/run-harness.mjs test/spikes/skinned-models/run.js __SKIN_SPIKE_RESULTS__",
+    "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"
