@@ -69,6 +69,35 @@ Phase 5 update (2026-10-15): 5.1 skinned bake and 5.2 palette snippets committed
 palette migration validated, with bounded allocation/legacy fallback and no reliable rigid speedup.
 Next is 5.4, when the user's skinned animals are available. See the skinned-models design results.
 
+### Cycle E — terrain for games (proposed 2026-10-17; not designed)
+
+The user, 2026-10-17, after trying the portfolio's lab mock: "its useful to have terrain generation
+next … idea is rather terrain for game". Recorded at the user's word as the next cycle after D. Its
+design (a formal definition first) comes before any code. Its order against D2.3 and D1's phase 5.4
+is the user's call (§5, item 15).
+
+| Step | Delivers | Serves the goal by | Status |
+|---|---|---|---|
+| E0 | Design. What null-graph owns and what Axion owns; heightfield or voxels; level of detail; seams; determinism; the material | One terrain contract for every consumer | Not started |
+| E1… | The phases E0 defines | Ground for games: the portfolio's void, Axion's vertical slices V1–V4, Herd & Wolves' herds on hills | — |
+
+**Proposed split, for E0 to confirm.** null-graph provides terrain as a renderer feature:
+- heightfield generation from seeded noise, deterministic per chunk;
+- chunk meshing with level of detail and crack-free seams;
+- a terrain material (triplanar, with layers blended by slope and height);
+- shadow and environment integration;
+- a GPU path where it pays.
+
+Axion calls it from its content workers for each streamed cell, through its floating origin
+(`VERTICAL-SLICES.md`, F0.3).
+
+**Questions E0 must answer:**
+- **CPU or GPU.** CPU in workers is deterministic everywhere, and it is what Axion's content pool
+  runs. GPU compute is fast, but floats differ across GPUs, which breaks Axion's "a link is a place".
+- **Shape.** A heightfield only, or caves too.
+- **Level of detail.** A chunked quadtree, CDLOD or clipmaps.
+- **Agents.** How agents read the ground (Phase 2's obstacles and flow fields).
+
 ### Other open work (outside Cycle C)
 
 - Agent kit follow-up: guidance fixes, a pinned-tarball trial, then release/tag (handoff "Agent kit").
@@ -84,6 +113,7 @@ Next is 5.4, when the user's skinned animals are available. See the skinned-mode
 | Train on a server, play in the browser | Step 7, Phase 2 evolution, a first run on a Linux GPU | Medium-far |
 | Live ecosystem (evolution), venue evacuation, agents that see | Phase 2: genomes, obstacles and flow fields, ray sensors | Far: after C2 |
 | Synthetic data factory, auto-cinematographer, self-narrating sim | Not on this path | Not started |
+| Terrain for games (Cycle E) | E0's design, then its phases; feeds Axion's F0.3 and the portfolio's void | Proposed 2026-10-17 as the next cycle after D |
 
 Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far horizon".
 
@@ -235,6 +265,13 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
 
     Best decided before 10.4, which times ORT's runs: with the queue, one species' run can wait
     for the other's.
+15. **Cycle E, terrain for games (raised 2026-10-17):**
+    - when E0's design starts: after D2.3, or alongside it;
+    - whether D1's phase 5.4 (waiting on the skinned animals) stays ahead of it;
+    - E0's split with Axion (§3, "Proposed split").
+
+    The portfolio's v1 date (10 Jan 2027, set in its own plan) assumed a flat void. Terrain in v1
+    adds its weeks to that plan, unless it lands in v1.1.
 
 ## 6. Constraints that hold for every step
 
@@ -359,3 +396,7 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   showcase at the demo's counts. The site's look files are copied into this repository for
   development, with a drift check. Camera authoring and input capture are left for later. ffmpeg
   9.0.2 was installed by the user.
+- **2026-10-17:** the user asked to add **terrain generation for games** to this plan ("its useful
+  to have terrain generation next … idea is rather terrain for game"), after trying the portfolio's
+  lab mock. Recorded as the proposed **Cycle E** (§3), design first; its order and split are §5,
+  item 15.

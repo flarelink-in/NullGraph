@@ -32,10 +32,20 @@ log, not here.
 
 ## Next action
 
-Decided by the user 2026-10-16: commit D2.1 (done); the showcase camera ends at 600 m; a stable draw
-order in the visibility cull (a library change, designed first in `visibility-design.md`); then
-**D2.2**. D2.2 covers compute records (layouts, generated pack and unpack, raw tracks, the agents
-preset), checkpoints, `--replay`, `--resume`, `--detach`.
+**D2.3 started; first slice implemented, uncommitted.** Persistent Rules/Network step calibration
+is isolated by adapter/driver and workload/build, with progressive probes, cached maxima and shared
+measured-time stops. Film tests 14/14; library/IDE builds pass. NVIDIA and AMD 128K trials complete,
+second processes reuse separate caches, zero reported GPU errors. CLI regression passes (57.0 s).
+AMD underprediction remains explicit. A verified five-second 1,048,576-agent NVIDIA Network clip now
+exists at `tools/film/out/herd-million-5s/replay/film.mp4` (1080p60, 300 frames, zero GPU errors).
+Compute 169.8 s; replay/encode 52.1 s; worst measured step 814.2 ms. Preset `herd-million.json`
+uses thinkEvery 60, no warm-up; reproduction commands are in the film README. Guard probes now
+exclude stop-checked compilation warm-up and allow a safely predicted half-size refinement.
+Film tests 16/16. Full-minute recording is NOT done. Next: resource estimates, draw guarding, ORT calibration,
+atlas/names/captions, then the 1M tracks-first stress film. Evidence: `tools/film/out/d23-validation/`.
+**D2.2 remains implemented, uncommitted, acceptance pending** (31/31 GPU checks on both adapters;
+showcase/replay verified). Review the mixed working tree by path before any requested commit.
+ORT above 65,536 agents remains refused; no phase accepted automatically.
 
 ffmpeg 9.0.2 is installed; `libx264` only (see gotchas for NVENC and colour tags). `npm run drive`
 checks the look and bakes the font atlas; it does not record.
@@ -52,8 +62,29 @@ checks the look and bakes the font atlas; it does not record.
       last `yalc:push`; run `npm run build:lib` before committing);
     - `test/spikes/animated-models/check-site.mjs` has an uncommitted dashboard-store check (not
       this session's).
+- **A second session the same day (docs only, uncommitted):** `docs/use-cases-current.md` and
+  `docs/use-cases-after-phase-2.md`, every use case rated by effort, need and money, now and after
+  Phase 2. Their proposed Phase 2 order (NAV first, then EVO) awaits the user; `plan.md` untouched.
 - **Site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): untouched this session. Eight
   unrelated staged files (hosting, two light demos) stay staged; commit there by path.
+- **Axion** (`D:/orion-realms/orion-engine-test`, the engine null-graph exists for): its Phase 0–4
+  work from August is **still uncommitted** (last commit 2026-03-17); Phases 3–4 await their GPU run.
+  New, uncommitted: `docs/VERTICAL-SLICES.md`, the smallest games to build on it and their value. It
+  imports only null-graph's core, geometry and cameras. **Since 2026-10-16 Axion has its own
+  `docs/work/`** (plan; Cycle A, verification, designed in `docs/verification-design.md`): read
+  those for Axion work. Its `.gitignore` hides 18 files, the Phase 4 harness among them.
+- **Product** (`D:/orion-realms/vikaskumarsingh.com`, new 2026-10-16; not a git repository): the
+  user's portfolio, the product Axion and null-graph are to serve ("design backwards"), built on
+  Axion.
+  - Its flow is Surface → Fall → Void (`docs/flow.md`), and the estimate is 10–14 weeks likely
+    (`docs/estimate.md`).
+  - Lab mock m1 (`lab/`) draws with null-graph 1.1.1 from npm. It found two candidate changes here:
+    `Outline` inks sloped planes (a linear-depth Sobel), and `CelShade` lifts blacks to
+    1/(2·bands). See `lab/README.md`.
+  - Since 2026-10-17 the site runs **Axion** (through yalc, pure mode) in its hero; Axion's
+    `docs/look-design.md` designs the post chain and custom shaders through Axion.
+- **Plan change 2026-10-17:** **Cycle E, terrain for games**, proposed at the user's word (plan §3,
+  §5 item 15, scope changes). Design first; its order against D2.3 and D1.5.4 is the user's call.
 - **Another worktree:** `D:/orion-realms/null-graph-56-validation` (detached at `9ea8a33`).
 - `package-lock.json` is ignored here; `venv/` needs `--cert venv/pip-ca-bundle.pem`.
 - Open, not asked: the green clear colour reads as sky from a low camera; catch rings dominate far
