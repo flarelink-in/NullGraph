@@ -9,8 +9,8 @@
 // seed (11), thinkEvery (3), brains ('network' | 'rules'), look ('anime' | 'faithful'), flashes (true).
 //
 // The guard (design §12): a count above 65,536 is first calibrated on this GPU at a sixteenth and a
-// quarter of itself, and refused when its step is predicted above 1 s of GPU work, half the time after
-// which Windows resets the GPU. D2.3 keeps the measurements per adapter.
+// quarter of itself (with progressively smaller probes first), and refused when its step is predicted
+// above 1 s. D2.3 keeps maximum queue-completion wall measurements per adapter and workload.
 import { readFileSync } from 'node:fs';
 import { OrbitalCameraState } from '../../../dist/cameras.js';
 import { Camera } from '../../../dist/index.js';
@@ -21,9 +21,17 @@ import { hashText } from '../../agents/dataset.mjs';
 import { hookCopies } from '../resolve.mjs';
 import { loadHerdAssets } from './herd-wolves/assets.mjs';
 import { buildLook } from './herd-wolves/look.mjs';
+import { track } from '../records.mjs';
+import { OrtBrain } from '../../../dist/inference.js';
+import { onnxFromNetwork } from '../../agents/onnx.mjs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { release } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { calibrateSteps, checkStep, readCosts, saveCosts } from '../guard.mjs';
 
 export const SCENE_DEFAULTS = Object.freeze({ count: 4096, seed: 11, thinkEvery: 3, brains: 'network', look: 'anime', flashes: true });
-const BASE_HALF = 80, LIMIT_MS = 1000, CALIBRATE_ABOVE = 65_536;
+const BASE_HALF = 80, CALIBRATE_ABOVE = 65_536;
 const MODELS = new URL('../../agents/models/herd-wolves/', import.meta.url);
 const COPIES = new URL('./herd-wolves/', import.meta.url);
 
@@ -35,8 +43,7 @@ export function readSettings(settings) {
     if (!(Number.isInteger(s.count) && s.count >= 64 && s.count % 16 === 0)) throw new Error(`film: herd-wolves count must be a whole number of at least 64, a multiple of 16; got ${s.count}.`);
     if (!(Number.isInteger(s.seed) && s.seed >= 0)) throw new Error(`film: herd-wolves seed must be a whole number; got ${s.seed}.`);
     if (!(Number.isInteger(s.thinkEvery) && s.thinkEvery > 0)) throw new Error(`film: herd-wolves thinkEvery must be a whole number above zero; got ${s.thinkEvery}.`);
-    if (s.brains === 'ort') throw new Error('film: herd-wolves brains "ort" come later (ONNX Runtime makes its own device); use "network" or "rules".');
-    if (!['network', 'rules'].includes(s.brains)) throw new Error(`film: herd-wolves brains must be "network" or "rules"; got ${JSON.stringify(s.brains)}.`);
+    if (!['network', 'rules', 'ort'].includes(s.brains)) throw new Error(`film: herd-wolves brains must be "network", "rules" or "ort"; got ${JSON.stringify(s.brains)}.`);
     if (!['anime', 'faithful'].includes(s.look)) throw new Error(`film: herd-wolves look must be "anime" or "faithful"; got ${JSON.stringify(s.look)}.`);
     if (typeof s.flashes !== 'boolean') throw new Error('film: herd-wolves flashes must be true or false.');
     return s;
@@ -61,61 +68,91 @@ function stepChain(agents) {
     return agents.getComputeStages();
 }
 
-/** Mean wall ms of `n` steps after `warm`, each its own submission, waited for. */
-async function timeSteps(engine, chain, warm, n) {
+/** Maximum steady-state wall ms; warm-up is checked for stops but excludes pipeline compilation. */
+async function timeSteps(engine, chain, warm, n, stopMs) {
     let total = 0;
     for (let k = 0; k < warm + n; k++) {
         const t = performance.now();
         engine.render(chain);
         await engine.device.queue.onSubmittedWorkDone();
-        if (k >= warm) total += performance.now() - t;
+        const took = checkStep(performance.now() - t, stopMs);
+        if (k >= warm) total = Math.max(total, took);
     }
-    return total / n;
+    return total;
 }
 
-/** The guard: calibrates at N/16 and N/4 and predicts N by the demo's rule; refuses above LIMIT_MS. */
+/** Cache only identical adapters, runtime/build, scenario, networks and simulation settings. */
+function costKey(engine, s) {
+    const hash = createHash('sha256');
+    const info = engine.device.adapterInfo ?? {};
+    hash.update(JSON.stringify({ adapter: [info.vendor, info.architecture, info.device, info.description],
+        platform: process.platform, os: release(), node: process.version,
+        dawn: createRequire(import.meta.url)('webgpu/package.json').version,
+        flags: process.env.NG_DAWN_FLAGS ?? '', brains: s.brains, thinkEvery: s.thinkEvery, seed: s.seed }));
+    for (const path of ['../../../dist/index.js', '../../../dist/agents.js', '../../agents/scenario/herd-wolves.mjs',
+        './herd-wolves.mjs', '../guard.mjs', '../../agents/models/herd-wolves/prey.mlp.json', '../../agents/models/herd-wolves/wolf.mlp.json']) {
+        hash.update(readFileSync(new URL(path, import.meta.url)));
+    }
+    return hash.digest('hex');
+}
+
+/** Persistent step guard. ORT remains refused separately until calibrated through its own path. */
 async function guard(engine, s, log) {
     if (s.count <= CALIBRATE_ABOVE) return null;
-    let measured = null;
-    for (const count of [s.count / 16, s.count / 4]) {
-        if (count % 16) continue;
-        if (measured) {
-            const ms = (measured.ms / measured.count) * count * (count / measured.count) ** 0.25;
-            if (ms > LIMIT_MS) break;
-        }
-        const sim = buildSimulation(engine, { ...s, count });
-        try {
-            measured = { count, ms: await timeSteps(engine, stepChain(sim.agents), 3, 10) };
-        } finally {
-            sim.destroy();
-            await engine.device.queue.onSubmittedWorkDone();
-        }
-        log(`guard: ${count.toLocaleString('en-US')} agents step in ${measured.ms.toFixed(1)} ms on this GPU`);
-    }
-    const ms = measured ? (measured.ms / measured.count) * s.count * (s.count / measured.count) ** 0.25 : Infinity;
-    if (ms > LIMIT_MS) {
-        throw new Error(`film: ${s.count.toLocaleString('en-US')} agents: ~${ms.toFixed(0)} ms per step predicted on this GPU ` +
-            `(${((measured?.ms ?? NaN) / (measured?.count ?? NaN) * 1e6).toFixed(0)} ns per agent at ${(measured?.count ?? 0).toLocaleString('en-US')}), ` +
-            `over the ${LIMIT_MS} ms limit per submission (Windows resets a GPU busy for about 2 s).`);
-    }
-    return { predictedMs: ms, from: measured };
+    const file = fileURLToPath(new URL('../out/costs.json', import.meta.url)), key = costKey(engine, s);
+    return calibrateSteps({ count: s.count, samples: readCosts(file, key), log,
+        save(samples) {
+            try { saveCosts(file, key, samples); }
+            catch (error) { log(`guard: could not save calibration: ${error.message}`); }
+        },
+        async measure(count, stopMs) {
+            const sim = buildSimulation(engine, { ...s, count });
+            try { return await timeSteps(engine, stepChain(sim.agents), 3, 10, stopMs); }
+            finally { sim.destroy(); await engine.device.queue.onSubmittedWorkDone(); }
+        },
+    });
 }
 
-export default async function scene({ engine, width, height, scale = 1, settings = {}, mode = 'record', log = () => {} }) {
-    if (mode !== 'record') throw new Error(`film: herd-wolves plays "${mode}" from D2.2; this build records only.`);
+export default async function scene({ engine, width, height, scale = 1, settings = {}, mode = 'record', trackEvery = 6, runtime, log = () => {} }) {
     const s = readSettings(settings);
-    const guarded = await guard(engine, s, log);
+    if (s.brains === 'ort' && s.count > CALIBRATE_ABOVE && mode === 'record') throw new Error('film: ORT films above 65,536 need ORT-specific guard calibration (D2.3).');
+    const guarded = mode === 'record' ? await guard(engine, s, log) : null;
     hookCopies();
     const load = name => import(new URL(`${name}.ts`, COPIES).href);
     const [models, field, flashes] = await Promise.all(['models', 'field', 'flashes'].map(load));
     const assets = loadHerdAssets(engine);
     const sim = buildSimulation(engine, s);
+    const ortModels = [], ortBrains = [];
+    if (s.brains === 'ort' && mode === 'record') {
+        if (!runtime || runtime.device !== engine.device) throw new Error('film: ORT recording needs the engine on the film runtime device.');
+        for (const species of ['prey', 'wolf']) {
+            const modelFile = JSON.parse(readFileSync(new URL(`${species}.mlp.json`, MODELS), 'utf8'));
+            const network = networkFromModel(modelFile, sim.definition, `${species}.mlp.json`);
+            const model = await runtime.load(onnxFromNetwork(network));
+            const brain = new OrtBrain(model);
+            ortModels.push(model); ortBrains.push(brain);
+            await sim.agents.prepareBrain(brain); sim.agents.setBrain(brain, { species });
+        }
+    }
     // The demo's catch ring starts as "caught long ago" (site index.ts:647–649), so no flash shows at the origin.
     const never = new Float32Array(1024 * 4);
     for (let k = 0; k < 1024; k++) never[k * 4 + 2] = -1e9;
     engine.device.queue.writeBuffer(sim.ring, 0, never);
     const look = buildLook(engine, sim, { models, field, flashes }, assets, { width, height, look: s.look, scale, flashes: s.flashes });
     const chain = stepChain(sim.agents);
+    sim.agents.advance(0);
+    const instances = sim.agents.getComputeStages();
+    const dt = sim.definition.dt;
+    const tracks = [
+        track('agents', sim.agents.buffer, { every: trackEvery, dt, preset: 'agents',
+            fields: undefined, add: [{ word: 11, store: 'f16', interp: 'step' }] }),
+        track('phase', look.phase, { stride: 4, every: trackEvery, dt, fields: [{ word: 0, store: 'unorm16', interp: 'wrap', maxRate: 4 }] }),
+        track('ring', sim.ring, { every: 1, dt }),
+        track('stats', sim.stats, { every: 1, dt }),
+        track('state', sim.agents.state, { every: 1, dt }),
+    ];
+    // Respawns are teleports. Do not interpolate them across the field.
+    for (const f of tracks[0].layout.fields) if (f.interp === 'hermite') f.jump = 4.2 * trackEvery * dt * 1.05;
 
     const half = sim.definition.world.maxX, fieldScale = half / BASE_HALF;
     const camera = new Camera(60, width / height, 0.5, 1000);
@@ -124,15 +161,21 @@ export default async function scene({ engine, width, height, scale = 1, settings
     const texts = herdWolves.texts({ count: s.count }), wgsl = {};
     for (const [role, text] of Object.entries(texts)) wgsl[role] = await hashText(text);
     const networks = {};
-    if (s.brains === 'network') for (const species of ['prey', 'wolf']) networks[species] = await hashText(readFileSync(new URL(`${species}.mlp.json`, MODELS), 'utf8'));
+    if (s.brains !== 'rules') for (const species of ['prey', 'wolf']) networks[species] = await hashText(readFileSync(new URL(`${species}.mlp.json`, MODELS), 'utf8'));
 
     return {
         dt: sim.definition.dt,
+        tracks,
+        checkpoint: [
+            ['agents', sim.agents.buffer], ['actions', sim.agents.act], ['state', sim.agents.state],
+            ['phase', look.phase], ['ring', sim.ring], ['stats', sim.stats],
+        ].map(([name, buffer]) => ({ name, buffer })),
         settings: s,
         defaultView,
         info: { agents: s.count, field: `${(2 * half).toFixed(0)} m`, animals: look.usePalette ? 'palette' : 'hook', guard: guarded, wgsl, networks },
         /** One exact step, its own submission, waited for. */
         async step() {
+            if (s.brains === 'ort') return sim.agents.step();
             sim.agents.upload();
             engine.render(chain);
             await engine.device.queue.onSubmittedWorkDone();
@@ -149,11 +192,13 @@ export default async function scene({ engine, width, height, scale = 1, settings
             camera.updateTime(seconds);
             engine.updateCamera(camera);
         },
-        draw() { return look.sequence(); },
+        draw() { return [...instances, ...look.sequence()]; },
         /** The agents buffer, for a determinism check (F1). */
         agentsBuffer: sim.agents.buffer,
         destroy() {
             sim.destroy();
+            ortBrains.forEach(b => b.destroy());
+            ortModels.forEach(m => m.destroy());
             look.destroy();
             assets.destroy();
             engine.clearPasses();

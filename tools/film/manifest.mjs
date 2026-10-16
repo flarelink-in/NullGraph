@@ -51,7 +51,7 @@ export function readManifest(json, name = 'film') {
     if (typeof encode.codec !== 'string' || !encode.codec) fail('encode.codec must name an ffmpeg encoder ("libx264", say).');
     if (!(Number.isFinite(encode.crf) && encode.crf >= 0 && encode.crf <= 51)) fail(`encode.crf must be 0–51; got ${JSON.stringify(encode.crf)}.`);
     const warmupSeconds = json.warmupSeconds ?? FILM_DEFAULTS.warmupSeconds;
-    if (!(typeof warmupSeconds === 'number' && warmupSeconds >= 0)) fail(`warmupSeconds must be 0 or more; got ${JSON.stringify(warmupSeconds)}.`);
+    if (!(Number.isFinite(warmupSeconds) && warmupSeconds >= 0)) fail(`warmupSeconds must be 0 or more; got ${JSON.stringify(warmupSeconds)}.`);
     const segmentSeconds = positive(json.segmentSeconds ?? FILM_DEFAULTS.segmentSeconds, 'segmentSeconds');
     if (json.settings !== undefined && !isObject(json.settings)) fail('settings must be an object.');
     return {
@@ -78,6 +78,7 @@ export function planFilm(manifest, { dt }) {
     positive(dt, 'the scene\'s step dt');
     const { fps, seconds } = manifest.film;
     const stepsPerFrame = steps(1 / fps, dt, `one frame at ${fps} fps`);
+    if (stepsPerFrame < 1) fail(`one frame at ${fps} fps must contain at least one step.`);
     const frames = Math.round(seconds * fps);
     if (Math.abs(frames - seconds * fps) > 1e-9 * Math.max(1, frames)) fail(`film.seconds (${seconds}) is not a whole number of frames at ${fps} fps.`);
     const warmupSteps = steps(manifest.warmupSeconds, dt, 'warmupSeconds');

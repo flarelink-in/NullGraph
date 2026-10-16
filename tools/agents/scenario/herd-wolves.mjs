@@ -217,8 +217,8 @@ export function createHerd(engine, options = {}) {
     const agents = new A.AgentSystem(engine, definition, { thinkEvery: o.thinkEvery });
     try {
         const settings = buffer('settings', SETTINGS_FLOATS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-        const stats = buffer('stats', STATS_WORDS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
-        const ring = buffer('catch ring', CATCH_RING * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+        const stats = buffer('stats', STATS_WORDS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
+        const ring = buffer('catch ring', CATCH_RING * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
         const data = new Float32Array(SETTINGS_FLOATS);
         data[SETTINGS.FLOCKING] = o.flocking ? 1 : 0;
         data[SETTINGS.FLEEING] = o.fleeing ? 1 : 0;

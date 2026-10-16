@@ -47,7 +47,7 @@ export function buildLook(engine, sim, copies, assets, { width, height, look = '
     vis.setGeometry(mega);
     SPECIES.forEach((shape, mesh) => agents.setSpecies(shape, { mesh, hoverMesh: mesh, selectedMesh: mesh, boundsRadius: assets[shape].radius }));
 
-    const phase = buffer('animal phases', count * 4, GPUBufferUsage.STORAGE);
+    const phase = buffer('animal phases', count * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     agents.addStepStage({ name: 'animal-phase', wgsl: ANIMAL_PHASE, buffers: [phase] });
     const usePalette = animalPaletteFits(engine, assets, count, 1);
     const vertexLayouts = StandardLayout.getWebGPUDescriptor();
@@ -84,6 +84,7 @@ export function buildLook(engine, sim, copies, assets, { width, height, look = '
         rings.resize(width, height);
     }
     return {
+        phase,
         usePalette,
         /** The frame's render sequence after its steps: culls, palettes, the scene, the post chain, the flashes. */
         sequence() {
