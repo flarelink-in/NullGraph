@@ -24,16 +24,18 @@ log, not here.
     - `libx264` runs at 41–66 fps and is the bottleneck at showcase counts;
     - NVENC needs NVIDIA driver ≥ 610;
     - a 1M track save is 20 MB, zstd ×1.5–1.9.
-  - The tool (D2.1 onward) is not built.
+  - **D2.1 built and committed 2026-10-16** (`tools/film/`; results in the design):
+    - `npm run film`, `film:check`, `test:film`, and GPU suite `film` (Node only);
+    - the 60 s 64K showcase recorded (`tools/film/out/herd-showcase/film.mp4`);
+    - frames differ by depth ties (the visibility cull's `atomicAdd` order), under 1%; the
+      simulation is exact.
 
 ## Next action
 
-**D2.1**, in progress:
-- the core: clock, render records, sinks, segments, camera keyframes;
-- the copies, with `film:check`;
-- the Herd & Wolves scene in record mode. The scenario must hand out its catch ring for the flashes.
-
-Decided: `thinkEvery` 3; the showcase at 64K.
+Decided by the user 2026-10-16: commit D2.1 (done); the showcase camera ends at 600 m; a stable draw
+order in the visibility cull (a library change, designed first in `visibility-design.md`); then
+**D2.2**. D2.2 covers compute records (layouts, generated pack and unpack, raw tracks, the agents
+preset), checkpoints, `--replay`, `--resume`, `--detach`.
 
 ffmpeg 9.0.2 is installed; `libx264` only (see gotchas for NVENC and colour tags). `npm run drive`
 checks the look and bakes the font atlas; it does not record.
@@ -42,9 +44,9 @@ checks the look and bakes the font atlas; it does not record.
 
 - **null-graph** (`master`, level with `origin/master` at `ba95184`, pushed 2026-10-15; npm 1.1.1
   published the same day).
-  - **The films session** committed D2.0 (the spike in `test/spikes/films/`, whose `site.mjs` is a
-    spike-only resolve hook into the site; the design; `spike:films`; `.gitignore`). D2.1 work is
-    uncommitted while it is built.
+  - **The films session** committed D2.0 as `f945529` (the spike in `test/spikes/films/`, whose
+    `site.mjs` is a spike-only resolve hook into the site; the design; `spike:films`; `.gitignore`).
+    D2.1 committed after it.
   - **Found uncommitted and left alone:**
     - `dist/` is a production build (`dist/index.js` changed, `dist/index.js.map` deleted, from the
       last `yalc:push`; run `npm run build:lib` before committing);

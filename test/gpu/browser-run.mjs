@@ -145,6 +145,10 @@ await send('Runtime.enable');
 // ---------------------------------------------------------------------------
 const rows = [];
 for (const suite of SUITES.filter(s => only.length === 0 || only.includes(s.name))) {
+    if (suite.node) {
+        console.log(`\n=== ${suite.name}: Node only (${suite.node}), not run in Chrome ===`);
+        continue;
+    }
     const url = `${BASE}/${dirname(suite.file).replace(/\\/g, '/')}/`;
     console.log(`\n=== ${suite.name} (${url}) ===`);
     const TIMEOUT_MS = Number(TIMEOUT_ARG || suite.timeout || 120) * 1000;

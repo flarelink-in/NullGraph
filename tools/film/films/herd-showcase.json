@@ -1,0 +1,13 @@
+{
+  "name": "herd-showcase",
+  "scene": "herd-wolves",
+  "settings": { "count": 65536, "seed": 11, "thinkEvery": 3, "brains": "network", "look": "anime", "flashes": true },
+  "warmupSeconds": 10,
+  "film": { "seconds": 60, "fps": 60, "width": 1920, "height": 1080, "scale": 1 },
+  "camera": [
+    { "t": 0, "target": [0, 0, 0], "distance": 25, "azimuth": 0.2, "polar": 0.6 },
+    { "t": 60, "target": [0, 0, 0], "distance": 600, "azimuth": 1.0, "polar": 0.45 }
+  ],
+  "segmentSeconds": 10,
+  "encode": { "codec": "libx264", "crf": 16, "preset": "medium", "tune": "animation" }
+}

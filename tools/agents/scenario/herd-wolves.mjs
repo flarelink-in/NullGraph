@@ -240,6 +240,8 @@ export function createHerd(engine, options = {}) {
         const prey = definition.speciesIndex('prey'), wolf = definition.speciesIndex('wolf');
         return {
             agents, definition, options: o, wolves, settings, stats,
+            /** The catch events the demo draws as flashes (x, z, tick per entry); zeros until written. */
+            ring,
             /** The species index of agent i: fixed at spawn, and a respawn keeps it. */
             speciesOf: i => (i < wolves ? wolf : prey),
             /** What the label pass runs: the rule without what a network cannot see. */

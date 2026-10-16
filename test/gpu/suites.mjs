@@ -22,6 +22,8 @@ export const SUITES = [
     { name: 'agents', file: 'test/agents-gpu/run.js', key: '__AGENTS_RESULTS__' },
     // A8 runs ten 30-second episodes: about a minute under Node, and two in Chrome.
     { name: 'agent-tools', file: 'test/agent-tools-gpu/run.js', key: '__AGENT_TOOLS_RESULTS__', timeout: 360 },
+    // D2.1: the film tool (tools/film). `node` says why a suite runs under Node only; the Chrome runner skips it.
+    { name: 'film', file: 'test/film-gpu/run.js', key: '__FILM_RESULTS__', node: 'it runs ffmpeg and reads the test site\'s files' },
 ];
 
 /**
