@@ -19,6 +19,9 @@ order explicit, and lets GPU simulation output feed rendering without a per-fram
 It can run on the main thread, in a Web Worker with an `OffscreenCanvas`, or headlessly with a
 WebGPU implementation.
 
+The repository also includes offline rendering tools: fixed-step scene recording, GPU-state tracks,
+checkpoints, replay, and frame export to PNG or ffmpeg video, independent of real-time frame rate.
+
 ## Installation and getting started
 
 ```sh
@@ -117,21 +120,22 @@ overflow-free operation is required for the documented same-device deterministic
 See the [agents guide](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md)
 for supported shapes, buffer ownership, inspection and integration examples.
 
-### Animated GPU crowds
+### Offline rendering and replay
 
-`bakeRigidAnimation` and `bakeSkinnedAnimation` prepare shared GLB animation tables once.
-Applications can use the loaders' WGSL snippets to blend poses into a palette after GPU culling,
-then read one rigid influence or four weighted skin influences from an instance vertex hook.
-Animation state stays on the GPU; the compacted visible slot selects the palette entry, without
-reading survivor counts back to the CPU. Applications own palette allocation, scheduling and
-device-limit checks. Palettes trade extra compute and memory traffic for less vertex-stage sampling;
-they are not a universal speedup.
+The repository's film tooling separates simulation from image production. A scene advances with a
+fixed timestep, declares GPU buffers to record, and supplies a rendering sequence. Record tracks
+without drawing, then replay them to render another camera, resolution or playback speed without
+rerunning the simulation. Export PNG frames or encode video through ffmpeg (60 fps by default).
 
-The Herd & Wolves demo now defaults to cow/fox **Models** with both species on the built-in
-**Network** brain. Rules, ONNX Runtime, Darts and debug Arrows remain selectable. Models and network
-files load on demand, so the demo can briefly use its existing loading/fallback paths at startup.
-The demo animals are rigid-part models; the skinned bake and palette path are available, but the
-user's skinned animal assets are not yet integrated.
+Full-buffer checkpoints and segment-level resume preserve committed work. Packed tracks can trade
+precision and sampling frequency for storage; they are not substitutes for exact continuation state.
+Offline output removes the real-time frame budget, not GPU memory limits or submission-safety checks.
+
+These are Node/Dawn tools in a repository checkout, not an npm package subpath or an automatic
+recorder for arbitrary browser applications. New scenes supply a small adapter; the recording core
+works with declared GPU buffers rather than requiring an agent simulation.
+See the [film setup and commands](./tools/film/README.md) and
+[general-purpose scene authoring guide](./tools/film/SCENE-AUTHORING.md).
 
 ## Requirements and boundaries
 
