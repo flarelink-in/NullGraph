@@ -31,6 +31,32 @@ try {
     assert.equal(HERD_DEFAULTS.drawAs, 'models');
     assert.equal(HERD_DEFAULTS.preyBrain, 'network');
     assert.equal(HERD_DEFAULTS.wolfBrain, 'network');
+    // Exercise the dashboard's actual store, not just the demo's fallback options.
+    const storeBundle = await esbuild.build({
+        stdin: {
+            contents: `export { useDemoControlStore } from './src/store/useDemoControlStore';
+                export { useEngineStore } from './src/store/useEngineStore';`,
+            resolveDir: site,
+        },
+        absWorkingDir: site, bundle: true, write: false, format: 'esm', platform: 'node',
+    });
+    const { useDemoControlStore, useEngineStore } = await import(`data:text/javascript;base64,${Buffer.from(storeBundle.outputFiles[0].text).toString('base64')}`);
+    const initial = useDemoControlStore.getState().configs.AGENTS_HERD_GPU;
+    for (const [key, value] of Object.entries(HERD_DEFAULTS)) {
+        assert.equal(initial[key], value, `dashboard default: ${key}`);
+    }
+    useDemoControlStore.getState().updateConfig('AGENTS_HERD_GPU', { paused: true });
+    const sent = useEngineStore.getState().pendingMessages.at(-1).message;
+    assert.equal(sent.type, 'UPDATE_STATE');
+    assert.equal(sent.payload.id, 'AGENTS_HERD_GPU');
+    assert.equal(sent.payload.state.drawAs, 'models');
+    assert.equal(sent.payload.state.preyBrain, 'network');
+    assert.equal(sent.payload.state.wolfBrain, 'network');
+    useDemoControlStore.getState().updateConfig('AGENTS_HERD_GPU', { drawAs: 'arrows', preyBrain: 'rules' });
+    useDemoControlStore.getState().updateConfig('AGENTS_HERD_GPU', { paused: false });
+    assert.equal(useDemoControlStore.getState().configs.AGENTS_HERD_GPU.drawAs, 'arrows');
+    assert.equal(useDemoControlStore.getState().configs.AGENTS_HERD_GPU.preyBrain, 'rules');
+    console.log('ok dashboard: shared startup defaults reach worker updates; user choices remain editable');
     const urls = [];
     globalThis.fetch = async url => {
         urls.push(url);

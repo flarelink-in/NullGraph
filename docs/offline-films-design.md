@@ -16,6 +16,8 @@ see §19.
 - **D2.0** measured and committed 2026-10-16 (the spike `test/spikes/films/`; "Phase D2.0 results"
   at the end).
 - **D2.1** built and committed 2026-10-16 (`tools/film/`; "Phase D2.1 results" at the end).
+- **D2.2** implemented 2026-10-16 (layouts, tracks, checkpoints, replay, resume and detach;
+  "Phase D2.2 results" below).
 
 **Named films, not recordings:** `agents:record` already records the teacher's decisions (step 7).
 
@@ -134,7 +136,7 @@ never stopped.
 
 | | Property | Means |
 |---|---|---|
-| P1 | Determinism | The same film twice on one machine gives the same simulation state, tracks and checkpoints, byte for byte, and the same frames except where the scene declares otherwise. Herd & Wolves declares two exceptions (§10): which catches flash, and depth ties between overlapping animals, whose winner the visibility cull's `atomicAdd` order picks (found in D2.1; under 1% of a frame). |
+| P1 | Determinism | The same film twice on one machine gives the same simulation state, tracks, checkpoints and frames, byte for byte, except where the scene declares otherwise. Herd & Wolves declares one exception (§10): which catches flash. D2.1 also found depth ties between overlapping animals changing winners, from the visibility cull's `atomicAdd` order. The stable draw order (visibility-design §14) removed them. |
 | P2 | Resume | Stopped and resumed, a film equals an unbroken run. |
 | P3 | Replay fidelity | A replay with every track at m = 1 matches the recorded frames within a pinned tolerance. At m = 6, each interpolated field is within a pinned error of m = 1's. |
 | P4 | Capture fidelity | The video decodes to the captured image (orientation, channels, colour) within yuv420p's loss. |
@@ -369,11 +371,10 @@ saved outside git, like the models, and Node loads them with `fromSDF`.
     `atomicAdd` order. Two recordings can therefore flash different catches, and the ring's slot
     order can differ at any count. The agents' state is unaffected, and a replay is exact because it
     plays the tracked ring.
-  - **Depth ties** (found in D2.1). The visibility cull appends visible instances with `atomicAdd`
-    (`visibilityShaders.ts:313`), so the draw order changes from run to run. Where two animals
-    overlap with faces at the same depth (far cubes at one height; herds), the winner changes too.
-    The faithful chain shows 1–4 pixels per frame; the anime chain's depth ink widens each tie, to
-    at most 0.53% of a frame in F1. The simulation is still exact.
+  - **Depth ties, resolved.** D2.1 found that the visibility cull appended visible instances with
+    `atomicAdd`. Where two animals overlapped with faces at the same depth, the winner changed from
+    run to run: up to 0.53% of a frame. Since the stable draw order (visibility-design §14, the
+    user's decision after D2.1), frames are exact; F1 requires it.
 
 ## 11. Costs
 
@@ -408,7 +409,9 @@ Predictions for 1M use the demo's guard rule (ns per agent × N × (N/M)^0.25). 
   each draw is its own submission.
 - **A count with no measurement on this adapter** is calibrated first at N/16 and N/4 (GPU
   timestamps). N is predicted from those, and refused above the limit with the prediction named.
-  Costs are kept per adapter in `tools/film/out/costs.json`.
+  Costs are kept per adapter in `tools/film/out/costs.json`. D2.3's first slice uses maximum
+  queue-completion wall timing, including warm-up, not GPU timestamps. Probes climb by at most
+  fourfold from no more than 4K to N/4, predicting before every larger submission.
 - **While running,** every submission is timed. One above 1.5 s stops the film after its
   checkpoint, with the reason.
 - **Before starting,** the tool prints the predicted time, disk use (checked against free space with
@@ -440,8 +443,8 @@ Predictions for 1M use the demo's guard rule (ns per agent × N × (N/M)^0.25). 
 - **U4:** the ffmpeg arguments; the camera keyframes.
 
 **GPU** (`test/film-gpu/run.js`, `--only film`; Node on the NVIDIA GPU and on the AMD iGPU):
-- **F1 (P1):** a 4K Herd & Wolves film recorded twice. The agents buffer after both is equal, byte
-  for byte. Each frame is equal but for depth ties, under 1% of its pixels (§10).
+- **F1 (P1):** a 4K Herd & Wolves film recorded twice: the agents buffer after both, and every
+  frame, equal byte for byte (flashes off; §10).
 - **F2 (P2):** stopped after segment 1 and resumed, it equals F1, with Rules, Network and ORT.
 - **F3:** a generic track. A scene of a few thousand moving points with its own made-up layout,
   recorded and replayed: proves the core needs no agent code.
@@ -479,7 +482,7 @@ Named refusals; the exact texts are fixed in D2.1.
 | Brain runs over only the agents that are due | ORT at `thinkEvery` n costs 1/n | every step runs all rows |
 | `FontAtlas`: a browser-only bake that returns bytes without uploading | any tool can save an atlas for Node | the bake page catches them on their way into `fromSDF` |
 | Flashes chosen by hash, not `atomicAdd` order | P1 with no exception for Herd & Wolves | §10's declared exception |
-| A stable draw order in the visibility cull (compaction by prefix sum, not `atomicAdd`) | bit-exact frames, and in the live demo no frame-to-frame flicker where overlapping animals tie in depth | F1 allows under 1% of a frame to differ (§10) |
+| A stable draw order in the visibility cull (compaction by visibility bits and counts, not `atomicAdd`) | bit-exact frames, and in the live demo no frame-to-frame flicker where overlapping animals tie in depth | **Done 2026-10-16** at the user's word (visibility-design §14); F1 now requires exact frames |
 | A dispatch split across submissions | 1M simulated on the AMD iGPU | 1M only on the NVIDIA GPU |
 
 ## 17. Build order
@@ -743,3 +746,99 @@ agents buffer, but up to half their frames differed:
 - The agent-tools GPU suite, after a change that only adds a returned field.
 - Films on the AMD iGPU, other than F1 and F5.
 - ORT brains (refused by name until a scene makes ONNX Runtime's device).
+
+---
+
+## Phase D2.2 results — 2026-10-16
+
+**Handoff recovered:** the preceding agent stopped after implementing stable visibility order and
+updating most of its documentation; no compute-record implementation had been left behind. Existing
+visibility/library changes and unrelated working-tree files were preserved, not committed here.
+
+**Built, tools only:**
+- `tools/film/layout.mjs`: validated layouts, the agents preset, f32/f16/unorm16/u8/u32, CPU mirrors,
+  generated GPU pack/unpack, all five interpolation kinds, untouched-word preservation, wrap-rate
+  validation and teleport thresholds. Packed records align each field naturally and pad to words;
+  Herd's agents record is 20 bytes.
+- `tools/film/records.mjs`: GPU codecs; segment-local binary track chunks and sample-step sidecars;
+  full-byte checkpoints with names, sizes, step and input hash; atomic metadata replacement;
+  bounded-memory track playback. Resume validates a contiguous committed segment prefix.
+- `tools/film/film.mjs`: records tracks alongside frames (or tracks only with `--frames none`);
+  `--replay`, alternate camera/size/fps, `--speed`, `--replay-out`; `--resume`, `--detach`, `--status`,
+  `--stop-after`. SIGINT/SIGTERM stop at a segment boundary. Output locks prevent concurrent writers;
+  old recordings are never deleted implicitly. Detached logs and PID metadata remain in the output.
+- Herd tracks agents, phase, ring, stats **and the GPU state/tick**: flashes need that clock during
+  replay. Derived instance rows are rebuilt at draw time, without simulation steps. Checkpoints also
+  include actions. Added COPY usage to scenario ring/stats and the look's phase buffer, no rule changes.
+- `tools/film/ort.mjs`: existing Node ORT bootstrap pattern; the engine adopts its device and both
+  committed networks run through OrtBrain in lockstep. ORT counts above 65,536 are explicitly refused
+  pending ORT-specific guard calibration in D2.3 (the stage-brain prediction does not cover ORT).
+
+**On-disk details:** checkpoint 0 is post-warm-up; checkpoint N is the start of segment N; the final
+checkpoint stores the end state. Each track chunk has `.bin.json` sample steps, including both segment
+boundaries (so a short final interval replays correctly). `film.json` stores resolved layouts and the
+input hash. Progress commits only after frames, track chunks and the next checkpoint complete. A killed
+run rewrites only the incomplete segment. Resume hashes compiled library, tool/scene and scenario
+code, settings, layouts, networks and adapter; packed tracks are never used to continue simulation.
+
+**Validation:**
+- Headless U1–U4: **10/10**. Library/TypeScript and IDE builds pass; focused IDE inspections report no
+  errors. `film:check`: all five copied files equal the site. Agent regression: **83/83** node tests.
+- Node/NVIDIA: **31/31 film GPU checks**, zero GPU errors. Node/AMD: **31/31**, zero GPU errors
+  (final log verified 2026-10-16, including the explicit respawn-endpoint assertion). F1 remains byte-exact with
+  flashes off; F5 remains within 2 colour levels.
+- U2 GPU pack matches CPU byte-for-byte for every storage kind over 2,048 made-up points. Unpack
+  matches at u=0, .25, .5 and 1 within 0.0001, preserving untracked words and high flag bits. F3 streams
+  generic point and raw tracks and replays without agent logic. Raw tracks hold the left save.
+- F2 restores checkpoint state and continues identically for Rules, Network **and ORT**. Separate
+  process CLI integration also compares resumed frame hashes and track bytes, refuses changed inputs,
+  replays with zero stepping, and completes detached jobs with readable status.
+- F4 m=1 packed replay is **not bit-exact**, as expected from quantization: NVIDIA 823 changed pixels
+  out of 57,600 (1.43%), mean RGBA channel error 0.0154 levels; AMD 780 (1.35%), mean 0.0131. Pinned
+  limits: ≤2% changed pixels and mean channel error ≤0.5 at this view.
+- F4 six-step continuous midpoint error bounds: x/z ≤0.03 m (measured 0.00284/0.00340), velocity x/z
+  ≤0.3 m/s (0.2951/0.2081), heading shortest-arc ≤0.3 rad (0.1997), rest timer ≤0.06 s (0.0516).
+  Catch/respawn intervals are discontinuities, tested by endpoint selection instead of those bounds.
+  The initial failing tests caught an incorrectly reused one-step jump threshold in the six-step
+  test and an unrealistic bit/pixel-exact assumption for quantized replay; both are now explicit.
+
+**Showcase:** a new complete 65,536-agent 60 s 1080p60 film with six-step tracks is at
+`tools/film/out/herd-showcase-d22/film.mp4` (original D2.1 output preserved). Recorded in 201.4 s,
+285.8 MB, zero GPU errors. This is a functional run, not an isolated benchmark: other validation ran
+concurrently. The alternate camera file is `tools/film/films/herd-replay-camera.json`.
+The alternate-camera replay completed in 44.6 s with zero simulation-step time and zero GPU errors;
+`ffprobe` confirms 640×360, 60 fps, 60 s and 3,600 frames. The decoded 15 s PNG was visually inspected:
+populated animals and catch rings, no obvious blank frame or corruption. CLI integration uses 4,096
+agents for Rules, Network and ORT; its slow-replay assertion checks 96 frames at 120 fps and speed 0.25.
+The fresh CLI rerun passed in 57.1 s (`tools/film/out/d22-validation/cli-verified.log`, empty stderr).
+Final `npm run build:lib`, IDE build, `npm run test:film` (10/10) and `npm run film:check` (five copies)
+passed on 2026-10-16. Phase acceptance/commit remains a separate decision; D2.3 scope is unchanged.
+
+**Still D2.3:** persistent adapter costs and stronger guard calibration, disk/memory prediction and
+free-space refusal, text/atlas/names/caption, the 1M stress film. Tracks are uncompressed; compression
+and buffered/pipelined track I/O are optimizations, not required for correctness. Browser export
+remains D2.4. No models or generated film artifacts are committed.
+
+## Phase D2.3 started — 2026-10-16
+
+First slice: `tools/film/guard.mjs`, shared measured step stop, persistent Rules/Network costs in
+`tools/film/out/costs.json`. Cache identity includes adapter/driver, OS, Node/Dawn, flags, seed,
+brain/think cadence, compiled core/agents, scenario, scene/guard code and networks. Costs retain
+the maximum at each size. Probes start at no more than 4K and grow by at most fourfold to N/4;
+compatible quarter-size evidence avoids calibration in a later process. Timings include warm-up
+and queue completion, deliberately labelled wall measurements, not GPU timestamps.
+
+Validation: library and IDE builds pass; headless film tests 14/14, including lowered-limit
+prediction refusal before probing and measured stop with injected timings. Fresh-process CLI
+regression passes in 57.0 s (Rules/Network/ORT resume, replay, detach/status).
+Real 131,072-agent Network trials, six steps, tracks only, on both adapters:
+- NVIDIA: predicted 324 ms from 32K; actual step averages 86/52 ms on first/cached runs.
+- AMD: predicted 195 ms from 32K; actual averages 264/262 ms. **The rule underpredicts here.**
+- Both subsequent processes reuse their own cache; all four reports have no failure/GPU errors.
+- Evidence: `tools/film/out/d23-validation/` (logs and reports). These are smoke checks, not proof
+  of safety for every scene or count. F6 policy tests inject timings; no deliberately unsafe GPU
+  submission was made.
+
+Still open: time/disk/GPU-memory estimates and free-space refusal, draw guard, ORT-specific
+calibration (above 64K still refused), atlas/names/captions, then the 1M tracks-first stress film.
+D2.3 is not complete or accepted. No commit or push.

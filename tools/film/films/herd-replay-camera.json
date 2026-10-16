@@ -1,0 +1,4 @@
+[
+  { "t": 0, "target": [0, 0, 0], "distance": 150, "azimuth": 2.4, "polar": 0.7 },
+  { "t": 60, "target": [0, 0, 0], "distance": 550, "azimuth": 3.5, "polar": 0.5 }
+]

@@ -1,0 +1,14 @@
+{
+  "name": "herd-million",
+  "scene": "herd-wolves",
+  "settings": { "count": 1048576, "seed": 11, "thinkEvery": 60, "brains": "network", "look": "anime", "flashes": true },
+  "warmupSeconds": 0,
+  "film": { "seconds": 60, "fps": 60, "width": 1920, "height": 1080, "scale": 1 },
+  "camera": [
+    { "t": 0, "target": [0, 0, 0], "distance": 100, "azimuth": 0.2, "polar": 0.6 },
+    { "t": 5, "target": [0, 0, 0], "distance": 200, "azimuth": 0.5, "polar": 0.45 },
+    { "t": 60, "target": [0, 0, 0], "distance": 1800, "azimuth": 1.0, "polar": 0.45 }
+  ],
+  "segmentSeconds": 1,
+  "encode": { "codec": "libx264", "crf": 20, "preset": "medium", "tune": "animation" }
+}

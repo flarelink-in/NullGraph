@@ -3,13 +3,11 @@
 // Needs ffmpeg (NG_FFMPEG or PATH) and the test site (NG_SITE) for the Herd & Wolves scene's assets.
 //
 // F1 (P1, determinism): the Herd & Wolves scene filmed twice, as tools/film/film.mjs films it (exact steps,
-//    a moving camera, each frame read back). The simulation is exact: the agents buffer after the films is
-//    equal byte for byte. The frames are equal except where two animals overlap with faces at the same
-//    depth: the instance cull appends visible instances with atomicAdd (visibilityShaders.ts:313), so
-//    the draw order, and with it the winner of a depth tie, changes from run to run (D2.1 found it; the
-//    anime chain's depth ink widens each tie by a few pixels). Under 1% of a frame's pixels may differ
-//    (measured worst: 0.41%). With the flashes on, which catches flash can differ too (§10), so those
-//    frames are counted.
+//    a moving camera, each frame read back): the agents buffer after the films and every frame are equal,
+//    byte for byte. D2.1 found frames differing by depth ties while the cull appended survivors with
+//    atomicAdd; since the stable draw order (visibility-design §14) they do not. With the flashes on,
+//    which catches flash can differ (the scenario's respawn stage still counts catches with atomicAdd,
+//    offline-films-design §10), so those frames are counted, not required equal.
 // F5 (P4, capture fidelity): a test pattern of four colours read back exactly, then encoded by the film's
 //    ffmpeg settings and decoded again: each quadrant within ±3 levels, in its place (no flip, no swizzle).
 import { spawnSync } from 'node:child_process';
@@ -70,7 +68,7 @@ const differingPixels = (x, y) => {
     const pixels = a.shots.map((s, j) => differingPixels(s, b.shots[j]));
     const differ = pixels.filter(Boolean).length, worst = Math.max(...pixels);
     check('F1: two films of 4,096 agents, flashes off: the agents buffer after them equal, byte for byte', a.agents === b.agents);
-    check('F1: … every frame equal but for depth ties between overlapping animals: under 1% of its pixels', worst < W * H / 100,
+    check('F1: … and every frame equal, byte for byte (the cull draws in source order)', differ === 0,
         `${differ} of ${a.shots.length} frames differ; the worst by ${worst} pixels (${(100 * worst / (W * H)).toFixed(2)}%)`);
     check('F1: … and the frames move (not one picture repeated)', a.distinct > a.hashes.length * 0.9, `${a.distinct} distinct of ${a.hashes.length}`);
     const c = await film(true), d = await film(true);
@@ -157,4 +155,5 @@ async function pattern(w, h) {
         rmSync(dir, { recursive: true, force: true });
     }
 }
+await (await import('./records.js')).recordsChecks(check, log);
 await finish('film GPU checks done');

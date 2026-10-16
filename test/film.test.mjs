@@ -12,11 +12,70 @@ import { cameraPath } from '../tools/film/camera.mjs';
 import { BT709, encoderArgs } from '../tools/film/sinks.mjs';
 import { compareCopies } from '../tools/film/check.mjs';
 import { readSettings } from '../tools/film/scenes/herd-wolves.mjs';
+import { resolveLayout, packCPU, unpackCPU, layoutWGSL } from '../tools/film/layout.mjs';
+import { resumeSegments } from '../tools/film/records.mjs';
 
 const DT = 1 / 60;
 const minimal = (more = {}) => ({ scene: 'herd-wolves', film: { seconds: 2 }, ...more });
 const keyframe = (t, distance = 40, more = {}) => ({ t, target: [0, 0, 0], distance, azimuth: 0.3, polar: 0.4, ...more });
 
+test('U1: million-agent preset supports five-second trials and the full minute', () => {
+    const json = JSON.parse(readFileSync(new URL('../tools/film/films/herd-million.json', import.meta.url), 'utf8'));
+    const manifest = readManifest(json);
+    const settings = readSettings(manifest.settings);
+    assert.equal(settings.count, 1048576);
+    assert.equal(settings.brains, 'network');
+    assert.equal(settings.thinkEvery, 60);
+    assert.equal(manifest.warmupSeconds, 0);
+    assert.equal(planFilm(manifest, { dt: DT }).frames, 3600);
+    const short = readManifest({ ...json, film: { ...json.film, seconds: 5 } });
+    assert.equal(planFilm(short, { dt: DT }).frames, 300);
+    assert.equal(planFilm(short, { dt: DT }).segments.length, 5);
+    assert.ok(cameraPath(manifest.camera)(5).distance > cameraPath(manifest.camera)(0).distance);
+});
+
+test('U2: layouts validate storage, bounds, velocity dependencies and wrap rates', () => {
+    const agents = resolveLayout({ preset: 'agents', add: [{ word: 11, store: 'f16' }] });
+    assert.equal(agents.packedStride, 20);
+    for (const [options, message] of [
+        [{ stride: 4, fields: [{ word: 1, store: 'f32' }] }, /outside/],
+        [{ stride: 4, fields: [{ word: 0, store: 'no' }] }, /unknown storage/],
+        [{ stride: 4, fields: [{ word: 0, store: 'f32', interp: 'no' }] }, /unknown interpolation/],
+        [{ stride: 4, fields: [{ word: 0, store: 'f32', interp: 'hermite', velocity: 1 }] }, /velocity/],
+        [{ stride: 4, fields: [{ word: 0, store: 'unorm16', interp: 'wrap', maxRate: 6 }] }, /half a cycle/],
+    ]) assert.throws(() => resolveLayout(options), message);
+    assert.match(layoutWGSL(agents).pack, /pack2x16float/);
+});
+test('U2: CPU codecs preserve other words; interpolation endpoints, arcs, wrap and teleports', () => {
+    const l = resolveLayout({ stride: 32, every: 6, fields: [
+        { word: 0, store: 'f32', interp: 'hermite', velocity: 1, jump: 10 },
+        { word: 1, store: 'f16', interp: 'linear' },
+        { word: 2, store: 'f16', interp: 'angle' },
+        { word: 3, store: 'unorm16', interp: 'wrap', maxRate: 4 },
+        { word: 4, store: 'u8' }, { word: 5, store: 'u32' },
+    ] });
+    const a = new Float32Array([0, 2, 3.1, 0.98, 0, 0, 999, 777]), b = new Float32Array([0.2, 2, -3.1, 0.02, 0, 0, 999, 777]);
+    new Uint32Array(a.buffer)[4] = 0x12345601; new Uint32Array(b.buffer)[4] = 0x12345602;
+    new Uint32Array(a.buffer)[5] = 0xfedcba98; new Uint32Array(b.buffer)[5] = 9;
+    const pa = packCPU(l, a), pb = packCPU(l, b), out = a.slice();
+    unpackCPU(l, pa, pb, 0.5, out);
+    assert.ok(Math.abs(out[0] - 0.1) < 1e-6);
+    assert.ok(Math.abs(out[2] - Math.PI) < 0.002);
+    assert.ok(out[3] < 0.0001 || out[3] > 0.9999);
+    assert.equal(new Uint32Array(out.buffer)[4], 0x12345602);
+    assert.equal(new Uint32Array(out.buffer)[5], 9);
+    assert.equal(out[6], 999);
+    unpackCPU(l, pa, pb, 0, out); assert.equal(out[0], 0);
+    unpackCPU(l, pa, pb, 1, out); assert.equal(out[0], b[0]);
+    b[0] = 100; unpackCPU(l, pa, packCPU(l, b), 0.25, out); assert.equal(out[0], 0);
+});
+test('U3: resume accepts only a contiguous committed prefix of the same plan', () => {
+    const plan = planFilm(readManifest(minimal({ segmentSeconds: 1 })), { dt: DT });
+    const progress = { frames: 120, segments: [{ ...plan.segments[0], hashes: Array(60).fill('hash') }] };
+    assert.deepEqual(resumeSegments(progress, plan), [plan.segments[1]]);
+    assert.throws(() => resumeSegments({ ...progress, frames: 12 }, plan), /plan/);
+    assert.throws(() => resumeSegments({ frames: 120, segments: [{ ...progress.segments[0], index: 1 }] }, plan), /invalid segment/);
+});
 test('U1: a film file gets every default, and its name', () => {
     const m = readManifest(minimal(), 'from-file');
     assert.equal(m.name, 'from-file');
@@ -69,8 +128,8 @@ test('U1: the plan: steps per frame, warm-up, segments', () => {
 test('U1: the Herd & Wolves scene refuses settings it cannot film', () => {
     assert.deepEqual(readSettings({}), { count: 4096, seed: 11, thinkEvery: 3, brains: 'network', look: 'anime', flashes: true });
     assert.throws(() => readSettings({ count: 1000 }), /count must be a whole number of at least 64, a multiple of 16; got 1000/);
-    assert.throws(() => readSettings({ brains: 'ort' }), /brains "ort" come later/);
-    assert.throws(() => readSettings({ brains: 'teacher' }), /brains must be "network" or "rules"/);
+    assert.equal(readSettings({ brains: 'ort' }).brains, 'ort');
+    assert.throws(() => readSettings({ brains: 'teacher' }), /brains must be "network", "rules" or "ort"/);
     assert.throws(() => readSettings({ look: 'toon' }), /look must be "anime" or "faithful"/);
     assert.throws(() => readSettings({ zoom: 2 }), /herd-wolves has no setting "zoom"/);
 });
