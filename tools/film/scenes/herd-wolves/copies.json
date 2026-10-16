@@ -1,0 +1,5 @@
+{
+  "about": "Copies of the test site's Herd & Wolves look, byte for byte, for development (docs/offline-films-design.md §10). npm run film:check compares them with the site; npm run film:check -- --update copies them again.",
+  "from": "src/data/engine-demos/demos/AgentsExperiments/HerdWolvesGPU",
+  "files": ["brain.ts", "fence.ts", "field.ts", "flashes.ts", "models.ts"]
+}

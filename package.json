@@ -1,7 +1,7 @@
 {
   "name": "null-graph",
   "version": "1.1.1",
-  "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph. Zero copy. Infinite scale.",
+  "description": "A direct-to-GPU rendering framework for massive web worlds. Zero scene graph.  Infinite scale.",
   "type": "module",
   "author": "Vikas Kumar Singh",
   "license": "MIT",
@@ -129,7 +129,10 @@
     "preview": "npx serve dist-web-test",
     "spike:animated-models": "node test/gpu/run-harness.mjs test/spikes/animated-models/run.js __ANIM_SPIKE_RESULTS__",
     "spike:skinned-models": "node test/gpu/run-harness.mjs test/spikes/skinned-models/run.js __SKIN_SPIKE_RESULTS__",
-    "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__"
+    "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__",
+    "film": "node tools/film/film.mjs",
+    "film:check": "node tools/film/check.mjs",
+    "test:film": "node --test test/film.test.mjs"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"

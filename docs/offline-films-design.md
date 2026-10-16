@@ -12,8 +12,10 @@
   goal.
 
 **Status:** revision 2, 2026-10-16. Revision 1 was agent-specific and aimed at 1M. Decided so far:
-see §19. **D2.0 measured and committed 2026-10-16** (the spike `test/spikes/films/`; "Phase D2.0
-results" at the end). D2.1 started the same day.
+see §19.
+- **D2.0** measured and committed 2026-10-16 (the spike `test/spikes/films/`; "Phase D2.0 results"
+  at the end).
+- **D2.1** built and committed 2026-10-16 (`tools/film/`; "Phase D2.1 results" at the end).
 
 **Named films, not recordings:** `agents:record` already records the teacher's decisions (step 7).
 
@@ -132,7 +134,7 @@ never stopped.
 
 | | Property | Means |
 |---|---|---|
-| P1 | Determinism | The same film twice on one machine gives the same frame hashes, tracks and checkpoints. Exceptions are declared by the scene (Herd & Wolves: §10). |
+| P1 | Determinism | The same film twice on one machine gives the same simulation state, tracks and checkpoints, byte for byte, and the same frames except where the scene declares otherwise. Herd & Wolves declares two exceptions (§10): which catches flash, and depth ties between overlapping animals, whose winner the visibility cull's `atomicAdd` order picks (found in D2.1; under 1% of a frame). |
 | P2 | Resume | Stopped and resumed, a film equals an unbroken run. |
 | P3 | Replay fidelity | A replay with every track at m = 1 matches the recorded frames within a pinned tolerance. At m = 6, each interpolated field is within a pinned error of m = 1's. |
 | P4 | Capture fidelity | The video decodes to the captured image (orientation, channels, colour) within yuv420p's loss. |
@@ -362,10 +364,16 @@ saved outside git, like the models, and Node loads them with `fromSDF`.
 - **One difference from the scenario to carry over.** The demo fills its catch ring with "caught
   long ago" (`-1e9`, site `index.ts:647–649`), so no flash appears at the origin. The scenario
   leaves the ring as zeros.
-- **Declared exception to P1.** Above 4,096 agents, the respawn stage flashes one catch in N, chosen
-  by `atomicAdd` order. Two recordings can therefore flash different catches, and the ring's slot
-  order can differ at any count. The agents' state is unaffected, and a replay is exact because it
-  plays the tracked ring.
+- **Declared exceptions to P1:**
+  - **Which catches flash.** Above 4,096 agents, the respawn stage flashes one catch in N, chosen by
+    `atomicAdd` order. Two recordings can therefore flash different catches, and the ring's slot
+    order can differ at any count. The agents' state is unaffected, and a replay is exact because it
+    plays the tracked ring.
+  - **Depth ties** (found in D2.1). The visibility cull appends visible instances with `atomicAdd`
+    (`visibilityShaders.ts:313`), so the draw order changes from run to run. Where two animals
+    overlap with faces at the same depth (far cubes at one height; herds), the winner changes too.
+    The faithful chain shows 1–4 pixels per frame; the anime chain's depth ink widens each tie, to
+    at most 0.53% of a frame in F1. The simulation is still exact.
 
 ## 11. Costs
 
@@ -432,7 +440,8 @@ Predictions for 1M use the demo's guard rule (ns per agent × N × (N/M)^0.25). 
 - **U4:** the ffmpeg arguments; the camera keyframes.
 
 **GPU** (`test/film-gpu/run.js`, `--only film`; Node on the NVIDIA GPU and on the AMD iGPU):
-- **F1 (P1):** a 4K Herd & Wolves film of 300 frames, recorded twice, is equal.
+- **F1 (P1):** a 4K Herd & Wolves film recorded twice. The agents buffer after both is equal, byte
+  for byte. Each frame is equal but for depth ties, under 1% of its pixels (§10).
 - **F2 (P2):** stopped after segment 1 and resumed, it equals F1, with Rules, Network and ORT.
 - **F3:** a generic track. A scene of a few thousand moving points with its own made-up layout,
   recorded and replayed: proves the core needs no agent code.
@@ -470,6 +479,7 @@ Named refusals; the exact texts are fixed in D2.1.
 | Brain runs over only the agents that are due | ORT at `thinkEvery` n costs 1/n | every step runs all rows |
 | `FontAtlas`: a browser-only bake that returns bytes without uploading | any tool can save an atlas for Node | the bake page catches them on their way into `fromSDF` |
 | Flashes chosen by hash, not `atomicAdd` order | P1 with no exception for Herd & Wolves | §10's declared exception |
+| A stable draw order in the visibility cull (compaction by prefix sum, not `atomicAdd`) | bit-exact frames, and in the live demo no frame-to-frame flicker where overlapping animals tie in depth | F1 allows under 1% of a frame to differ (§10) |
 | A dispatch split across submissions | 1M simulated on the AMD iGPU | 1M only on the NVIDIA GPU |
 
 ## 17. Build order
@@ -523,6 +533,15 @@ go for 64k"):
 - **The showcase at 65,536 agents,** with the rest of the bundle as recommended: 1080p at 60 fps,
   `libx264` medium at CRF 16, the anime look, a 10 s warm-up, and a two-keyframe camera from a close
   herd out to the whole field. Names and a caption come with text, in D2.3.
+
+**Decided after D2.1** (the user, 2026-10-16, after watching the showcase: "it was nice"):
+- **The camera's end distance is 600 m**; the path stays as it is.
+- **The visibility cull gets a stable draw order** (§16's option), "that might solve other problems
+  with cull too". This is a library change in `null-graph/visibility`, designed in its own section
+  of [`visibility-design.md`](./visibility-design.md) before code.
+- **Animals walking through each other** is a simulation matter: a collision or separation rule.
+  It is not part of films, and not now.
+- D2.1 committed; D2.2 started.
 
 ---
 
@@ -645,3 +664,82 @@ Speeds were 240, 120 and 50 MB/s for zstd levels 1, 3 and 9.
    - 1080p at 60 fps, `libx264` medium at CRF 16 (the same bitrate as slow here, 30% faster);
    - the anime look; a 10 s warm-up; a two-keyframe camera from a close herd out to the whole
      field; names in close shots and a caption.
+
+---
+
+## Phase D2.1 results — 2026-10-16
+
+**Built** (`tools/film/`, its README; not committed yet):
+
+| File | What it does |
+|---|---|
+| `film.mjs` | `npm run film`: records a film (clock, exact steps, camera, draw, capture, sink, segments, join, `progress.json`, `report.json`) |
+| `manifest.mjs` | the film file, every default, every refusal by name; the plan (frames, steps per frame, warm-up, segments) |
+| `camera.mjs` | keyframes in orbit terms, eased at the ends, Catmull-Rom slopes inside, distance on a log scale; keyframes hit exactly |
+| `sinks.mjs` | ffmpeg (one process per segment, raw RGBA on stdin, `setparams` colour tags, ffmpeg's own reason on failure), PNG, none; the join by stream copy |
+| `capture.mjs` | readback through three staging buffers, one frame in flight, padded rows unpacked |
+| `check.mjs` | `npm run film:check [-- --update]`: the copies against the site, by hash |
+| `resolve.mjs` | runs the copies as the site does: `null-graph/*` resolves to this repository's `dist/` |
+| `scenes/herd-wolves.mjs` | the scene: the scenario, the networks, the look; the guard (below) |
+| `scenes/herd-wolves/*.ts` | `brain`, `fence`, `field`, `flashes` and `models`, byte for byte from the site (its `brain.ts` and `flashes.ts` are not in the site's git: the check compares content, not commits) |
+| `scenes/herd-wolves/assets.mjs` | the adapted half of `loadHerdModels`: GLBs and palette from the site's `public/` |
+| `scenes/herd-wolves/look.mjs` | the Models look composed from the copies, flashes over the post chain |
+| `films/herd-showcase.json`, `films/herd-test.json` | the decided showcase (64K); a 2 s, 640 × 360 test film |
+
+Elsewhere:
+- **The scenario** (`tools/agents/scenario/herd-wolves.mjs`) now returns its catch ring. Its texts
+  and their hashes are unchanged.
+- **`.gitattributes`:** the copies are `-text`. The site mixes LF and CRLF files, and a checkout must
+  not change their bytes.
+- **The GPU registry** gains `film`, marked `node`; the Chrome runner skips suites so marked.
+- **npm scripts:** `film`, `film:check`, `test:film`.
+
+**The guard came forward from D2.3,** because every size option must be guarded. A count above
+65,536 is calibrated at a sixteenth and a quarter of itself, and refused above 1 s per step. Both
+ways were run on the GTX 1650:
+- **256K allowed:** 16K stepped in 4.0 ms and 64K in 19.9 ms, so about 113 ms was predicted; the
+  film ran at 142 ms a frame, draw included.
+- **4M refused, exit 2:** 256K stepped in 125.8 ms and 1M in 622.5 ms; "~3521 ms per step
+  predicted on this GPU (594 ns per agent at 1,048,576), over the 1000 ms limit per submission".
+
+D2.3 adds the per-adapter memory of costs.
+
+**Tests:**
+- **Headless, 7 of 7** (`npm run test:film`): U1 (defaults; 19 refusals; the plan; the scene's
+  settings), U4 (ffmpeg's arguments; the camera path), and the drift check against a made-up site.
+  Watched failing under four breakages, each caught: colour tags dropped, the path not eased at its
+  ends, the drift check blind to content, odd sizes accepted.
+- **GPU, 9 of 9 on Node/NVIDIA and on Node/AMD** (`--only film`), zero WebGPU errors. Watched failing
+  under three breakages, each caught: padded rows not unpacked, colour tags dropped, a seed that
+  changes between runs.
+  - **F1:** the agents buffer is equal after two films. Frames differed in 37–53 of 90 by depth ties,
+    the worst by 0.39–0.53%.
+  - **F5:** the pattern reads back exactly, also at 330 px wide with padded rows. Decoded, the worst
+    channel is 2 levels off; the stream is tagged BT.709.
+- `npm run test:agents`: 83 of 83 after the scenario change.
+
+**The finding: frames are not bit-exact, though the simulation is.** Two films ended with the same
+agents buffer, but up to half their frames differed:
+- the faithful chain by 1–4 pixels a frame, the anime chain by up to 237–307 at 320 × 180;
+- the cause is the visibility cull, which appends visible instances with `atomicAdd`. Draw order
+  changes from run to run, and so does the winner of a depth tie between overlapping animals (far
+  cubes share a height). The anime chain draws its ink from depth, which widens each tie;
+- P1 now says so (§2, §10). F1 holds the state exact and the frames under 1%;
+- a stable draw order in the cull would make frames exact. It would also stop the matching flicker
+  in the live demo (§16, optional).
+
+**The showcase**, as decided: 65,536 agents, both species on the networks, `thinkEvery` 3, 60 s at
+1080p60, `libx264` medium at CRF 16, anime, a 10 s warm-up, and the camera from 25 m out to 800 m.
+- Recorded in 131.6 s on the GTX 1650: the warm-up in 10.8 s, then 25.7–38.1 frames a second. Steps
+  took 21–26 ms a frame of wall time, which includes waiting for the previous frame's draw and copy.
+- `film.mp4`: 3,600 frames, 60.000 s, BT.709, 274 MB (38 Mbit/s). Close views of 64K animals with
+  ink lines are detailed; a shared copy would use CRF 20–23.
+- **Read by eye** at 0, 15, 30, 45 and 60 s: herds forming and foxes hunting up close; herds as
+  white swarms; the whole fenced field. The end distance overshoots: the field is whole from about
+  45 s and small at 60 s. An end near 600 m would hold it.
+
+**Not run:**
+- Chrome: the suite is Node only, by design.
+- The agent-tools GPU suite, after a change that only adds a returned field.
+- Films on the AMD iGPU, other than F1 and F5.
+- ORT brains (refused by name until a scene makes ONNX Runtime's device).

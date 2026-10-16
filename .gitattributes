@@ -1,3 +1,7 @@
 # The trained networks are compared byte for byte with what their writer writes, which is LF (U26).
 # With core.autocrlf, a checkout would write them with CRLF.
 *.mlp.json text eol=lf
+
+# The film scenes' copies of the test site's files are compared with the site by hash (npm run film:check).
+# The site mixes LF and CRLF files; -text keeps each copy's bytes exactly as copied.
+tools/film/scenes/**/*.ts -text

@@ -1,0 +1,13 @@
+{
+  "name": "herd-test",
+  "scene": "herd-wolves",
+  "settings": { "count": 4096, "seed": 11, "thinkEvery": 3, "brains": "network", "look": "anime", "flashes": true },
+  "warmupSeconds": 1,
+  "film": { "seconds": 2, "fps": 60, "width": 640, "height": 360, "scale": 1 },
+  "camera": [
+    { "t": 0, "target": [0, 0, 0], "distance": 30, "azimuth": 0.3, "polar": 0.5 },
+    { "t": 2, "target": [0, 0, 0], "distance": 90, "azimuth": 0.6, "polar": 0.5 }
+  ],
+  "segmentSeconds": 1,
+  "encode": { "codec": "libx264", "crf": 18, "preset": "veryfast" }
+}
