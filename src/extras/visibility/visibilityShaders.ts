@@ -257,8 +257,11 @@ export interface CullShaderOptions {
     lod?: InstanceLodBand;
 }
 
-/** WGSL for a band's test, after the frustum test; empty without one, so the shader is unchanged. */
-function lodBandWGSL(band: InstanceLodBand | undefined): string {
+/**
+ * WGSL for a band's test, after the frustum test; empty without one, so the shader is unchanged.
+ * `fail` is the statement that rejects the instance where the test sits.
+ */
+function lodBandWGSL(band: InstanceLodBand | undefined, fail = 'return;'): string {
     const tests = [
         band?.minPixels !== undefined ? `px < ${band.minPixels}` : '',
         band?.maxPixels !== undefined ? `px >= ${band.maxPixels}` : '',
@@ -267,16 +270,26 @@ function lodBandWGSL(band: InstanceLodBand | undefined): string {
     return `
     let px = ws.w * params.screenSize.y /
         (max(length(ws.xyz - camera.eyePos) - ws.w, camera.zNear) * tan(camera.fovRads * 0.5));
-    if (${tests.join(' || ')}) { return; }
+    if (${tests.join(' || ')}) { ${fail} }
 `;
 }
 
 /**
- * Instance-tier cull: one thread per instance, routed to this batch's mesh by `params.meshIndex`.
- * Survivors are compacted into the batch's storage buffer and counted by an atomic bump of
- * `drawArgs[1]` (the indirect draw's instanceCount). Frustum always; Hi-Z occlusion when enabled.
+ * Instances one workgroup of the instance cull and scatter covers (design doc §14.2): eight 32-bit
+ * words of visibility bits. 256 is core WebGPU's default `maxComputeInvocationsPerWorkgroup`, and
+ * puts the per-draw cap at 65,535 × 256 instances.
+ */
+export const INSTANCE_CULL_GROUP = 256;
+
+/**
+ * Instance-tier cull, the first of three passes (design doc §14): one thread per instance, routed
+ * to this batch's mesh by `params.meshIndex`; frustum always, the LOD band and Hi-Z occlusion when
+ * set. It writes no survivor: each workgroup records its 256 results as eight words of bits
+ * (`visibleBits[group * 8 + k]`, built in workgroup memory; OR commutes) and how many survived
+ * (`blockCounts[group]`). The scatter turns the counts into offsets and writes the survivors in
+ * source order: the draw order is the same every frame and every run.
  *
- * Bindings (group 0): 0 camera, 1 source instances, 2 out instances, 3 drawArgs, 4 params,
+ * Bindings (group 0): 0 camera, 1 source instances, 2 visibleBits, 3 blockCounts, 4 params,
  * [5 hiz when occlusion].
  */
 export function buildInstanceCullWGSL(opts: CullShaderOptions = {}): string {
@@ -290,28 +303,98 @@ ${occlusion ? HIZ_OCCLUSION_WGSL : ''}
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
-@group(0) @binding(2) var<storage, read_write> outInstances: array<Instance>;
-@group(0) @binding(3) var<storage, read_write> drawArgs: array<atomic<u32>>;
+@group(0) @binding(2) var<storage, read_write> visibleBits: array<u32>;
+@group(0) @binding(3) var<storage, read_write> blockCounts: array<u32>;
 @group(0) @binding(4) var<uniform> params: CullParams;
 ${occlusion ? '@group(0) @binding(5) var hiz: texture_2d<f32>;' : ''}
 
-@compute @workgroup_size(64, 1, 1)
-fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= params.instanceCount) { return; }
+var<workgroup> groupBits: array<atomic<u32>, 8>;
+
+fn survives(i: u32) -> bool {
     let inst = instances[i];
-    if (inst.meshIndex != params.meshIndex) { return; }
+    if (inst.meshIndex != params.meshIndex) { return false; }
 
     let ws = worldSphereFromModel(inst.model, inst.boundsCenter);
     let planes = frustumPlanes(camera.viewProj);
-    if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return; }
-${lodBandWGSL(opts.lod)}
+    if (!sphereInFrustum(planes, ws.xyz, ws.w)) { return false; }
+${lodBandWGSL(opts.lod, 'return false;')}
     ${occlusion ? `if ((inst.flags & 1u) == 0u) {
-        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return; }
+        if (occludedByHiZ(ws.xyz, ws.w, camera, params.screenSize, params.hizMaxLevel, hiz, params.hizRect)) { return false; }
     }` : ''}
+    return true;
+}
 
-    let slot = atomicAdd(&drawArgs[1], 1u);
-    var survivor = inst;
+@compute @workgroup_size(${INSTANCE_CULL_GROUP}, 1, 1)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) lane: u32,
+           @builtin(workgroup_id) group: vec3<u32>) {
+    if (lane < 8u) { atomicStore(&groupBits[lane], 0u); }
+    workgroupBarrier();
+    if (gid.x < params.instanceCount && survives(gid.x)) {
+        atomicOr(&groupBits[lane / 32u], 1u << (lane % 32u));
+    }
+    workgroupBarrier();
+    if (lane < 8u) { visibleBits[group.x * 8u + lane] = atomicLoad(&groupBits[lane]); }
+    if (lane == 0u) {
+        var survivors = 0u;
+        for (var k = 0u; k < 8u; k++) { survivors += countOneBits(atomicLoad(&groupBits[k])); }
+        blockCounts[group.x] = survivors;
+    }
+}
+`;
+}
+
+/**
+ * Instance-tier scatter, the second pass (design doc §14.2). Each workgroup first finds its block's
+ * offset, the survivors of every block before it: its 256 lanes sum `blockCounts` in parallel and
+ * reduce the sums in workgroup memory (no prefix-sum pass, so one dispatch fewer per batch). A
+ * surviving instance's slot is that offset plus its rank in the block, the set bits before its
+ * own; it writes the survivor there with `sourceIndex = i`, so the compacted list is in source order.
+ * The last block writes the total into `drawArgs[1]`, the indirect draw's instance count, as a plain
+ * store; with no instances, the one workgroup dispatched writes 0, so no frame's count lingers.
+ *
+ * Bindings (group 0): 0 params, 1 source instances, 2 visibleBits, 3 blockCounts, 4 out instances,
+ * 5 drawArgs.
+ */
+export function buildInstanceScatterWGSL(): string {
+    return /* wgsl */ `
+${INSTANCE_STRUCT_WGSL}
+${CULL_PARAMS_WGSL}
+@group(0) @binding(0) var<uniform> params: CullParams;
+@group(0) @binding(1) var<storage, read> instances: array<Instance>;
+@group(0) @binding(2) var<storage, read> visibleBits: array<u32>;
+@group(0) @binding(3) var<storage, read> blockCounts: array<u32>;
+@group(0) @binding(4) var<storage, read_write> outInstances: array<Instance>;
+@group(0) @binding(5) var<storage, read_write> drawArgs: array<u32>;
+
+var<workgroup> partial: array<u32, ${INSTANCE_CULL_GROUP}>;
+
+@compute @workgroup_size(${INSTANCE_CULL_GROUP}, 1, 1)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) lane: u32,
+           @builtin(workgroup_id) group: vec3<u32>) {
+    var before = 0u;
+    for (var b = lane; b < group.x; b += ${INSTANCE_CULL_GROUP}u) { before += blockCounts[b]; }
+    partial[lane] = before;
+    workgroupBarrier();
+    for (var width = ${INSTANCE_CULL_GROUP / 2}u; width > 0u; width = width >> 1u) {
+        if (lane < width) { partial[lane] += partial[lane + width]; }
+        workgroupBarrier();
+    }
+    let offset = partial[0];
+    let blocks = (params.instanceCount + ${INSTANCE_CULL_GROUP - 1}u) / ${INSTANCE_CULL_GROUP}u;
+    if (lane == 0u && group.x + 1u == max(blocks, 1u)) {
+        drawArgs[1] = select(offset + blockCounts[group.x], 0u, params.instanceCount == 0u);
+    }
+
+    let i = gid.x;
+    if (i >= params.instanceCount) { return; }
+    let base = group.x * 8u;
+    let word = visibleBits[base + lane / 32u];
+    let bit = lane % 32u;
+    if (((word >> bit) & 1u) == 0u) { return; }
+    var rank = countOneBits(word & ((1u << bit) - 1u));
+    for (var k = 0u; k < lane / 32u; k++) { rank += countOneBits(visibleBits[base + k]); }
+    let slot = offset + rank;
+    var survivor = instances[i];
     survivor.sourceIndex = i;
     outInstances[slot] = survivor;
 }

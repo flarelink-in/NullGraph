@@ -250,5 +250,35 @@ No call-site changes are required; existing `init()` calls keep working.
 
 ---
 
+## 9. `VisibilitySystem.getCullStage()` → `getCullStages()` (visibility, 2026-10-16)
+
+The instance tier now culls in two compute stages per draw batch (visibility-design §14):
+1. a **cull** that records visibility bits and block counts;
+2. a **scatter** that writes the survivors **in source order**, with no global atomic.
+
+The draw order is therefore the same every frame and every run. Overlapping instances no longer
+change which one wins a depth tie, and offline films are bit-exact. Since a batch now has more than
+one stage, the getter returns them all, in order.
+
+| Old | New |
+|---|---|
+| `getCullStage(batch): ComputeStageNode` or `null` | `getCullStages(batch): ComputeStageNode[]`: the batch's cull and scatter, in order. `[]` for a batch the system did not create. The meshlet tier returns its one stage. |
+| `buildInstanceCullWGSL(opts)` wrote survivors with `atomicAdd` | Same name and options; it is now the first stage (bits and block counts). `buildInstanceScatterWGSL()` is the second. |
+| At most 65,535 × 64 = 4,194,240 instances culled per draw | At most 65,535 × 256 = 16,776,960 (`INSTANCE_CULL_GROUP` = 256). A larger `maxInstances` is refused by name. |
+
+```ts
+// ❌ Before
+const stage = vis.getCullStage(batch);
+if (stage) stage.enabled = active;
+
+// ✅ After: gate, or run, every stage of the batch, in order
+for (const stage of vis.getCullStages(batch)) stage.enabled = active;
+```
+
+The library's own callers (ShadowSystem, ProbeVolume, Picker) are updated. The meshlet tier still
+compacts with `atomicAdd` (visibility-design §14.4, phase 2).
+
+---
+
 *Have a migration that isn't covered here? Open an issue on the
 [NullGraph repository](https://github.com/Vikas593-cloud/NullGraph).*

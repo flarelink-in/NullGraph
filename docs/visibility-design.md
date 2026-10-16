@@ -589,3 +589,139 @@ Two-phase as default (needs profiling to justify the second draw); `multi-draw-i
 for the meshlet draw (v1.1, detect-only); the visibility-buffer *shading* model (v1.1); persistent
 GPU-side instance residency and streaming, which is the on-ramp to virtual geometry (v2.0,
 geometry doc §13).
+
+---
+
+## 14. A stable draw order (2026-10-16)
+
+**Asked by the user** (2026-10-16), after Cycle D's offline films (D2.1) found it: "change the cull
+to fixed draw orders; that might solve other problems with cull too".
+
+### 14.1 The problem
+
+**Every survivor of the cull claims its slot with `atomicAdd`** (`visibilityShaders.ts:313`; the
+meshlet tier at `:393` and `:473`). Which thread claims first changes from frame to frame and from
+run to run, so the order of the compacted list, and with it the draw order, does too. That causes
+three things:
+
+1. **Depth ties change their winner.** Two instances with faces at the same depth (Herd & Wolves'
+   far cubes, all at one height; overlapping herds) show one, then the other. Two offline films of
+   the same simulation differed in up to half their frames (D2.1, F1: at most 0.53% of a frame; the
+   anime chain's depth ink widens each tie). In the live demo, the same thing is a flicker.
+2. **Every survivor contends on one counter.** At 1M instances that is a million atomics on one
+   word per batch.
+3. **The dispatch is one thread per instance in groups of 64**, so at most 65,535 × 64 = 4,194,240
+   instances can be culled per draw.
+
+### 14.2 The design: survivors in source order
+
+The instance tier's cull becomes two dispatches per batch. Neither uses a global atomic.
+
+| Pass | Dispatch | Does |
+|---|---|---|
+| **cull** | ⌈N / 256⌉ groups of 256 | The same tests as before: mesh, frustum, LOD band, Hi-Z. Each group records its 256 results as eight 32-bit words of visibility bits (built in workgroup memory with `atomicOr`, which commutes), and their total in `blockCounts[group]`. |
+| **scatter** | max(1, ⌈N / 256⌉) groups of 256 | Each group first finds its offset: the survivors of every block before it. Its 256 lanes sum `blockCounts` in parallel, then reduce the sums in workgroup memory. A visible instance's slot is that offset plus its rank in the group: the set bits of the words before its own, plus those below its bit in its own (`countOneBits`). It copies the instance there with `sourceIndex = i`, as the old cull did. The last group writes the total into `drawArgs[1]`, the indirect draw's instance count, as a plain store. |
+
+Survivors land in **ascending source index**, every frame and every run, and on every GPU.
+
+**Two passes, not three.** The first build had a separate scan pass: one group turning the counts
+into offsets. Each extra dependent dispatch costs time at small counts, and this scene culls eight
+batches. So the scatter now sums the earlier blocks' counts itself. That is cheap: 4,096 counts at
+1M instances, 16 a lane.
+
+**Data, per batch:** the bits (N / 8 bytes) and `blockCounts` (N / 256 words): 144 KB at 1M
+instances. N is the system's `maxInstances`.
+
+**Limits:**
+- groups of 256 are the core default limit (`maxComputeInvocationsPerWorkgroup`);
+- the cap moves from 4.19M to 65,535 × 256 = 16.8M instances per draw;
+- a larger `maxInstances` is refused by name, from the device's own limit.
+
+**No stale count.** With no instances, the cull dispatches nothing. The scatter's single group then
+writes 0. The `preClearBuffers` write of `drawArgs[1]` is no longer needed, and goes.
+
+### 14.3 The API change
+
+**`getCullStage(batch): ComputeStageNode | null` becomes `getCullStages(batch): ComputeStageNode[]`**
+(the batch's cull and scatter, in order; empty for a batch this system did not create).
+
+- **Why it must change.** Picker and ProbeVolume put a batch's cull into sequences of their own
+  (the pick camera, the probe faces); ShadowSystem and ProbeVolume gate it with `enabled`. All of
+  them now need every stage.
+- **The fix in each:** gate all of the stages, and splice all of them, in order.
+- **No alias,** by the repository's rule for breaking changes (`deprecated-api.md` §9).
+- **Outside the library,** nothing calls it: the test site and Axion were searched.
+
+`buildInstanceCullWGSL(opts)` keeps its name and options, and now builds the cull pass.
+`buildInstanceScatterWGSL()` and `INSTANCE_CULL_GROUP` are new.
+
+**The chain:** every batch's cull, then every batch's scatter. Each batch keeps its own order, and
+no dispatch waits on the one just before it.
+
+### 14.4 Phases
+
+1. **The instance tier** (the films, Herd & Wolves, shadows, probes and picking all draw through it).
+   Built 2026-10-16; results in §14.6.
+2. **The meshlet tier,** later. Its two passes take the same compaction:
+   - the coarse pass over instances;
+   - the meshlet pass over (visible instance, meshlet) pairs, ordered by slot, then meshlet.
+
+   Until then the meshlet tier keeps `atomicAdd`, which this section records.
+
+### 14.5 Not changed
+
+- The tests, LOD bands, Hi-Z, the `Instance` record, the draw shaders and the bind groups of the
+  draw.
+- The text module's own label cull (`buildTextCullWGSL`), which still appends with `atomicAdd`.
+  Its labels draw with depth off, where order decides which label covers which. That is a question
+  for the text module, not taken up here.
+
+### 14.6 Results — 2026-10-16 (phase 1, the instance tier)
+
+**Built:**
+- `buildInstanceCullWGSL` (the cull, bits and block counts), `buildInstanceScatterWGSL` and
+  `INSTANCE_CULL_GROUP` (`visibilityShaders.ts`);
+- two stages a batch, their scratch released with the batch, the cap check
+  (`VisibilitySystem.ts`);
+- `getCullStages`, and its callers updated (ShadowSystem, ProbeVolume, Picker);
+- `deprecated-api.md` §9, `api/visibility.md`, design-principles §9.
+
+**Correctness:**
+- **V7, new:** read back the compacted lists of 13,000 instances. Both are exactly the CPU mirror's
+  survivors in ascending order (2,872 spheres, 966 cubes), and two runs write the same bytes.
+  - Watched failing against the old cull, which listed them from 1536 in one run and differently in
+    the next.
+  - Passes on Node/NVIDIA, Node/AMD and Chrome/AMD.
+- **The other suites that cull,** with zero WebGPU errors:
+  - on Node/NVIDIA and on Node/AMD: visibility 11/11, shadows 14/14, picking 8/8, probes 6/6,
+    loaders 12/12, agents 137/137, film 9/9, the culling render scene;
+  - in Chrome/AMD: shadows, visibility and picking.
+- **Headless:** visibility, picking, shadows, environment, text, loaders, agents and film all pass.
+  The tests that pinned the old shape say what they meant:
+  - U41/U42: the shader's hashes, and where the band sits, now before survival;
+  - W2: the source index is written by the scatter;
+  - L3, K1, the lifecycle test: two stages a batch, and the scratch released with it;
+  - the shadow and probe stand-ins: `getCullStages`.
+- **The film that found it:** two films of 4,096 agents, flashes off, are now **equal frame for
+  frame, byte for byte** on both GPUs (F1 tightened from "under 1%"). The flashes keep their own
+  `atomicAdd`, in the scenario's respawn stage.
+
+**Cost:** D2.0's draw case, the Models look at 1080p on the GTX 1650. GPU ms per frame, culls
+included, the mean of the three views; the old and new builds were alternated twice:
+
+| Agents | Old (atomicAdd) | New (two passes) | Change |
+|---|---|---|---|
+| 16,384 | 3.42 | 3.96 | +0.54 ms (+16%) |
+| 65,536 | 3.38 | 3.44 | +0.07 ms (+2%) |
+| 262,144 | 5.07 | 5.09 | +0.02 ms |
+| 1,048,576 | 11.15 | 12.52 | +1.37 ms (+12%) |
+
+- **At 1M the scatter's re-read is the cost.** It reads each survivor's 96-byte record again, about
+  a million in a whole-field view, where the old cull wrote it in the pass that read it.
+- **At 16K it is mostly the second dispatch per batch,** and the first count in each run is also
+  the noisiest.
+- **The first build, with a separate scan pass,** cost about +0.4–0.8 ms at 16K–64K; two passes took
+  most of that back.
+- **Per whole frame,** step included, the change is at most about +8% (16K) and +0.2% (1M).
+- **The draw itself exceeds the "about 10%" line at 16K and 1M,** so the numbers go to the user
+  before this is committed (§14.4's rule).

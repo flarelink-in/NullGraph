@@ -55,7 +55,7 @@ export interface PickOptions {
 /** What `pick()` needs from a camera: the engine's 108-float block (`Camera.bufferData`). */
 export interface PickCamera { bufferData: ArrayLike<number> }
 
-interface InstanceSource { kind: 'instances'; source: PickSource; vis: VisibilitySystem; batch: RenderBatch; stage: ComputeStageNode }
+interface InstanceSource { kind: 'instances'; source: PickSource; vis: VisibilitySystem; batch: RenderBatch; stages: ComputeStageNode[] }
 interface BatchSource { kind: 'batch'; source: PickSource; target: RenderBatch; batch: RenderBatch }
 
 const ZERO_U32 = new Uint32Array([0]);
@@ -137,13 +137,14 @@ export class Picker {
             shaderCode: buildInstancePickWGSL(source.tag),
             targetFormat: 'rgba32uint',
         });
-        const stage = vis.getCullStage(batch);
-        if (!stage) throw new Error('Picker: the VisibilitySystem did not register a cull stage for the pick batch.');
-        stage.enabled = false;
+        // Its cull and scatter (visibility-design §14), run in order at each pick.
+        const stages = vis.getCullStages(batch);
+        if (!stages.length) throw new Error('Picker: the VisibilitySystem did not register cull stages for the pick batch.');
+        for (const stage of stages) stage.enabled = false;
         // Zero instances until a pick, so an app that calls engine.render() WITHOUT a sequence (which
         // renders every pass the engine tracks, this one included) draws nothing here.
         this.device.queue.writeBuffer(batch.indirectBuffer!, 4, ZERO_U32);
-        this.sources.push({ kind: 'instances', source, vis, batch, stage });
+        this.sources.push({ kind: 'instances', source, vis, batch, stages });
         return source;
     }
 
@@ -248,8 +249,8 @@ export class Picker {
         const stages: ComputeStageNode[] = [];
         for (const s of this.sources) {
             if (s.kind === 'instances') {
-                s.stage.enabled = true;
-                stages.push(s.stage);
+                for (const stage of s.stages) stage.enabled = true;
+                stages.push(...s.stages);
             } else {
                 // Mirror the source as it is NOW — the app may have swapped geometry or counts.
                 s.batch.vertexBuffer = s.target.vertexBuffer;
@@ -264,7 +265,7 @@ export class Picker {
         } finally {
             for (const s of this.sources) {
                 if (s.kind === 'instances') {
-                    s.stage.enabled = false;
+                    for (const stage of s.stages) stage.enabled = false;
                     this.device.queue.writeBuffer(s.batch.indirectBuffer!, 4, ZERO_U32);
                 } else {
                     s.batch.currentInstanceCount = 0;

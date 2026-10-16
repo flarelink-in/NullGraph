@@ -63,11 +63,11 @@ interface ViewSlotDraw {
     /** The caster batches for this slot, one per registered caster mesh. */
     batches: RenderBatch[];
     /**
-     * The VisibilitySystem cull stage feeding each batch, index-aligned with `batches`. Gated
-     * with the viewport every frame: a cached tile that rasterizes nothing must not pay for its
-     * caster cull either (§8) — the viewport suppresses rasterization, not the compute.
+     * The VisibilitySystem cull stages feeding the batches (two per batch: visibility-design
+     * §14). Gated with the viewport every frame: a cached tile that rasterizes nothing must not
+     * pay for its caster cull either (§8) — the viewport suppresses rasterization, not the compute.
      */
-    cullStages: (ComputeStageNode | null)[];
+    cullStages: ComputeStageNode[];
     /** The tile-clear batch for this slot (§8.2), drawn first when the view is dirty. */
     clearBatch: RenderBatch | null;
 }
@@ -711,7 +711,7 @@ export class ShadowSystem {
                 for (const m of this.casterMeshes) {
                     const b = this.createSlotCasterBatch(v, m.meshName, m.meshIndex);
                     slot.batches.push(b);
-                    slot.cullStages.push(this.config.visibility.getCullStage(b));
+                    slot.cullStages.push(...this.config.visibility.getCullStages(b));
                 }
             }
         }
@@ -768,9 +768,7 @@ export class ShadowSystem {
             // compute: without this, a fully cached atlas still dispatched one cull per
             // (slot × caster mesh) per frame, each over the whole instance buffer — the bulk of
             // the cost caching exists to remove (§8.3).
-            for (const stage of slot.cullStages) {
-                if (stage) stage.enabled = active;
-            }
+            for (const stage of slot.cullStages) stage.enabled = active;
             if (slot.clearBatch) {
                 // The tile-clear is a plain (non-indirect) 3-vertex draw, so it obeys
                 // currentInstanceCount directly — no cull stage feeds it.
@@ -846,7 +844,7 @@ export class ShadowSystem {
             for (let v = 0; v < this.viewSlots.length; v++) {
                 const batch = this.createSlotCasterBatch(v, meshName, meshIndex);
                 this.viewSlots[v].batches.push(batch);
-                this.viewSlots[v].cullStages.push(vis.getCullStage(batch));
+                this.viewSlots[v].cullStages.push(...vis.getCullStages(batch));
                 record.batches.push(batch);
             }
             // ...and any lights registered so far but not yet materialized (caster-first order)

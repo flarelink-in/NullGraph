@@ -17,7 +17,7 @@
 
 import { NullGraph, Camera } from '../../dist/index.js';
 import {
-    VisibilitySystem, InstanceBuffer, extractFrustumPlanes, sphereInFrustum, worldSphereFromModel,
+    VisibilitySystem, InstanceBuffer, extractFrustumPlanes, sphereInFrustum, worldSphereFromModel, INSTANCE_SOURCE_INDEX_OFFSET,
 } from '../../dist/visibility.js';
 import { MegabufferBuilder, Primitives, StandardLayout } from '../../dist/geometry.js';
 import { mat4 } from 'gl-matrix';
@@ -140,7 +140,7 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
     function fill(n) {
         const buf = new InstanceBuffer(n);
         const m = mat4.create(), ws = [0, 0, 0, 0];
-        const kept = { [SPHERE]: 0, [CUBE]: 0 };
+        const kept = { [SPHERE]: 0, [CUBE]: 0 }, keptIndices = { [SPHERE]: [], [CUBE]: [] };
         const side = Math.ceil(Math.sqrt(n));
         for (let i = 0; i < n; i++) {
             const mesh = i % 4 === 3 ? CUBE : SPHERE;
@@ -149,9 +149,9 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
             mat4.fromTranslation(m, [x, (i % 5) * 0.7, z]);
             buf.write(i, m, LOCAL_BOUNDS[mesh], mesh);
             worldSphereFromModel(m, LOCAL_BOUNDS[mesh], ws);
-            if (sphereInFrustum(planes, ws[0], ws[1], ws[2], ws[3])) kept[mesh]++;
+            if (sphereInFrustum(planes, ws[0], ws[1], ws[2], ws[3])) { kept[mesh]++; keptIndices[mesh].push(i); }
         }
-        return { buf, kept };
+        return { buf, kept, keptIndices };
     }
 
     const runs = [];
@@ -178,6 +178,38 @@ const LOCAL_BOUNDS = { [SPHERE]: [0, 0, 0, 0.5], [CUBE]: [0, 0, 0, Math.sqrt(3) 
         big.kept[SPHERE] > 0 && big.kept[SPHERE] + big.kept[CUBE] < big.n,
         `13k: spheres gpu=${big.gpu[SPHERE]} cpu=${big.kept[SPHERE]}, cubes gpu=${big.gpu[CUBE]} cpu=${big.kept[CUBE]} ` +
         `(culled ${big.n - big.kept[SPHERE] - big.kept[CUBE]})`);
+
+    // V7 (visibility-design §14): the cull writes survivors in source order, so the draw order is the
+    // same every frame and every run. Read back the compacted lists: their source indices must be the
+    // CPU mirror's, ascending, and two runs must write the same bytes.
+    {
+        const n = 13000, { buf, keptIndices } = fill(n);
+        vis.setInstances(buf.data, n);
+        vis.upload();
+        const survivors = async (batch, count) => {
+            const size = Math.max(16, count * 24 * 4), read = device.createBuffer({ size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+            const enc = device.createCommandEncoder();
+            if (count) enc.copyBufferToBuffer(batch.storageBuffer, 0, read, 0, count * 24 * 4);
+            device.queue.submit([enc.finish()]);
+            await read.mapAsync(GPUMapMode.READ);
+            const words = new Uint32Array(read.getMappedRange().slice(0, count * 24 * 4));
+            read.unmap(); read.destroy();
+            return { bytes: words, sources: Array.from({ length: count }, (_, k) => words[k * 24 + INSTANCE_SOURCE_INDEX_OFFSET]) };
+        };
+        const run = async () => {
+            engine.render([...vis.getComputeStages(), t.pass]);
+            const [, s] = await readArgs(spheres), [, c] = await readArgs(cubes);
+            return { [SPHERE]: await survivors(spheres, s), [CUBE]: await survivors(cubes, c) };
+        };
+        const a = await run(), b = await run();
+        const same = (x, y) => x.length === y.length && x.every((v, k) => v === y[k]);
+        check('V7: survivors come out in source order — exactly the CPU mirror\'s list, ascending',
+            same(a[SPHERE].sources, keptIndices[SPHERE]) && same(a[CUBE].sources, keptIndices[CUBE]),
+            `spheres ${a[SPHERE].sources.length} (first ${a[SPHERE].sources.slice(0, 4).join(', ')}), cpu ${keptIndices[SPHERE].length} (first ${keptIndices[SPHERE].slice(0, 4).join(', ')}); ` +
+            `cubes ${a[CUBE].sources.length}, cpu ${keptIndices[CUBE].length}`);
+        check('V7: … and two runs write the same lists, byte for byte',
+            same(a[SPHERE].bytes, b[SPHERE].bytes) && same(a[CUBE].bytes, b[CUBE].bytes));
+    }
 
     vis.destroy();
     t.color.destroy(); t.depth.destroy();
