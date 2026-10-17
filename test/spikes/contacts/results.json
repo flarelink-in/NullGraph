@@ -1,0 +1,1240 @@
+{
+  "date": "2026-10-18",
+  "timing": "queue-completed wall-clock ms/step; single samples, noise and concurrent validation workloads, not isolated GPU timestamps",
+  "measurements": [
+    {
+      "adapter": "nvidia turing",
+      "host": "node",
+      "reruns": {
+        "today-lists": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "query-k8": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-1": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-2": {
+          "diffWords": 0,
+          "badFloats": 0
+        }
+      },
+      "cost": [
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "none",
+          "msPerStep": 0.8957258333333357,
+          "addedPct": 0
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "today-lists",
+          "msPerStep": 1.178061666666675,
+          "addedPct": 31.52034058040512
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "query-k8",
+          "msPerStep": 1.3295583333333374,
+          "addedPct": 48.433625988607076
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-1",
+          "msPerStep": 3.551233333333342,
+          "addedPct": 296.46431990443494
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-2",
+          "msPerStep": 1.9957450000000183,
+          "addedPct": 122.80757411819799
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "none",
+          "msPerStep": 4.614754166666656,
+          "addedPct": 0
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "today-lists",
+          "msPerStep": 5.029328333333312,
+          "addedPct": 8.983667421792743
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "query-k8",
+          "msPerStep": 6.646136666666644,
+          "addedPct": 44.019300414160575
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-1",
+          "msPerStep": 6.417451666666663,
+          "addedPct": 39.06378183742206
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-2",
+          "msPerStep": 7.925064166666683,
+          "addedPct": 71.73318188672097
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "none",
+          "msPerStep": 74.61559500000003,
+          "addedPct": 0
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "today-lists",
+          "msPerStep": 74.45056166666667,
+          "addedPct": -0.221178070527153
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "query-k8",
+          "msPerStep": 112.00393500000003,
+          "addedPct": 50.10794325234555
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-1",
+          "msPerStep": 104.14914000000002,
+          "addedPct": 39.58092808882645
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-2",
+          "msPerStep": 123.03708333333343,
+          "addedPct": 64.89459520269641
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "none",
+          "msPerStep": 4.607697499999995,
+          "addedPct": 0
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "today-lists",
+          "msPerStep": 3.8075666666666317,
+          "addedPct": -17.365090337058025
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "query-k8",
+          "msPerStep": 9.53353833333337,
+          "addedPct": 106.90460546364817
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-1",
+          "msPerStep": 4.641330000000016,
+          "addedPct": 0.7299198786383191
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-2",
+          "msPerStep": 6.213737500000085,
+          "addedPct": 34.85558676540922
+        }
+      ],
+      "overlap": {
+        "world4096": {
+          "none": {
+            "step": 600,
+            "worstM": 0.7838146388085417,
+            "worstPct": 97.9768283910992,
+            "over5Pct": 60.3271484375,
+            "nearestPreyM": 0.7527459048389814,
+            "peakCell": 105,
+            "worstOverRunM": 1.1759797794941536,
+            "worstOverRunPct": 99.93152269441798,
+            "maxOver5Pct": 62.4267578125,
+            "peakCellOverRun": 105,
+            "catches": 443,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.05435709686947543,
+            "worstPct": 6.3733855055092885,
+            "over5Pct": 0.3173828125,
+            "nearestPreyM": 1.0395434929446792,
+            "peakCell": 54,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 56,
+            "catches": 63,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.08195920252424393,
+            "worstPct": 10.244900162869582,
+            "over5Pct": 0.4150390625,
+            "nearestPreyM": 1.0459116212970867,
+            "peakCell": 50,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 57,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.06784367414724413,
+            "worstPct": 8.480459142036826,
+            "over5Pct": 0.4638671875,
+            "nearestPreyM": 1.053685463877757,
+            "peakCell": 52,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 54,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.027632667672108258,
+            "worstPct": 3.4540834075436786,
+            "over5Pct": 0,
+            "nearestPreyM": 1.0501952119800484,
+            "peakCell": 66,
+            "worstOverRunM": 0.25481744628100944,
+            "worstOverRunPct": 31.852180310491708,
+            "maxOver5Pct": 4.1015625,
+            "peakCellOverRun": 66,
+            "catches": 17,
+            "samples": 600
+          }
+        },
+        "arenas64": {
+          "none": {
+            "step": 600,
+            "worstM": 1.067775455283225,
+            "worstPct": 99.75368926303942,
+            "over5Pct": 63.41337316176471,
+            "nearestPreyM": 0.72090621871606,
+            "peakCell": 84,
+            "worstOverRunM": 1.1892264105846078,
+            "worstOverRunPct": 99.95342592138235,
+            "maxOver5Pct": 63.78676470588235,
+            "peakCellOverRun": 100,
+            "catchesPerArena": 30.75,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.07910457788397507,
+            "worstPct": 9.888072088153127,
+            "over5Pct": 0.5227481617647058,
+            "nearestPreyM": 0.9735150543531288,
+            "peakCell": 62,
+            "worstOverRunM": 0.6864103899536314,
+            "worstOverRunPct": 85.80129746566494,
+            "maxOver5Pct": 10.035615808823529,
+            "peakCellOverRun": 68,
+            "catchesPerArena": 3.09375,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.0832326791832837,
+            "worstPct": 10.404084742877519,
+            "over5Pct": 1.0799632352941175,
+            "nearestPreyM": 0.9796542284653439,
+            "peakCell": 68,
+            "worstOverRunM": 0.6864103899536314,
+            "worstOverRunPct": 85.80129746566494,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 71,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.08326183950550703,
+            "worstPct": 10.40772978310112,
+            "over5Pct": 1.0569852941176472,
+            "nearestPreyM": 0.9768095169029806,
+            "peakCell": 74,
+            "worstOverRunM": 0.6864103899536314,
+            "worstOverRunPct": 85.80129746566494,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 76,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.04416290655309085,
+            "worstPct": 5.520363236876534,
+            "over5Pct": 0.028722426470588237,
+            "nearestPreyM": 0.9691684837703716,
+            "peakCell": 68,
+            "worstOverRunM": 0.666741250271671,
+            "worstOverRunPct": 83.34265504205653,
+            "maxOver5Pct": 5.399816176470589,
+            "peakCellOverRun": 70,
+            "catchesPerArena": 0.859375,
+            "samples": 600
+          }
+        }
+      },
+      "pileup": {
+        "staticBox": {
+          "none": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.7904199011370889,
+            "worstPct": 98.80248616986435,
+            "over5Pct": 100,
+            "nearestPreyM": 0.1291256946329181
+          },
+          "today-lists": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.17144951974456157,
+            "worstPct": 21.431189648720586,
+            "over5Pct": 75.78125,
+            "nearestPreyM": 0.7265411716393181
+          },
+          "query-k8": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.43585569598733176,
+            "worstPct": 54.48196118657198,
+            "over5Pct": 86.328125,
+            "nearestPreyM": 0.6131668805926505
+          },
+          "grid-3x3-1": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.45572107855012656,
+            "worstPct": 56.96513396991918,
+            "over5Pct": 87.5,
+            "nearestPreyM": 0.600156280935873
+          },
+          "grid-3x3-2": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.21707388040548936,
+            "worstPct": 27.134234646354567,
+            "over5Pct": 62.890625,
+            "nearestPreyM": 0.7243251352128154
+          }
+        },
+        "activeAttractor": {
+          "none": {
+            "worstM": 0.7889220434571258,
+            "worstPct": 98.61525396265893,
+            "over5Pct": 100,
+            "nearestPreyM": 0.08178064886773173
+          },
+          "today-lists": {
+            "worstM": 0.2241117166672162,
+            "worstPct": 28.01396416596143,
+            "over5Pct": 61.71875,
+            "nearestPreyM": 0.7284010208549438
+          },
+          "query-k8": {
+            "worstM": 0.42801795332547243,
+            "worstPct": 53.502243368438506,
+            "over5Pct": 79.6875,
+            "nearestPreyM": 0.6555864248553489
+          },
+          "grid-3x3-1": {
+            "worstM": 0.39909533069378267,
+            "worstPct": 49.88691559334986,
+            "over5Pct": 79.296875,
+            "nearestPreyM": 0.6536274914980308
+          },
+          "grid-3x3-2": {
+            "worstM": 0.21092101455552947,
+            "worstPct": 26.365126426570185,
+            "over5Pct": 49.609375,
+            "nearestPreyM": 0.7478917030540259
+          }
+        }
+      },
+      "jitter": {
+        "none": {
+          "undamped": 0,
+          "damped": 0
+        },
+        "today-lists": {
+          "undamped": 44.338498212157326,
+          "damped": 46.06726694915254
+        },
+        "query-k8": {
+          "undamped": 11.917372881355933,
+          "damped": 6.225165562913907
+        },
+        "grid-3x3-1": {
+          "undamped": 0.2846927966101695,
+          "damped": 0
+        },
+        "grid-3x3-2": {
+          "undamped": 0.6686970338983051,
+          "damped": 0
+        }
+      }
+    },
+    {
+      "adapter": "amd gcn-5",
+      "host": "node",
+      "reruns": {
+        "today-lists": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "query-k8": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-1": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-2": {
+          "diffWords": 0,
+          "badFloats": 0
+        }
+      },
+      "cost": [
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "none",
+          "msPerStep": 2.965174166666596,
+          "addedPct": 0
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "today-lists",
+          "msPerStep": 2.8001608333334542,
+          "addedPct": -5.565046909829486
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "query-k8",
+          "msPerStep": 3.4986516666666527,
+          "addedPct": 17.991438951452363
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-1",
+          "msPerStep": 3.1795175000001716,
+          "addedPct": 7.228692862063389
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-2",
+          "msPerStep": 3.890490833333509,
+          "addedPct": 31.206148936173292
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "none",
+          "msPerStep": 8.041407499999817,
+          "addedPct": 0
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "today-lists",
+          "msPerStep": 8.061690833333463,
+          "addedPct": 0.25223610833857796
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "query-k8",
+          "msPerStep": 12.195871666666546,
+          "addedPct": 51.66339557679204
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-1",
+          "msPerStep": 25.89412666666661,
+          "addedPct": 222.00988031842934
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-2",
+          "msPerStep": 15.819465833333378,
+          "addedPct": 96.72508616599443
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "none",
+          "msPerStep": 80.1449066666663,
+          "addedPct": 0
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "today-lists",
+          "msPerStep": 84.82943333333338,
+          "addedPct": 5.845070961465678
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "query-k8",
+          "msPerStep": 106.3486499999999,
+          "addedPct": 32.69545679592414
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-1",
+          "msPerStep": 101.4582150000002,
+          "addedPct": 26.593465785641097
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-2",
+          "msPerStep": 142.97373166666657,
+          "addedPct": 78.39403352394432
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "none",
+          "msPerStep": 7.038850833333466,
+          "addedPct": 0
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "today-lists",
+          "msPerStep": 7.79892000000012,
+          "addedPct": 10.7981996587744
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "query-k8",
+          "msPerStep": 14.901186666666764,
+          "addedPct": 111.69913980986928
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-1",
+          "msPerStep": 10.558216666666945,
+          "addedPct": 49.999153507658214
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-2",
+          "msPerStep": 12.921387500000128,
+          "addedPct": 83.57240131882158
+        }
+      ],
+      "overlap": {
+        "world4096": {
+          "none": {
+            "step": 600,
+            "worstM": 0.8191269262580612,
+            "worstPct": 97.43166045063677,
+            "over5Pct": 59.8876953125,
+            "nearestPreyM": 0.7604865576279978,
+            "peakCell": 74,
+            "worstOverRunM": 1.1646942644443228,
+            "worstOverRunPct": 99.92163315247699,
+            "maxOver5Pct": 62.3291015625,
+            "peakCellOverRun": 92,
+            "catches": 437,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.049339894204197376,
+            "worstPct": 6.167486683621959,
+            "over5Pct": 0.3662109375,
+            "nearestPreyM": 1.0369998034639178,
+            "peakCell": 50,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 58,
+            "catches": 63,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.05662027075439924,
+            "worstPct": 7.077533738836434,
+            "over5Pct": 0.390625,
+            "nearestPreyM": 1.0466647501057655,
+            "peakCell": 50,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 57,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.05981086517231715,
+            "worstPct": 7.476358035133228,
+            "over5Pct": 0.68359375,
+            "nearestPreyM": 1.0473454530314292,
+            "peakCell": 46,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 59,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.022426943240930974,
+            "worstPct": 2.8033678633429355,
+            "over5Pct": 0,
+            "nearestPreyM": 1.0407896738234843,
+            "peakCell": 53,
+            "worstOverRunM": 0.25481755754189983,
+            "worstOverRunPct": 31.8521942181028,
+            "maxOver5Pct": 4.1015625,
+            "peakCellOverRun": 55,
+            "catches": 17,
+            "samples": 600
+          }
+        },
+        "arenas64": {
+          "none": {
+            "step": 600,
+            "worstM": 1.017986200230316,
+            "worstPct": 99.02404492576309,
+            "over5Pct": 63.44784007352941,
+            "nearestPreyM": 0.7210329676390369,
+            "peakCell": 89,
+            "worstOverRunM": 1.1892264105846078,
+            "worstOverRunPct": 99.9618053739622,
+            "maxOver5Pct": 63.75804227941176,
+            "peakCellOverRun": 99,
+            "catchesPerArena": 30.328125,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.06571176304507798,
+            "worstPct": 8.213970258237053,
+            "over5Pct": 0.43083639705882354,
+            "nearestPreyM": 0.9712202320002669,
+            "peakCell": 74,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.035615808823529,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 3.09375,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.07186722635524778,
+            "worstPct": 8.983403160542833,
+            "over5Pct": 0.9535845588235294,
+            "nearestPreyM": 0.9748047275792147,
+            "peakCell": 68,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 70,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.09178326688756011,
+            "worstPct": 11.47290818998536,
+            "over5Pct": 0.9937959558823529,
+            "nearestPreyM": 0.9784919735181419,
+            "peakCell": 77,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.0362079023231916,
+            "worstPct": 4.5259877229564776,
+            "over5Pct": 0,
+            "nearestPreyM": 0.9798885261627559,
+            "peakCell": 75,
+            "worstOverRunM": 0.666741250271671,
+            "worstOverRunPct": 83.34265504205653,
+            "maxOver5Pct": 5.399816176470589,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 0.859375,
+            "samples": 600
+          }
+        }
+      },
+      "pileup": {
+        "staticBox": {
+          "none": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.7904199011370889,
+            "worstPct": 98.80248616986435,
+            "over5Pct": 100,
+            "nearestPreyM": 0.1291256946329181
+          },
+          "today-lists": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.17378054394913134,
+            "worstPct": 21.722567669949935,
+            "over5Pct": 70.703125,
+            "nearestPreyM": 0.7296472454192009
+          },
+          "query-k8": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.40822866483458226,
+            "worstPct": 51.02858234393766,
+            "over5Pct": 86.328125,
+            "nearestPreyM": 0.6110845635082944
+          },
+          "grid-3x3-1": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.4557210838806162,
+            "worstPct": 56.965134636230374,
+            "over5Pct": 87.5,
+            "nearestPreyM": 0.6001563043935466
+          },
+          "grid-3x3-2": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.21707342086213965,
+            "worstPct": 27.13417720343671,
+            "over5Pct": 62.890625,
+            "nearestPreyM": 0.7243250826878149
+          }
+        },
+        "activeAttractor": {
+          "none": {
+            "worstM": 0.7889207368638229,
+            "worstPct": 98.6150906384985,
+            "over5Pct": 100,
+            "nearestPreyM": 0.08178081144566764
+          },
+          "today-lists": {
+            "worstM": 0.2332053556398921,
+            "worstPct": 29.150669020607694,
+            "over5Pct": 58.984375,
+            "nearestPreyM": 0.7300247887662887
+          },
+          "query-k8": {
+            "worstM": 0.4384087711811433,
+            "worstPct": 54.80109558104296,
+            "over5Pct": 80.078125,
+            "nearestPreyM": 0.6512008474549612
+          },
+          "grid-3x3-1": {
+            "worstM": 0.39909034109163627,
+            "worstPct": 49.886291893090856,
+            "over5Pct": 79.296875,
+            "nearestPreyM": 0.6536339396323386
+          },
+          "grid-3x3-2": {
+            "worstM": 0.21105213898886732,
+            "worstPct": 26.38151698049318,
+            "over5Pct": 49.609375,
+            "nearestPreyM": 0.7478858505354992
+          }
+        }
+      },
+      "jitter": {
+        "none": {
+          "undamped": 0,
+          "damped": 0
+        },
+        "today-lists": {
+          "undamped": 44.93511652542373,
+          "damped": 49.08633474576271
+        },
+        "query-k8": {
+          "undamped": 11.983580508474576,
+          "damped": 8.077330508474576
+        },
+        "grid-3x3-1": {
+          "undamped": 0.3111758474576271,
+          "damped": 0
+        },
+        "grid-3x3-2": {
+          "undamped": 0.7018473151029597,
+          "damped": 0
+        }
+      }
+    },
+    {
+      "adapter": "amd gcn-5",
+      "host": "chrome",
+      "reruns": {
+        "today-lists": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "query-k8": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-1": {
+          "diffWords": 0,
+          "badFloats": 0
+        },
+        "grid-3x3-2": {
+          "diffWords": 0,
+          "badFloats": 0
+        }
+      },
+      "cost": [
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "none",
+          "msPerStep": 2.3768333333389213,
+          "addedPct": 0
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "today-lists",
+          "msPerStep": 2.5042083333401632,
+          "addedPct": 5.3590211065539215
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "query-k8",
+          "msPerStep": 2.5524999999906868,
+          "addedPct": 7.390786059239287
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-1",
+          "msPerStep": 2.4989583333333334,
+          "addedPct": 5.138138980188975
+        },
+        {
+          "layout": "4,096",
+          "count": 4096,
+          "mode": "grid-3x3-2",
+          "msPerStep": 2.4574999999875824,
+          "addedPct": 3.3938713967521807
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "none",
+          "msPerStep": 11.333958333342647,
+          "addedPct": 0
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "today-lists",
+          "msPerStep": 18.227249999996275,
+          "addedPct": 60.81980773102627
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "query-k8",
+          "msPerStep": 19.182500000003106,
+          "addedPct": 69.24801941058259
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-1",
+          "msPerStep": 16.320083333334576,
+          "addedPct": 43.99279451490101
+        },
+        {
+          "layout": "16,384",
+          "count": 16384,
+          "mode": "grid-3x3-2",
+          "msPerStep": 14.64375,
+          "addedPct": 29.202433689212445
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "none",
+          "msPerStep": 100.02133333332216,
+          "addedPct": 0
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "today-lists",
+          "msPerStep": 100.88416666667908,
+          "addedPct": 0.8626493015060258
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "query-k8",
+          "msPerStep": 123.87266666668778,
+          "addedPct": 23.846246134192985
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-1",
+          "msPerStep": 122.79491666667164,
+          "addedPct": 22.768726005137594
+        },
+        {
+          "layout": "65,536",
+          "count": 65536,
+          "mode": "grid-3x3-2",
+          "msPerStep": 147.25366666667784,
+          "addedPct": 47.22225925138733
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "none",
+          "msPerStep": 11.880041666670392,
+          "addedPct": 0
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "today-lists",
+          "msPerStep": 8.236249999981373,
+          "addedPct": -30.67153945184993
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "query-k8",
+          "msPerStep": 12.246958333346992,
+          "addedPct": 3.0885132979456573
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-1",
+          "msPerStep": 7.181833333335817,
+          "addedPct": -39.547069489793614
+        },
+        {
+          "layout": "17,408 (64 arenas)",
+          "count": 17408,
+          "mode": "grid-3x3-2",
+          "msPerStep": 6.453041666684052,
+          "addedPct": -45.68165796263036
+        }
+      ],
+      "overlap": {
+        "world4096": {
+          "none": {
+            "step": 600,
+            "worstM": 0.8191269262580612,
+            "worstPct": 97.43166045063677,
+            "over5Pct": 59.8876953125,
+            "nearestPreyM": 0.7604865576279978,
+            "peakCell": 74,
+            "worstOverRunM": 1.1646942644443228,
+            "worstOverRunPct": 99.92163315247699,
+            "maxOver5Pct": 62.3291015625,
+            "peakCellOverRun": 92,
+            "catches": 437,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.049339894204197376,
+            "worstPct": 6.167486683621959,
+            "over5Pct": 0.3662109375,
+            "nearestPreyM": 1.0369998034639178,
+            "peakCell": 50,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 58,
+            "catches": 63,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.05662027075439924,
+            "worstPct": 7.077533738836434,
+            "over5Pct": 0.390625,
+            "nearestPreyM": 1.0466647501057655,
+            "peakCell": 50,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 57,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.05981086517231715,
+            "worstPct": 7.476358035133228,
+            "over5Pct": 0.68359375,
+            "nearestPreyM": 1.0473454530314292,
+            "peakCell": 46,
+            "worstOverRunM": 0.6539476117595906,
+            "worstOverRunPct": 81.7434502518765,
+            "maxOver5Pct": 9.033203125,
+            "peakCellOverRun": 59,
+            "catches": 63,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.022426943240930974,
+            "worstPct": 2.8033678633429355,
+            "over5Pct": 0,
+            "nearestPreyM": 1.0407896738234843,
+            "peakCell": 53,
+            "worstOverRunM": 0.25481755754189983,
+            "worstOverRunPct": 31.8521942181028,
+            "maxOver5Pct": 4.1015625,
+            "peakCellOverRun": 55,
+            "catches": 17,
+            "samples": 600
+          }
+        },
+        "arenas64": {
+          "none": {
+            "step": 600,
+            "worstM": 1.017986200230316,
+            "worstPct": 99.02404492576309,
+            "over5Pct": 63.44784007352941,
+            "nearestPreyM": 0.7210329676390369,
+            "peakCell": 89,
+            "worstOverRunM": 1.1892264105846078,
+            "worstOverRunPct": 99.9618053739622,
+            "maxOver5Pct": 63.75804227941176,
+            "peakCellOverRun": 99,
+            "catchesPerArena": 30.328125,
+            "samples": 600
+          },
+          "today-lists": {
+            "step": 600,
+            "worstM": 0.06571176304507798,
+            "worstPct": 8.213970258237053,
+            "over5Pct": 0.43083639705882354,
+            "nearestPreyM": 0.9712202320002669,
+            "peakCell": 74,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.035615808823529,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 3.09375,
+            "samples": 600
+          },
+          "query-k8": {
+            "step": 600,
+            "worstM": 0.07186722635524778,
+            "worstPct": 8.983403160542833,
+            "over5Pct": 0.9535845588235294,
+            "nearestPreyM": 0.9748047275792147,
+            "peakCell": 68,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 70,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-1": {
+            "step": 600,
+            "worstM": 0.09178326688756011,
+            "worstPct": 11.47290818998536,
+            "over5Pct": 0.9937959558823529,
+            "nearestPreyM": 0.9784919735181419,
+            "peakCell": 77,
+            "worstOverRunM": 0.6864122569574718,
+            "worstOverRunPct": 85.80153084114153,
+            "maxOver5Pct": 10.01263786764706,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 3.171875,
+            "samples": 600
+          },
+          "grid-3x3-2": {
+            "step": 600,
+            "worstM": 0.0362079023231916,
+            "worstPct": 4.5259877229564776,
+            "over5Pct": 0,
+            "nearestPreyM": 0.9798885261627559,
+            "peakCell": 75,
+            "worstOverRunM": 0.666741250271671,
+            "worstOverRunPct": 83.34265504205653,
+            "maxOver5Pct": 5.399816176470589,
+            "peakCellOverRun": 77,
+            "catchesPerArena": 0.859375,
+            "samples": 600
+          }
+        }
+      },
+      "pileup": {
+        "staticBox": {
+          "none": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.7904199011370889,
+            "worstPct": 98.80248616986435,
+            "over5Pct": 100,
+            "nearestPreyM": 0.1291256946329181
+          },
+          "today-lists": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.17378054394913134,
+            "worstPct": 21.722567669949935,
+            "over5Pct": 70.703125,
+            "nearestPreyM": 0.7296472454192009
+          },
+          "query-k8": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.40822866483458226,
+            "worstPct": 51.02858234393766,
+            "over5Pct": 86.328125,
+            "nearestPreyM": 0.6110845635082944
+          },
+          "grid-3x3-1": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.4557210838806162,
+            "worstPct": 56.965134636230374,
+            "over5Pct": 87.5,
+            "nearestPreyM": 0.6001563043935466
+          },
+          "grid-3x3-2": {
+            "stepsToSub5Pct": null,
+            "worstM": 0.21707342086213965,
+            "worstPct": 27.13417720343671,
+            "over5Pct": 62.890625,
+            "nearestPreyM": 0.7243250826878149
+          }
+        },
+        "activeAttractor": {
+          "none": {
+            "worstM": 0.7889260103816625,
+            "worstPct": 98.61574982821864,
+            "over5Pct": 100,
+            "nearestPreyM": 0.08178540573821556
+          },
+          "today-lists": {
+            "worstM": 0.22934200570295193,
+            "worstPct": 28.66775028568622,
+            "over5Pct": 56.25,
+            "nearestPreyM": 0.7396668345662213
+          },
+          "query-k8": {
+            "worstM": 0.45045949564613585,
+            "worstPct": 56.3074361167208,
+            "over5Pct": 79.296875,
+            "nearestPreyM": 0.6520442653968999
+          },
+          "grid-3x3-1": {
+            "worstM": 0.398996553578478,
+            "worstPct": 49.87456845412076,
+            "over5Pct": 79.296875,
+            "nearestPreyM": 0.6536397227437774
+          },
+          "grid-3x3-2": {
+            "worstM": 0.2108713809454631,
+            "worstPct": 26.358922225404335,
+            "over5Pct": 49.609375,
+            "nearestPreyM": 0.747897314885569
+          }
+        }
+      },
+      "jitter": {
+        "none": {
+          "undamped": 0,
+          "damped": 0
+        },
+        "today-lists": {
+          "undamped": 43.48516949152542,
+          "damped": 40.63576158940398
+        },
+        "query-k8": {
+          "undamped": 11.609271523178807,
+          "damped": 5.9329890080784
+        },
+        "grid-3x3-1": {
+          "undamped": 0.20524364406779663,
+          "damped": 0
+        },
+        "grid-3x3-2": {
+          "undamped": 0.7417218543046358,
+          "damped": 0
+        }
+      }
+    }
+  ],
+  "checks": {
+    "node": {
+      "total": 12,
+      "failed": 0,
+      "gpuErrors": 0
+    },
+    "chrome": {
+      "unique": 16,
+      "reported": 56,
+      "failed": 0,
+      "gpuErrors": 0,
+      "note": "overlap assertions repeated by reporting loop; fixed without changing measurements"
+    },
+    "scanLimitMutation": {
+      "failed": 2,
+      "mismatchesPerAdapter": 147
+    },
+    "overlap": {
+      "unique": 20,
+      "reported": 100,
+      "failed": 0,
+      "gpuErrors": 0,
+      "note": "reporting repetition fixed; same 600 samples per mode"
+    }
+  }
+}

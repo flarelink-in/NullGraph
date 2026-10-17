@@ -133,7 +133,8 @@
     "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__",
     "film": "node tools/film/film.mjs",
     "film:check": "node tools/film/check.mjs",
-    "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs"
+    "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs",
+    "spike:s8": "node test/gpu/run-harness.mjs test/spikes/contacts/run.js __S8_RESULTS__"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"
