@@ -1,7 +1,7 @@
 import { AGENT_STRUCT_WGSL, constantsWGSL, speciesConstantName, type AgentDefinition } from './agentLayout';
 import { AGENT_STATE_WGSL } from './agentSystemShaders';
 import { buildAgentThinkPredicateWGSL } from './agentSenseShaders';
-import { agentSignatureMatches, assertThinkSignature } from './RuleBrain';
+import { agentSignatureMatches, assertThinkBlockSignature, assertThinkSignature } from './RuleBrain';
 
 export const AGENT_RANDOM_WGSL = `
 fn rand01(i: u32, tick: u32, stream: u32) -> f32 {
@@ -23,8 +23,40 @@ function speciesConstants(def: AgentDefinition): string {
     }).join('\n');
 }
 
-export function buildAgentThinkWGSL(def: AgentDefinition, wgsl: string, thinkEvery = 1): string {
-    assertThinkSignature(wgsl);
+/**
+ * A cooperative brain's entry (step 11, agents-genome-rows-design.md §11): no lane returns before
+ * `thinkBlock`, so the brain may use barriers. Each lane computes the gate the other entry returns
+ * on; a block in which no lane thinks stops before the call, all its lanes together.
+ */
+function cooperativeEntry(def: AgentDefinition): string {
+    return `var<workgroup> blockAnyThinks: atomic<u32>;
+var<workgroup> blockAnyThinksCopy: u32;
+@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(local_invocation_index) lane: u32) {
+    let i = id.x;
+    var thinking = false;
+    var kind = 0u;
+    if (i < ${def.capacity}u) {
+        let a = agents[i];
+        kind = a.ids.x;
+        thinking = thinksNow(i, a) && (brainSpecies.x & (1u << kind)) != 0u;
+    }
+    _ = arrayLength(&observations);
+    _ = arrayLength(&act);
+    _ = arrayLength(&reason);
+    _ = species[kind].maxSpeed;
+    if (thinking) { atomicStore(&blockAnyThinks, 1u); }
+    workgroupBarrier();
+    if (lane == 0u) { blockAnyThinksCopy = atomicLoad(&blockAnyThinks); }
+    if (workgroupUniformLoad(&blockAnyThinksCopy) == 0u) { return; }
+    thinkBlock(i, kind, state.tick, thinking, lane);
+}`;
+}
+
+export function buildAgentThinkWGSL(def: AgentDefinition, wgsl: string, thinkEvery = 1,
+    options: { readonly cooperative?: boolean } = {}): string {
+    if (options.cooperative) assertThinkBlockSignature(wgsl);
+    else assertThinkSignature(wgsl);
     return `${AGENT_STRUCT_WGSL}${AGENT_STATE_WGSL}${constantsWGSL(def)}
 ${speciesConstants(def)}
 @group(0) @binding(0) var<storage, read> agents: array<Agent>;
@@ -40,7 +72,7 @@ fn obs(i: u32, k: u32) -> f32 { return observations[i * OBS_DIM + k]; }
 fn setAct(i: u32, k: u32, v: f32) { act[i * ACT_DIM + k] = v; }
 fn setReason(i: u32, r: u32) { reason[i] = r; }
 ${wgsl}
-@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
+${options.cooperative ? cooperativeEntry(def) : `@compute @workgroup_size(64) fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;
     if (i >= ${def.capacity}u) { return; }
     let a = agents[i];
@@ -51,7 +83,7 @@ ${wgsl}
     _ = arrayLength(&reason);
     _ = species[a.ids.x].maxSpeed;
     think(i, a.ids.x, state.tick);
-}`;
+}`}`;
 }
 
 export function buildAgentStepWGSL(def: AgentDefinition, name: string, wgsl: string): string {

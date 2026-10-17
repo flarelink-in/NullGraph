@@ -261,11 +261,12 @@ export class AgentSystem {
         if (async ? typeof brain.bind !== 'function' || typeof brain.run !== 'function' : brain.kind !== 'stage') {
             throw new Error('AgentSystem: a brain is a stage brain, or an async brain with bind() and run().');
         }
+        if (async && brain.cooperative) throw new Error('AgentSystem: only a stage brain can be cooperative.');
         brain.assertDevice?.(this.engine.device);
         const def = this.definition;
         if (brain.dims) assertBrainDims(def, brain.dims.obs, brain.dims.act);
         if (async) brain.bind!({ obs: this.obs, act: this.act, capacity: this.capacity, obsDim: def.obsDim, actDim: def.actDim });
-        const code = buildAgentThinkWGSL(def, brain.wgsl!, this.thinkEvery);
+        const code = buildAgentThinkWGSL(def, brain.wgsl!, this.thinkEvery, { cooperative: brain.cooperative });
         this.checkExtraBuffers('brain', brain.buffers ?? []);
         return code;
     }
