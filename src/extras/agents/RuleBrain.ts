@@ -3,6 +3,14 @@ export interface Brain {
     readonly wgsl?: string;
     readonly buffers?: readonly GPUBuffer[];
     readonly dims?: { obs: number; act: number };
+    /**
+     * Stage brains (step 11, agents-genome-rows-design.md §11): the WGSL defines
+     * `fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32)` instead of `think`.
+     * Every lane of a 64-agent block calls it, thinking or not, so it may use workgroup memory and
+     * barriers at its top level; it must write actions and reasons only where `thinking` is true. A
+     * block in which no agent thinks does not call it.
+     */
+    readonly cooperative?: boolean;
     /** Optional resource-owner check, performed before creating a consuming stage. */
     assertDevice?(device: GPUDevice): void;
     /**
@@ -24,6 +32,13 @@ export function agentSignatureMatches(wgsl: unknown, signature: RegExp): boolean
 export function assertThinkSignature(wgsl: string): void {
     if (!agentSignatureMatches(wgsl, /\bfn\s+think\s*\(\s*i\s*:\s*u32\s*,\s*species\s*:\s*u32\s*,\s*tick\s*:\s*u32\s*\)\s*\{/)) {
         throw new Error('RuleBrain: the WGSL must define fn think(i: u32, species: u32, tick: u32).');
+    }
+}
+
+export function assertThinkBlockSignature(wgsl: string): void {
+    if (!agentSignatureMatches(wgsl,
+        /\bfn\s+thinkBlock\s*\(\s*i\s*:\s*u32\s*,\s*species\s*:\s*u32\s*,\s*tick\s*:\s*u32\s*,\s*thinking\s*:\s*bool\s*,\s*lane\s*:\s*u32\s*\)\s*\{/)) {
+        throw new Error('AgentSystem: a cooperative brain\'s WGSL must define fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32).');
     }
 }
 

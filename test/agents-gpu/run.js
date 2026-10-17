@@ -1756,6 +1756,81 @@ vis.destroy();
             `network, ${opened.preyRuled} of ${opened.prey} prey kept the rules` : 'the gate is missing from the think wrapper'),
             opened !== null && opened.asDeer.bad === 0 && opened.ownWolf.bad > 0 && opened.preyRuled === 0);
     }
+
+    // A35, part 1 (phase 11.1, docs/agents-genome-rows-design.md §11): the cooperative think entry on
+    // the GPU. A cooperative brain sums, in workgroup memory behind a barrier, the indices of its
+    // block's thinking agents, and writes each thinking agent (its index, the block's sum, its count
+    // plus 1000 × tick) with reason 11; integers, so the CPU's numbers are exact. 130 agents (a partial
+    // last block), thinkEvery 3, wolves on a rule brain that writes nothing, two dead agents and a
+    // newborn: exactly the agents today's gate lets think write, with their block's sum; every other
+    // row keeps its values. With the cadence removed from the gate, off-cadence rows are written:
+    // watched failing.
+    {
+        const def = A.defineAgents({ capacity: 130, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
+            sensors: [A.Sensors.self()], actions: A.Actions.custom({ name: 'hold', width: 3, wgsl: 'fn hold(i: u32) {}' }) });
+        const blockWGSL = `var<workgroup> blockSum: atomic<u32>;
+var<workgroup> blockCount: atomic<u32>;
+fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32) {
+    if (thinking) { atomicAdd(&blockSum, i); atomicAdd(&blockCount, 1u); }
+    workgroupBarrier();
+    let sum = atomicLoad(&blockSum);
+    let count = atomicLoad(&blockCount);
+    if (thinking) {
+        setAct(i, 0u, f32(i)); setAct(i, 1u, f32(sum)); setAct(i, 2u, f32(count) + 1000.0 * f32(tick));
+        setReason(i, 11u);
+    }
+}`;
+        const isWolf = i => i % 5 === 0, dead = new Set([70, 129]), NEWBORN = 66;
+        const sys = new A.AgentSystem(engine, def, { thinkEvery: 3 });
+        device.pushErrorScope('validation');
+        sys.setBrain({ kind: 'stage', cooperative: true, wgsl: blockWGSL, destroy() {} }, { species: 'prey' });
+        sys.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}'), { species: 'wolf' });
+        for (let i = 0; i < def.capacity; i++) sys.spawn(i, { position: [0, 0, 0], species: isWolf(i) ? 'wolf' : 'prey', age: 1 });
+        for (const i of dead) sys.kill(i);
+        device.queue.writeBuffer(sys.act, 0, new Float32Array(def.capacity * 3).fill(-7));
+        fillReason(sys.reason, def.capacity, 99);
+        const wantAct = new Float32Array(def.capacity * 3).fill(-7), wantReason = new Uint32Array(def.capacity).fill(99);
+        const problems = [];
+        let written = 0;
+        for (let tick = 0; tick < 6; tick++) {
+            if (tick === 1) sys.spawn(NEWBORN, { position: [0, 0, 0], species: 'prey' });   // age 0: thinks out of turn
+            const thinks = i => !dead.has(i) && !isWolf(i) && ((tick + Math.floor(i / 64)) % 3 === 0 || (tick === 1 && i === NEWBORN));
+            for (let block = 0; block * 64 < def.capacity; block++) {
+                const members = [];
+                for (let i = block * 64; i < Math.min(def.capacity, block * 64 + 64); i++) if (thinks(i)) members.push(i);
+                const sum = members.reduce((s, i) => s + i, 0);
+                for (const i of members) { wantAct.set([i, sum, members.length + 1000 * tick], i * 3); wantReason[i] = 11; written++; }
+            }
+            await sys.step();
+            const act = await readF(sys.act, def.capacity * 3), reason = await read(sys.reason, def.capacity);
+            const offAct = act.findIndex((v, j) => v !== wantAct[j]), offReason = reason.findIndex((v, i) => v !== wantReason[i]);
+            if (offAct >= 0 || offReason >= 0) {
+                problems.push(`tick ${tick}: ` + (offAct >= 0 ? `act[${offAct}] ${act[offAct]}, want ${wantAct[offAct]}` : `reason[${offReason}] ${reason[offReason]}, want ${wantReason[offReason]}`));
+            }
+        }
+        const error = await device.popErrorScope();
+        check(`A35 cooperative entry: a block function with workgroup memory and a barrier runs on every lane; exactly the ` +
+            `agents today's gate lets think (cadence by block, the newborn, prey only, the living) write their block's sum, ` +
+            `${written} rows over 6 steps, and every other row keeps its values` + (problems.length ? `; ${problems.slice(0, 3).join('; ')}` : ''),
+            error === null && problems.length === 0 && written > 0);
+        // Watched failing: the same module with the cadence taken out of the gate, dispatched over the system's buffers.
+        const preyMask = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        allocated.push(preyMask);
+        device.queue.writeBuffer(preyMask, 0, new Uint32Array([1, 0, 0, 0]));
+        const ungated = A.buildAgentThinkWGSL(def, blockWGSL, 3, { cooperative: true }).replace('thinksNow(i, a) && ', '(a.ids.y & 1u) != 0u && ');
+        const before = await readF(sys.act, def.capacity * 3);
+        const enc = device.createCommandEncoder();
+        dispatch(enc, ungated, [sys.buffer, sys.obs, sys.state, sys.act, sys.reason, sys.species, preyMask], Math.ceil(def.capacity / 64));
+        device.queue.submit([enc.finish()]);
+        const after = await readF(sys.act, def.capacity * 3);
+        // The cadence runs per block, so a block's sum is the same either way; its tick (column 2) is not.
+        const offCadence = Array.from({ length: def.capacity }, (_, i) => i).filter(i => !dead.has(i) && !isWolf(i) && (6 + Math.floor(i / 64)) % 3 !== 0);
+        const changed = offCadence.filter(i => after[i * 3 + 2] !== before[i * 3 + 2]).length;
+        check(`A35 cooperative entry watched failing: with the cadence taken out of the gate, ${changed} of ${offCadence.length} ` +
+            `off-cadence prey rows are written`, ungated.includes('(a.ids.y & 1u) != 0u &&') && changed === offCadence.length);
+        sys.destroy();
+    }
 }
 
 allocated.splice(0).forEach(b => b.destroy());

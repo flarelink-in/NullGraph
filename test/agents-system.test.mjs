@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 import * as A from '../dist/agents.js';
@@ -392,6 +393,78 @@ test('U22: the species gate is generated beside the cadence gate, and the wrappe
     const reflect = new WgslReflect(code);
     assert.equal(reflect.entry.compute[0].name, 'cs_main');
     assert.ok(reflect.uniforms.some(u => u.name === 'brainSpecies' && u.group === 0 && u.binding === 6));
+});
+
+// U44 (phase 11.1, docs/agents-genome-rows-design.md §11): the cooperative think entry. A brain that
+// declares `cooperative` gets an entry in which no lane returns before its block function; every other
+// brain's entry is today's, byte for byte (fingerprints taken before the change, 2026-10-17).
+const fingerprint = text => createHash('sha256').update(text).digest('hex').slice(0, 16);
+const twoSpecies = () => A.defineAgents({ capacity: 130, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+    species: ['prey', 'wolf'].map(name => ({ name, maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 })),
+    sensors: [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', species: ['wolf'], k: 1 })] });
+const BLOCK_BRAIN = `var<workgroup> blockSum: atomic<u32>;
+fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32) {
+    if (thinking) { atomicAdd(&blockSum, i); }
+    workgroupBarrier();
+    let sum = atomicLoad(&blockSum);
+    if (thinking) { setAct(i, ACT_TURN, f32(sum)); setReason(i, lane); }
+}`;
+
+test('U44: every brain that is not cooperative keeps today\'s think entry, byte for byte', () => {
+    const rule = 'fn think(i: u32, species: u32, tick: u32) { setAct(i, 0u, obs(i, 0u)); setReason(i, tick); }';
+    const net = [{ input: 7, output: 2, activation: 'tanh', weights: new Float32Array(14), biases: new Float32Array(2) }];
+    const cases = [
+        ['rule, thinkEvery 1', rule, 1, 'df87819b5adc745f'],
+        ['rule, thinkEvery 3', rule, 3, '2ecc43f232edf5df'],
+        ['MlpBrain, thinkEvery 3', A.buildMlpThinkWGSL(net), 3, '47c556fb513d91d9'],
+        ['MlpBrain.bySpecies rows, thinkEvery 1', A.buildMlpThinkWGSL(net, ['prey', 'wolf']), 1, 'b3cdb9302d5715cb'],
+    ];
+    for (const [name, wgsl, thinkEvery, expected] of cases) {
+        const code = A.buildAgentThinkWGSL(twoSpecies(), wgsl, thinkEvery);
+        assert.equal(fingerprint(code), expected, `${name}: the think entry changed`);
+        assert.equal(A.buildAgentThinkWGSL(twoSpecies(), wgsl, thinkEvery, { cooperative: false }), code, name);
+        assert.ok(!code.includes('thinkBlock') && !code.includes('workgroupUniformLoad'), name);
+    }
+});
+
+test('U44: a cooperative brain\'s entry reaches its block function on every lane, behind today\'s gate', () => {
+    const code = A.buildAgentThinkWGSL(twoSpecies(), BLOCK_BRAIN, 3, { cooperative: true });
+    const reflect = new WgslReflect(code);
+    assert.equal(reflect.entry.compute[0].name, 'cs_main');
+    assert.ok(reflect.uniforms.some(u => u.name === 'brainSpecies' && u.group === 0 && u.binding === 6));
+    const entry = code.slice(code.indexOf('@compute'));
+    // The gate the other entry returns on, computed instead; one return, after the block's uniform flag.
+    assert.match(entry, /thinking = thinksNow\(i, a\) && \(brainSpecies\.x & \(1u << kind\)\) != 0u;/);
+    assert.equal((entry.match(/\breturn\b/g) ?? []).length, 1);
+    assert.match(entry, /if \(workgroupUniformLoad\(&blockAnyThinksCopy\) == 0u\) \{ return; \}\s*thinkBlock\(i, kind, state\.tick, thinking, lane\);\s*\}$/);
+    assert.ok(entry.indexOf('if (i < 130u)') < entry.indexOf('workgroupBarrier()'), 'the range check must not return');
+    assert.equal((code.match(/fn thinksNow\(/g) ?? []).length, 1);
+    assert.ok(!code.includes('`'));
+});
+
+test('U44: the cooperative contract is checked: thinkBlock for cooperative brains, think for the rest, stage brains only', () => {
+    const def = twoSpecies();
+    assert.throws(() => A.buildAgentThinkWGSL(def, 'fn think(i: u32, species: u32, tick: u32) {}', 1, { cooperative: true }),
+        /AgentSystem: a cooperative brain's WGSL must define fn thinkBlock\(i: u32, species: u32, tick: u32, thinking: bool, lane: u32\)\./);
+    assert.throws(() => A.buildAgentThinkWGSL(def, BLOCK_BRAIN, 1), /must define fn think\(i: u32, species: u32, tick: u32\)/);
+    const m = mock(), s = new A.AgentSystem(m.engine, def), before = m.stages.length;
+    const asyncBrain = { kind: 'async', cooperative: true, wgsl: BLOCK_BRAIN, bind() {}, async run() {}, destroy() {} };
+    assert.throws(() => s.setBrain(asyncBrain), /AgentSystem: only a stage brain can be cooperative\./);
+    assert.equal(m.stages.length, before, 'a refused cooperative brain built a stage');
+    s.destroy();
+});
+
+test('U44: setBrain builds a cooperative brain\'s pass like any other: its mask, its group-1 buffers', () => {
+    const m = mock(), s = new A.AgentSystem(m.engine, twoSpecies()), extra = { destroy() {} };
+    s.setBrain({ kind: 'stage', cooperative: true, wgsl: BLOCK_BRAIN, buffers: [extra], destroy() {} }, { species: 'prey' });
+    s.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}'), { species: 'wolf' });
+    const [blockPass, rulePass] = passesOf(s);
+    assert.ok(blockPass.shaderCode.includes('thinkBlock(i, kind, state.tick, thinking, lane);'));
+    assert.ok(!rulePass.shaderCode.includes('thinkBlock'));
+    assert.equal(blockPass.groups[0].length, 7);
+    assert.equal(blockPass.groups[1][0].resource.buffer, extra);
+    assert.deepEqual([maskOf(m, blockPass), maskOf(m, rulePass)], [0b01, 0b10]);
+    s.destroy();
 });
 
 test('U17: case-folded species constants cannot collide', () => {
