@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 import * as A from '../dist/agents.js';
@@ -28,6 +29,92 @@ function mock() {
     };
     return { engine, writes, buffers, stages, submissions };
 }
+
+test('U45: query-only slices preserve observations, parse in both consumers and decode in inspect', () => {
+    const sensors = [A.Sensors.self(), A.Sensors.nearest({ name: 'wolf', k: 1 }),
+        A.Sensors.nearest({ name: 'prey', k: 3 }), A.Sensors.bounds()];
+    const base = definition({ sensors });
+    for (const position of [0, 2, 4]) {
+        const mixed = [...sensors];
+        mixed.splice(position, 0, A.Sensors.query({ name: 'contacts', k: 8, radius: 1.6 }));
+        const def = definition({ sensors: mixed }), m = mock(), sys = new A.AgentSystem(m.engine, def);
+        const contactBase = position === 0 ? 0 : position === 2 ? 1 : 4;
+        assert.equal(def.obsDim, 24);
+        assert.deepEqual(def.obsNames, base.obsNames);
+        assert.deepEqual(def.obsSlots, base.obsSlots);
+        for (const [key, value] of Object.entries(base.constants).filter(([key]) => key.startsWith('OBS_'))) assert.equal(def.constants[key], value);
+        A.assertBrainDims(def, 24, 2);
+        assert.equal(sys.neighbourStride, 12);
+        const query = m.stages.find(s => s.name === 'AgentSystem query contacts');
+        assert.ok(query.shaderCode.includes(`if (d2 > ${1.6 * 1.6})`));
+        assert.ok(query.shaderCode.includes(`result[i * 12u + ${contactBase ? `${contactBase}u + ` : ''}n]`), query.shaderCode);
+        const senseCode = A.buildAgentSenseWGSL(def);
+        assert.equal((senseCode.match(/for \(var rank =/g) ?? []).length, 2, 'query-only declaration emitted an observation loop');
+        assert.ok(!senseCode.includes('rank < 8u'), 'query-only projection must be absent');
+        const observedBases = position === 0 ? [8, 9] : position === 2 ? [0, 9] : [0, 1];
+        for (const base of observedBases) assert.ok(senseCode.includes(`neighbours[i * 12u + ${base}u + rank]`));
+        for (const code of [A.buildAgentSenseWGSL(def), A.buildAgentStepWGSL(def, 'read', 'fn step(i: u32, tick: u32) {}')]) {
+            new WgslReflect(code);
+            assert.ok(code.includes('const NEIGHBOURS_PER_AGENT = 12u;'));
+            assert.ok(code.includes(`const NEIGHBOURS_CONTACTS = ${contactBase}u;`));
+        }
+        const records = new A.AgentRecords(def);
+        for (let i = 0; i < 12; i++) records.spawn(i, { position: [i / 5, 0, 0], species: 'prey' });
+        assert.deepEqual(A.senseAll(def, records), A.senseAll(base, records));
+        const layout = A.agentSnapshotLayout(def), bytes = new ArrayBuffer(layout.size), words = new Uint32Array(bytes);
+        words.fill(0xffffffff, layout.neighbours / 4, layout.state / 4);
+        words[layout.neighbours / 4 + def.constants.NEIGHBOURS_CONTACTS] = 7;
+        assert.deepEqual(A.decodeAgentSnapshot(def, 0, bytes).neighbours.find(n => n.sensor === 'contacts'), { sensor: 'contacts', indices: [7] });
+        sys.destroy();
+    }
+});
+
+test('U45: query radius, mirror definition, refusals and generated-name collisions', () => {
+    for (const radius of [0, -1, 5, Infinity, NaN]) assert.throws(() => definition({ sensors: [A.Sensors.query({ name: 'contacts', radius }), A.Sensors.self()] }), /sensor "contacts" radius/);
+    assert.throws(() => definition({ sensors: [A.Sensors.query()] }), /at least one observed sensor/);
+    assert.throws(() => definition({ sensors: [A.Sensors.query({ name: 'x' }), A.Sensors.nearest({ name: 'x' })] }), /both named "x"/);
+    assert.throws(() => definition({ sensors: [A.Sensors.self(), A.Sensors.query({ k: 9 })] }), /k 9 must be/);
+    assert.throws(() => definition({ sensors: [A.Sensors.self(), A.Sensors.query({ name: 'x' }), A.Sensors.query({ name: 'X' })] }), /WGSL constant NEIGHBOURS_X/);
+    let mirrorDef;
+    const def = definition({ sensors: [A.Sensors.query({ name: 'hidden', k: 2 }),
+        A.Sensors.nearest({ name: 'short', radius: 1 }),
+        A.Sensors.custom({ name: 'summary', width: 1, wgsl: 'fn summary(i: u32, a: Agent) -> array<f32, 1> { return array<f32, 1>(f32(neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_HIDDEN] != NO_AGENT)); }',
+            mirror(records, u32, i, out, at, definition) {
+                mirrorDef = definition;
+                out[at] = A.nearestNeighbours(definition, { data: records, u32 }, i,
+                    definition.nearestMasks[0], definition.cellSize, 2, []) > 0 ? 1 : 0;
+            } })] });
+    new WgslReflect(A.buildAgentSenseWGSL(def));
+    const rec = new A.AgentRecords(def);
+    rec.spawn(0, { position: [0, 0, 0], species: 'prey' });
+    rec.spawn(1, { position: [2, 0, 0], species: 'prey' });
+    assert.deepEqual([...A.senseAgent(def, rec, 0)], [0, 0, 0, 0, 0, 1]);
+    rec.spawn(1, { position: [0, 0, 1], species: 'prey' });
+    assert.equal(A.senseAgent(def, rec, 0)[4], 1);
+    assert.equal(mirrorDef, def);
+});
+
+test('U45 review: hidden species masks do not shift observed masks, and radius keeps sense normalization', () => {
+    const def = definition({ species: [
+        { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 },
+        { name: 'wolf', maxSpeed: 5, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 },
+    ], sensors: [A.Sensors.query({ name: 'hidden', species: 'wolf' }),
+        A.Sensors.nearest({ name: 'visible', species: 'prey', radius: 1 })] });
+    const rec = new A.AgentRecords(def);
+    rec.spawn(0, { position: [0, 0, 0], species: 'prey' });
+    rec.spawn(1, { position: [0, 0, 0.5], species: 'wolf' });
+    rec.spawn(2, { position: [0, 0, 1], species: 'prey' });
+    assert.deepEqual([...A.senseAgent(def, rec, 0)], [0, 0.25, 0, 0, 1]);
+    rec.spawn(2, { position: [0, 0, 1.25], species: 'prey' });
+    assert.deepEqual([...A.senseAgent(def, rec, 0)], [0, 0, 0, 0, 0]);
+});
+
+test('U45: the whole agents entry fits the unchanged 21,495 B min+gzip ceiling', async () => {
+    const output = await build({ entryPoints: ['src/extras/agents/index.ts'], bundle: true, minify: true,
+        platform: 'browser', format: 'esm', external: ['gl-matrix'], write: false, logLevel: 'silent' });
+    const bytes = gzipSync(output.outputFiles[0].contents).length;
+    assert.ok(bytes <= 21495, `agents.js is ${bytes} B, above 21,495 B`);
+});
 
 test('U8: cached 0..3 chains repeat the same nodes, with no frame typed-array allocations', () => {
     const m = mock(), s = makeSystem(m.engine, definition());
@@ -421,7 +508,10 @@ test('U44: every brain that is not cooperative keeps today\'s think entry, byte 
     ];
     for (const [name, wgsl, thinkEvery, expected] of cases) {
         const code = A.buildAgentThinkWGSL(twoSpecies(), wgsl, thinkEvery);
-        assert.equal(fingerprint(code), expected, `${name}: the think entry changed`);
+        // Step 12 adds declaration-derived neighbour constants to the shared header. Preserve the
+        // original fingerprint for every pre-existing byte, rather than rebasing the expected hashes.
+        const priorHeader = code.replace(/^const (?:NEIGHBOURS_\w+|NO_AGENT) = \d+u;\n/gm, '');
+        assert.equal(fingerprint(priorHeader), expected, `${name}: the think entry changed`);
         assert.equal(A.buildAgentThinkWGSL(twoSpecies(), wgsl, thinkEvery, { cooperative: false }), code, name);
         assert.ok(!code.includes('thinkBlock') && !code.includes('workgroupUniformLoad'), name);
     }

@@ -73,13 +73,13 @@ export const BOUNDS_WIDTH = 2;    // side, forward: the nearest wall's direction
 export const STEERING_WIDTH = 2;  // turn, throttle
 
 /** CPU stand-in for a custom sensor's WGSL — fills `out[o .. o+width)` for agent `i`. */
-export type CustomSensorMirror = (records: Float32Array, u32: Uint32Array, i: number, out: Float32Array, o: number) => void;
+export type CustomSensorMirror = (records: Float32Array, u32: Uint32Array, i: number, out: Float32Array, o: number, def: AgentDefinition) => void;
 /** CPU stand-in for custom actions — integrates agent `i` in place from `act[a .. a+width)`. */
 export type CustomActionMirror = (records: Float32Array, u32: Uint32Array, i: number, act: ArrayLike<number>, a: number, dt: number) => void;
 
 export type SensorSpec =
     | { readonly kind: 'self'; readonly name: string }
-    | { readonly kind: 'nearest'; readonly name: string; readonly species: readonly string[] | null; readonly k: number }
+    | { readonly kind: 'nearest'; readonly name: string; readonly species: readonly string[] | null; readonly k: number; readonly radius?: number; readonly observe?: boolean }
     | { readonly kind: 'bounds'; readonly name: string }
     | { readonly kind: 'custom'; readonly name: string; readonly width: number; readonly wgsl: string; readonly mirror?: CustomSensorMirror };
 
@@ -96,10 +96,15 @@ export const Sensors = {
     self(o: { name?: string } = {}): SensorSpec {
         return { kind: 'self', name: o.name ?? 'self' };
     },
-    /** The `k` nearest live agents of the given species within the observer's senseRadius — 5 floats each, nearest first. */
-    nearest(o: { species?: string | readonly string[]; k?: number; name?: string } = {}): SensorSpec {
+    /** The `k` nearest live agents; radius defaults to cellSize. Observed slots use senseRadius
+     * normalization and cutoff, and write 5 floats each. observe:false writes only neighbour indices. */
+    nearest(o: { species?: string | readonly string[]; k?: number; name?: string; radius?: number; observe?: boolean } = {}): SensorSpec {
         const species = o.species === undefined ? null : typeof o.species === 'string' ? [o.species] : [...o.species];
-        return { kind: 'nearest', name: o.name ?? (species ? species.join('_') : 'any'), species, k: o.k ?? 1 };
+        return { kind: 'nearest', name: o.name ?? (species ? species.join('_') : 'any'), species, k: o.k ?? 1, radius: o.radius, observe: o.observe };
+    },
+    /** A nearest-neighbour list for step stages and custom sensors, with no observation floats. */
+    query(o: { species?: string | readonly string[]; k?: number; name?: string; radius?: number } = {}): SensorSpec {
+        return Sensors.nearest({ ...o, observe: false });
     },
     /** How close, and which way, the nearest world wall is — 2 floats; zero beyond senseRadius. */
     bounds(o: { name?: string } = {}): SensorSpec {
@@ -289,7 +294,7 @@ export function defineAgents(o: AgentOptions): AgentDefinition {
     const constants: Record<string, number> = {};
     const nearestMasks: number[] = [];
     const sensorNames = new Set<string>();
-    let obsDim = 0;
+    let obsDim = 0, neighbourStride = 0;
     const constant = (name: string, value: number) => {
         if (name in constants) fail(`two declarations both produce the WGSL constant ${name}; give one a different name.`);
         constants[name] = value;
@@ -301,7 +306,12 @@ export function defineAgents(o: AgentOptions): AgentDefinition {
         const upper = s.name.toUpperCase();
         if (s.kind === 'nearest') {
             if (!(Number.isInteger(s.k) && s.k >= 1 && s.k <= MAX_NEAREST_K)) fail(`sensor "${s.name}" k ${s.k} must be 1–${MAX_NEAREST_K}.`);
+            const radius = s.radius ?? o.cellSize;
+            if (!(Number.isFinite(radius) && radius > 0 && radius <= o.cellSize)) fail(`sensor "${s.name}" radius ${radius} must be in (0, cellSize ${o.cellSize}].`);
             nearestMasks.push(s.species ? s.species.reduce((m, n) => m | (1 << speciesIndex(n)), 0) : allSpecies);
+            constant(`NEIGHBOURS_${upper}`, neighbourStride);
+            neighbourStride += s.k;
+            if (s.observe === false) continue;
             for (let r = 0; r < s.k; r++) {
                 obsSlots.push({ sensor: s, rank: r, offset: obsDim, width: NEAREST_WIDTH, constant: `OBS_${upper}_${r}` });
                 constant(`OBS_${upper}_${r}`, obsDim);
@@ -325,7 +335,10 @@ export function defineAgents(o: AgentOptions): AgentDefinition {
         for (const f of fields) obsNames.push(`${s.name}.${f}`);
         obsDim += width;
     }
+    if (!obsDim) fail('declare at least one observed sensor — a brain needs something to read.');
     if (obsDim > MAX_OBS_DIM) fail(`the sensors produce ${obsDim} observation floats; the limit is ${MAX_OBS_DIM}.`);
+    constant('NEIGHBOURS_PER_AGENT', neighbourStride);
+    constant('NO_AGENT', 0xffffffff);
 
     // --- action layout ---
     const actions: ActionSpec = o.actions ?? Actions.steering();

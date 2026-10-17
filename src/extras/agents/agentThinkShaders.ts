@@ -90,20 +90,10 @@ export function buildAgentStepWGSL(def: AgentDefinition, name: string, wgsl: str
     if (!agentSignatureMatches(wgsl, /\bfn\s+step\s*\(\s*i\s*:\s*u32\s*,\s*tick\s*:\s*u32\s*\)\s*\{/)) {
         throw new Error(`AgentSystem: step stage "${name}" must define fn step(i: u32, tick: u32).`);
     }
-    let stride = 0;
-    const offsets: string[] = [];
-    for (const sensor of def.sensors) {
-        if (sensor.kind !== 'nearest') continue;
-        offsets.push(`const NEIGHBOURS_${sensor.name.toUpperCase()} = ${stride}u;`);
-        stride += sensor.k;
-    }
     const w = def.world;
     return `${AGENT_STRUCT_WGSL}${AGENT_STATE_WGSL}${constantsWGSL(def)}
 ${speciesConstants(def)}
 const DT = ${def.dt};
-const NO_AGENT = 0xffffffffu;
-const NEIGHBOURS_PER_AGENT = ${stride}u;
-${offsets.join('\n')}
 @group(0) @binding(0) var<storage, read> neighbours: array<u32>;
 @group(0) @binding(1) var<storage, read> obs: array<f32>;
 @group(0) @binding(2) var<storage, read> act: array<f32>;

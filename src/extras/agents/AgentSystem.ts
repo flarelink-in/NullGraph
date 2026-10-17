@@ -124,7 +124,7 @@ export class AgentSystem {
             for (const sensor of def.sensors) {
                 if (sensor.kind !== 'nearest') continue;
                 this.stage(`query ${sensor.name}`, buildAgentGridQueryWGSL(def, def.nearestMasks[sensorIndex++],
-                    def.cellSize, sensor.k, { stride: this.neighbourStride, base }),
+                    sensor.radius ?? def.cellSize, sensor.k, { stride: this.neighbourStride, base }),
                 [this.buffer, grid.cellCounts, grid.cellOffsets, grid.cellBodies, this.neighbours, this.state], Math.ceil(def.capacity / 64));
                 base += sensor.k;
             }

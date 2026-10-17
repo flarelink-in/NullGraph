@@ -4,8 +4,8 @@
 milestone 2B step 12); [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md) §6.1 (the shared
 `neighbours` buffer) and §8.2 (app step stages).
 **Status:** decisions accepted 2026-10-17 (§13); corrected S8 validation resumed 2026-10-18.
-Phase 12.0 is complete. The user authorized proceeding with step 12 on 2026-10-18.
-Phase 12.1 follows under the unchanged 21,495 B ceiling.
+The user authorized proceeding with step 12 on 2026-10-18. Phase 12.1 is headless-validated
+at **21,468 B** min+gzip, below the unchanged **21,495 B** ceiling. A36 and the API guide follow.
 **Builds on:**
 - `defineAgents`, `Sensors.nearest` and the CPU mirrors ([`agents-design.md`](./agents-design.md) §6–§7);
 - `AgentSystem`'s shared `PointGrid`, per-sensor query stages, `addStepStage` and `inspect`
@@ -319,8 +319,8 @@ IDs continue from step 11 (`U43`, `U44`, `A35`).
 
 | Phase | Delivers | Exit |
 |---|---|---|
-| **12.0** ✅ | Spike S8 (`npm run spike:s8`, `test/spikes/contacts/`): contacts over today's lists, over a query-only list, and over `PointGrid` (§14) | Complete 2026-10-18 on Node/NVIDIA, Node/AMD and Chrome/AMD; exact reruns, exhaustive dense-count oracle and 600-step histories pass, zero GPU errors; corrected findings and solver limits below |
-| **12.1** | Query-only declarations, shared constants, CPU mirrors and U45 | Next; unchanged 21,495 B bundle ceiling |
+| **12.0** ✅ `f777bc2` | Spike S8 (`npm run spike:s8`, `test/spikes/contacts/`): contacts over today's lists, over a query-only list, and over `PointGrid` (§14) | Complete 2026-10-18 on Node/NVIDIA, Node/AMD and Chrome/AMD; exact reruns, exhaustive dense-count oracle and 600-step histories pass, zero GPU errors; corrected findings and solver limits below |
+| **12.1** ✅ | `Sensors.query` / `Sensors.nearest({ observe, radius })`, custom-sensor neighbour constants, CPU mirror, U45 headless, bundle check | Complete 2026-10-18: U45 green and four mutations caught; `test:agents` 94/94 plus 24 mirror checks; whole entry 21,468 B min+gzip, 27 B under the unchanged ceiling |
 | **12.2** | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Green on all three pairs, watched failing, zero WebGPU errors |
 | **12.3** | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Example runs and is watched failing |
 
@@ -340,6 +340,18 @@ Add ✅ to each subsequent phase only when its own exit is verified; no check ma
   neighbour-reading WGSL, and mirror access to the definition. Removing each of the layout/sense/CPU
   observation guards or replacing the query radius with cellSize was observed failing.
 - Size: whole agents entry **21,468 B** (+106 B); rule path **14,856 B** (+88 B). No ceiling increase.
+
+### Fresh review before the phase 12.1 commit — 2026-10-18
+
+- No production defect found in the declaration, shared constants, query dispatch, observation
+  projection or snapshot paths. Query-only lists must advance both the neighbour base and the
+  species-mask index; observed radius limits search, not senseRadius normalization.
+- Strengthened U45: the custom CPU mirror now actually searches using its definition argument;
+  a separate two-species regression checks the mask after a hidden list, inclusive radius,
+  exclusion beyond radius, and unchanged normalization (distance 1 / senseRadius 4 = 0.25).
+- Development, production and IDE builds pass. Full headless rerun: **95/95 plus 24 mirror
+  checks**. U45 still enforces the unchanged bundle ceiling. A36 remains pending; headless
+  shader parsing alone is not evidence that custom neighbour consumers execute correctly.
 
 ---
 

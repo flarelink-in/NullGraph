@@ -24,6 +24,7 @@ export function buildAgentSenseWGSL(def: AgentDefinition, thinkEvery = 1): strin
     obs[row + ${offset + 1}u] = clamp(a.state.x, -1.0, 1.0);`);
             offset += 2;
         } else if (sensor.kind === 'nearest') {
+            if (sensor.observe === false) { base += sensor.k; continue; }
             blocks.push(`for (var rank = 0u; rank < ${sensor.k}u; rank++) {
         let at = row + ${offset}u + rank * 5u;
         for (var field = 0u; field < 5u; field++) { obs[at + field] = 0.0; }

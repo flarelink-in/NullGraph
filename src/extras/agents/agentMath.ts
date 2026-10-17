@@ -106,7 +106,9 @@ export function senseAgent(def: AgentDefinition, rec: RecordViews, i: number,
             out[at + 1] = clamp(d[b + AGENT_ENERGY_OFFSET], -1, 1);
             at += SELF_WIDTH;
         } else if (s.kind === 'nearest') {
-            const found = nearestNeighbours(def, rec, i, def.nearestMasks[nearest++], r, s.k, _nearIdx);
+            const mask = def.nearestMasks[nearest++];
+            if (s.observe === false) continue;
+            const found = nearestNeighbours(def, rec, i, mask, Math.min(r, s.radius ?? def.cellSize), s.k, _nearIdx);
             for (let rank = 0; rank < s.k; rank++, at += NEAREST_WIDTH) {
                 if (rank >= found) {
                     out.fill(0, at, at + NEAREST_WIDTH);
@@ -135,7 +137,7 @@ export function senseAgent(def: AgentDefinition, rec: RecordViews, i: number,
             at += BOUNDS_WIDTH;
         } else {
             if (!s.mirror) throw new Error(`AgentSystem: custom sensor "${s.name}" has no CPU mirror; pass mirror to use it on the CPU.`);
-            s.mirror(d, u, i, out, at);
+            s.mirror(d, u, i, out, at, def);
             at += s.width;
         }
     }
