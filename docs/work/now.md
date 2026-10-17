@@ -65,6 +65,18 @@ checks the look and bakes the font atlas; it does not record.
 - **A second session the same day (docs only, uncommitted):** `docs/use-cases-current.md` and
   `docs/use-cases-after-phase-2.md`, every use case rated by effort, need and money, now and after
   Phase 2. Their proposed Phase 2 order (NAV first, then EVO) awaits the user; `plan.md` untouched.
+- **Phase 2, accepted 2026-10-17, runs alongside D2.3** ([`plan-2.md`](./plan-2.md)): research, the
+  library kept general purpose; co-evolution first (so EVO before NAV, above).
+  - **Step 11** ([design](../agents-genome-rows-design.md)): the staged kernel with a per-lane
+    fallback; Q5 (single networks in Chrome) parked.
+  - **Committed 2026-10-17, each validated alone in a temporary worktree:**
+    - 11.0 `6042e41`: spike S6;
+    - 11.1 `2e3c8c2`: the cooperative think entry;
+    - 11.2 `2d51159`: `MlpBrain.byGenome`, `setWeights({ row })` and `setRows`, built by another agent;
+      the review fixed a WGSL reserved word, `active`, that no device compiled.
+  - Size: the whole agents entry is 21,362 B min+gzip, 133 B under C2's 21,495 B; the rule path is
+    14,768 B. `dist/` is a development build (`npm run build:lib`).
+  - **Next:** phase 11.3, A35's second part on three host/GPU pairs, and a 16,384-agent step timed.
 - **Site** (`D:/NULLGRAPH/Minimal_TypeScript_v6.0.1/starter-vite-ts`): untouched this session. Eight
   unrelated staged files (hosting, two light demos) stay staged; commit there by path.
 - **Axion** (`D:/orion-realms/orion-engine-test`, the engine null-graph exists for): its Phase 0–4

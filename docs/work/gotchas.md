@@ -280,6 +280,12 @@ Moved from `../handoff.md` on 2026-10-12. Add new ones at the end.
   driver for nvenc is 610.00". The GTX 1650 has driver 581.83. Fed through a pipe, ffmpeg quits
   before reading, and Node reports only `write EOF`; read ffmpeg's stderr for the reason. Use
   `libx264`, or update the driver.
+- **The headless WGSL parser does not know WGSL's reserved words** (`wgsl_reflect`, used by the U
+  suites). `active` is reserved: `var active = false;` parsed in U43, then failed every device's
+  compile ("'active' is a reserved keyword"; phase 11.2's staged kernel, 2026-10-17). A shader that
+  only headless tests have seen has not been compiled: create its module on a device (a GPU suite,
+  or `getCompilationInfo()`). Other reserved words that read like names: `filter`, `target`, `meta`,
+  `module`, `self`, `shared`, `type`, `layout`, `precise`.
 - **ffmpeg 9 ignores `-color_primaries` and `-color_trc` on output after a filter:** the stream is
   tagged from the frames, and both came out "unknown". Tag them in the filter chain instead:
   `…,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`.

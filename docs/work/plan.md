@@ -400,3 +400,11 @@ Full descriptions: handoff "After Cycle B — the ONNX/AI product plan" and "Far
   to have terrain generation next … idea is rather terrain for game"), after trying the portfolio's
   lab mock. Recorded as the proposed **Cycle E** (§3), design first; its order and split are §5,
   item 15.
+- **2026-10-17:** the user accepted **Phase 2's program map, [`plan-2.md`](./plan-2.md)**
+  (revision 2; revision 1 was drafted with Gemini). Phase 2 is research, and the library stays
+  general purpose ("i want my null-graph to stay general purpose all this are researches i m
+  planning to conduct"): research code lives in demos and `tools/`, and the library gains only
+  pieces that pass plan-2 §3's rule. Decided there (§9): co-evolution in Herd & Wolves first, ahead
+  of NAV; headless training, with offline films of the results through `tools/film`; contacts,
+  rocks and stamina as demo code first, contacts later in a new `null-graph/physics` entry; Phase 2
+  runs alongside D2.3; spikes first (S6–S8), then the designs. Steps continue from 11.
