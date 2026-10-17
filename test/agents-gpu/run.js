@@ -1994,6 +1994,123 @@ fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32) {
     }
 }
 
+// A36: query-only lists are refreshed every step, independently of observation/brain cadence.
+// Isolated clusters include inclusive radius ties, peers beyond the query radius, dead rows,
+// two species, and a partial final workgroup. A no-op action keeps the oracle at pre-step positions.
+{
+    const N = 130, NONE = 0xffffffff;
+    const summary = A.Sensors.custom({ name: 'summary', width: 1,
+        wgsl: `fn summary(i: u32, a: Agent) -> array<f32, 1> {
+    var total = 0u;
+    for (var r = 0u; r < 6u; r++) {
+        let j = neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_CONTACTS + r];
+        if (j != NO_AGENT) { total += (r + 1u) * (j + 1u); }
+    }
+    return array<f32, 1>(f32(total) / 10000.0);
+}`,
+        mirror(data, u32, i, out, at, def) {
+            const indices = [], count = A.nearestNeighbours(def, { data, u32 }, i, 3, 2.5, 6, indices);
+            let total = 0;
+            for (let r = 0; r < count; r++) total += (r + 1) * (indices[r] + 1);
+            out[at] = total / 10000;
+        } });
+    const visible = A.Sensors.nearest({ name: 'visible', species: 'wolf', k: 2 });
+    const options = { capacity: N, world: { min: [-8, -8], max: [160, 8] }, cellSize: 4,
+        species: [
+            { name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 2, radius: 0.2 },
+            { name: 'wolf', maxSpeed: 5, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.2 },
+        ], actions: A.Actions.custom({ name: 'hold', width: 2, wgsl: 'fn hold(i: u32) {}' }) };
+    const baseline = A.defineAgents({ ...options, sensors: [visible, summary] });
+    const def = A.defineAgents({ ...options, sensors: [visible,
+        A.Sensors.query({ name: 'contacts', k: 6, radius: 2.5 }), summary] });
+    check('A36: query declaration preserves the observed network dimensions and names',
+        def.obsDim === 11 && def.obsDim === baseline.obsDim && equal(def.obsNames, baseline.obsNames));
+    const net = [{ input: baseline.obsDim, output: 2, activation: 'tanh',
+        weights: Float32Array.from({ length: baseline.obsDim * 2 }, (_, k) => (k % 7 - 3) / 16),
+        biases: new Float32Array([0.1, -0.2]) }];
+    for (const thinkEvery of [1, 3]) {
+        device.pushErrorScope('validation');
+        const sys = new A.AgentSystem(engine, def, { thinkEvery }), brain = new A.MlpBrain(engine, net);
+        sys.setBrain(brain);
+        const consumed = buffer(N, new Uint32Array(N).fill(NONE));
+        sys.addStepStage({ name: 'query_consumer', buffers: [consumed], wgsl: `
+@group(1) @binding(0) var<storage, read_write> consumed: array<u32>;
+fn step(i: u32, tick: u32) {
+    var total = 0u;
+    for (var r = 0u; r < 6u; r++) {
+        let j = neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_CONTACTS + r];
+        if (j != NO_AGENT) { total += (r + 1u) * (j + 1u); }
+    }
+    consumed[i] = total;
+}` });
+        const cachedObs = new Float32Array(N * def.obsDim), cachedAct = new Float32Array(N * 2);
+        let radiusWitnesses = 0, cadenceSkips = 0, changes = 0, prior;
+        for (let tick = 0; tick < 6; tick++) {
+            for (let i = 0; i < N; i++) {
+                sys.spawn(i, { position: [Math.floor(i / 10) * 12 + (i % 10) * 0.5,
+                    0, i % 10 === 1 ? (tick % 2) * 0.75 : 0], species: i % 2,
+                    heading: 0, age: tick === 2 && i === 64 ? 0 : 1 });
+                if (i % 10 === 9) sys.kill(i);
+            }
+            const rec = sys.records;
+            const grid = A.buildPointGrid(def, rec.data, 16, N, i => rec.isAlive(i), def.maxScanPerCell);
+            const expected = new Uint32Array(N * 8).fill(NONE), totals = new Uint32Array(N).fill(NONE);
+            for (let i = 0; i < N; i++) {
+                for (const [mask, radius, k, base] of [[2, 4, 2, 0], [3, 2.5, 6, 2]]) {
+                    const indices = [], count = A.gridNearestNeighbours(def, rec, grid, i, mask, radius, k, indices, tick);
+                    for (let r = 0; r < count; r++) expected[i * 8 + base + r] = indices[r];
+                }
+                // Both query implementations populate dead observers, but never return dead peers.
+                // Sense and application stages, unlike queries, skip dead observers.
+                if (!rec.isAlive(i)) continue;
+                totals[i] = 0;
+                for (let r = 0; r < 6; r++) {
+                    const j = expected[i * 8 + 2 + r];
+                    if (j !== NONE) totals[i] += (r + 1) * (j + 1);
+                }
+                const wide = [], count = A.gridNearestNeighbours(def, rec, grid, i, 3, 4, 6, wide, tick);
+                radiusWitnesses += wide.slice(0, count).filter(j => !expected.subarray(i * 8 + 2, i * 8 + 8).includes(j)).length;
+                if ((tick === 2 && i === 64) || (tick + Math.floor(i / 64)) % thinkEvery === 0) {
+                    const row = A.senseAgent(def, rec, i);
+                    cachedObs.set(row, i * def.obsDim);
+                    cachedAct.set(A.mlpForward(net, row), i * 2);
+                } else cadenceSkips++;
+            }
+            await sys.step();
+            const actual = await read(sys.neighbours, N * 8);
+            const obs = new Float32Array((await read(sys.obs, N * def.obsDim)).buffer);
+            const act = new Float32Array((await read(sys.act, N * 2)).buffer);
+            const near = (a, b) => a.length === b.length && a.every((v, k) => Math.abs(v - b[k]) <= 1e-5 + 1e-5 * Math.abs(b[k]));
+            check(`A36 every ${thinkEvery}, tick ${tick}: both slices match gridNearestNeighbours, excluding dead peers`, equal(actual, expected));
+            check(`A36 every ${thinkEvery}, tick ${tick}: senseAgent/custom consumer and unchanged MLP match their cadence`,
+                near(obs, cachedObs) && near(act, cachedAct));
+            check(`A36 every ${thinkEvery}, tick ${tick}: step-stage consumer reads the current query`, equal(await read(consumed, N), totals));
+            let snapshotsMatch = true;
+            for (let i = 0; i < N; i++) {
+                const snap = await sys.inspect(i);
+                for (const [slice, base, k] of [[0, 0, 2], [1, 2, 6]]) {
+                    if (!snap || snap.neighbours[slice].sensor !== (slice ? 'contacts' : 'visible') ||
+                        !equal(snap.neighbours[slice].indices, expected.subarray(i * 8 + base, i * 8 + base + k).filter(j => j !== NONE))) snapshotsMatch = false;
+                }
+            }
+            check(`A36 every ${thinkEvery}, tick ${tick}: inspect decodes both slices for every agent`, snapshotsMatch);
+            if (prior && !equal(prior, actual)) changes++;
+            prior = actual;
+        }
+        check(`A36 every ${thinkEvery}: non-vacuous radius exclusions, changing lists and cadence skips`,
+            radiusWitnesses > 0 && changes === 5 && (thinkEvery === 1 || cadenceSkips > 0));
+        // Same buffers and query generator as AgentSystem, but with the radius selection broken.
+        const enc = device.createCommandEncoder();
+        dispatch(enc, A.buildAgentGridQueryWGSL(def, 3, def.cellSize, 6, { stride: 8, base: 2 }),
+            [sys.buffer, sys.grid.cellCounts, sys.grid.cellOffsets, sys.grid.cellBodies, sys.neighbours, sys.state], Math.ceil(N / 64));
+        device.queue.submit([enc.finish()]);
+        const mutated = await read(sys.neighbours, N * 8);
+        check(`A36 every ${thinkEvery} watched failing: cellSize substituted for radius disagrees with the same slice oracle`, !equal(mutated, prior));
+        check(`A36 every ${thinkEvery}: zero scoped WebGPU validation errors`, await device.popErrorScope() === null);
+        sys.destroy(); brain.destroy();
+    }
+}
+
 allocated.splice(0).forEach(b => b.destroy());
 await finish('All agent grid, sense, think, act, app-stage, arrow, instance, picking, label, inspect and MLP GPU checks passed.');
 device.destroy();

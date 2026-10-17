@@ -5,7 +5,8 @@ milestone 2B step 12); [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md
 `neighbours` buffer) and §8.2 (app step stages).
 **Status:** decisions accepted 2026-10-17 (§13); corrected S8 validation resumed 2026-10-18.
 The user authorized proceeding with step 12 on 2026-10-18. Phase 12.1 is headless-validated
-at **21,468 B** min+gzip, below the unchanged **21,495 B** ceiling. A36 and the API guide follow.
+at **21,468 B** min+gzip, below the unchanged **21,495 B** ceiling. A36 is validated on all
+three host/GPU pairs; the checked API guide (12.3) follows.
 **Builds on:**
 - `defineAgents`, `Sensors.nearest` and the CPU mirrors ([`agents-design.md`](./agents-design.md) §6–§7);
 - `AgentSystem`'s shared `PointGrid`, per-sensor query stages, `addStepStage` and `inspect`
@@ -321,7 +322,7 @@ IDs continue from step 11 (`U43`, `U44`, `A35`).
 |---|---|---|
 | **12.0** ✅ `f777bc2` | Spike S8 (`npm run spike:s8`, `test/spikes/contacts/`): contacts over today's lists, over a query-only list, and over `PointGrid` (§14) | Complete 2026-10-18 on Node/NVIDIA, Node/AMD and Chrome/AMD; exact reruns, exhaustive dense-count oracle and 600-step histories pass, zero GPU errors; corrected findings and solver limits below |
 | **12.1** ✅ | `Sensors.query` / `Sensors.nearest({ observe, radius })`, custom-sensor neighbour constants, CPU mirror, U45 headless, bundle check | Complete 2026-10-18: U45 green and four mutations caught; `test:agents` 94/94 plus 24 mirror checks; whole entry 21,468 B min+gzip, 27 B under the unchanged ceiling |
-| **12.2** | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Green on all three pairs, watched failing, zero WebGPU errors |
+| **12.2** ✅ | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Complete 2026-10-18: 197/197 suite checks on each pair, including 55 A36 checks, radius mutation caught at both cadences, zero WebGPU errors |
 | **12.3** | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Example runs and is watched failing |
 
 Add ✅ to each subsequent phase only when its own exit is verified; no check mark means pending.
@@ -352,6 +353,24 @@ Add ✅ to each subsequent phase only when its own exit is verified; no check ma
 - Development, production and IDE builds pass. Full headless rerun: **95/95 plus 24 mirror
   checks**. U45 still enforces the unchanged bundle ceiling. A36 remains pending; headless
   shader parsing alone is not evidence that custom neighbour consumers execute correctly.
+
+### Phase 12.2 GPU validation — 2026-10-18
+
+- A36 exercises 130 agents (partial third workgroup), two species, dead peers, exact radius
+  boundaries and changing positions across six ticks at each of `thinkEvery: 1` and `3`.
+  Both slices match `gridNearestNeighbours` on every tick; custom observations match `senseAgent`
+  and the unchanged 11-input network matches `mlpForward` on the appropriate cadence, including
+  an off-cadence newborn. A step-stage checksum consumes the current query every tick.
+- Every agent is inspected after every tick (1,560 snapshots). Both decoded slices match the
+  raw-list oracle. Radius exclusions, changing lists and skipped observation ticks are explicitly
+  required, preventing vacuous passes. Substituting cellSize for query radius is watched failing
+  using the same slice comparator at both cadences.
+- Fresh final-file suite runs: **197/197 on Node/NVIDIA, Node/AMD and Chrome/AMD**, zero scoped
+  or uncaptured WebGPU errors. Node JSON reports are local in ignored `test/spikes/contacts/out/`.
+- Review correction: an attempted dead-observer gate in the test oracle caused 24 failures per
+  pair and was removed. Existing GPU and CPU grid queries both populate dead observers while
+  excluding dead candidates; sense and application stages skip dead observers. No production
+  contract was changed. The final file was rerun green on all three pairs after this correction.
 
 ---
 
