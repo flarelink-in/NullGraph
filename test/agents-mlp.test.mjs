@@ -310,3 +310,156 @@ test('U21: a per-species brain attaches like any brain, its table bound at group
     system.destroy();
     brain.destroy();
 });
+
+// U43 (phase 11.2, docs/agents-genome-rows-design.md §5, §6, §9, §10): a network per agent
+// (MlpBrain.byGenome), staged in workgroup memory with a per-lane fallback, and its row updates.
+const thirdNet = () => [layer(2, 3, 'tanh', seq(6, 100), seq(3, 110)), layer(3, 2, 'sigmoid', seq(6, 120), seq(2, 130))];
+
+test('U43: byGenome packs row r at r × floats, reports rowCount, and marks the brain cooperative', () => {
+    const m = mock(), nets = [preyNet(), wolfNet(), thirdNet()];
+    const brain = A.MlpBrain.byGenome(m.engine, nets);
+    const F = A.mlpLayout(nets[0]).floats;
+    assert.equal(brain.kind, 'stage');
+    assert.equal(brain.cooperative, true);
+    assert.equal(brain.rowCount, 3);
+    assert.deepEqual(brain.dims, { obs: 2, act: 2 });
+    assert.equal(m.buffers.length, 1);
+    assert.equal(m.buffers[0].size, 3 * F * 4);
+    assert.equal(m.writes.length, 1);
+    for (let r = 0; r < 3; r++) {
+        assert.deepEqual(m.writes[0].data.subarray(r * F, (r + 1) * F), A.packMlpWeights(nets[r]));
+    }
+    const copy = m.writes[0].data.slice();
+    nets[1][0].weights.fill(99);
+    assert.deepEqual(m.writes[0].data, copy, 'caller mutation after construction leaves the uploaded table untouched');
+    assert.equal(new A.MlpBrain(mock().engine, preyNet()).rowCount, 1);
+    assert.equal(new A.MlpBrain(mock().engine, preyNet()).cooperative, undefined);
+    assert.equal(A.MlpBrain.bySpecies(mock().engine, twoSpecies(), { prey: preyNet(), wolf: wolfNet() }).rowCount, 2);
+    brain.destroy();
+});
+
+test('U43: setWeights({ row }) writes one row and setRows writes a range of packed rows; the shader and buffer stay fixed', () => {
+    const m = mock(), nets = [preyNet(), wolfNet(), thirdNet(), preyNet()];
+    const brain = A.MlpBrain.byGenome(m.engine, nets);
+    const F = A.mlpLayout(nets[0]).floats, buffer = brain.buffers[0], wgsl = brain.wgsl;
+    const retrained = [layer(2, 3, 'tanh', seq(6, 50), seq(3, 60)), layer(3, 2, 'sigmoid', seq(6, 70), seq(2, 80))];
+    brain.setWeights(retrained, { row: 2 });
+    assert.equal(m.writes.length, 2);
+    assert.equal(m.writes[1].buffer, buffer);
+    assert.equal(m.writes[1].offset, 2 * F * 4);
+    assert.deepEqual(m.writes[1].data, A.packMlpWeights(retrained));
+    // setRows from a subarray view: two rows starting at row 1.
+    const backing = new Float32Array((2 * F) + 8).fill(77);
+    const twoRows = backing.subarray(4, 4 + 2 * F);
+    A.packMlpWeights(wolfNet(), twoRows.subarray(0, F));
+    A.packMlpWeights(thirdNet(), twoRows.subarray(F));
+    brain.setRows(twoRows, { first: 1 });
+    assert.equal(m.writes.length, 3);
+    assert.equal(m.writes[2].buffer, buffer);
+    assert.equal(m.writes[2].offset, 1 * F * 4);
+    assert.deepEqual(m.writes[2].data, twoRows);
+    // setRows with first omitted writes from row 0.
+    const allFour = new Float32Array(4 * F);
+    for (let r = 0; r < 4; r++) A.packMlpWeights(retrained, allFour.subarray(r * F, (r + 1) * F));
+    brain.setRows(allFour);
+    assert.equal(m.writes.length, 4);
+    assert.equal(m.writes[3].offset, 0);
+    assert.deepEqual(m.writes[3].data, allFour);
+    assert.equal(brain.buffers[0], buffer);
+    assert.equal(brain.wgsl, wgsl);
+    brain.destroy();
+});
+
+test('U43: byGenome, setWeights({ row }) and setRows refuse every invalid argument of §10, before any upload', () => {
+    const m = mock();
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, []), /^Error: MlpBrain: byGenome needs at least one network\.$/);
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, null), /^Error: MlpBrain: byGenome needs at least one network\.$/);
+    assert.throws(() => A.buildMlpThinkWGSL(preyNet(), 0), /^Error: MlpBrain: byGenome needs at least one network\.$/);
+    const wide = [layer(2, 4, 'tanh'), layer(4, 2, 'sigmoid')];
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, [preyNet(), wolfNet(), wide]),
+        /^Error: MlpBrain: the network for row 2 differs in shape from row 0 at layer 0; give it its own brain\.$/);
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, [preyNet(), [layer(2, 3, 'relu'), layer(3, 2, 'sigmoid')]]),
+        /^Error: MlpBrain: the network for row 1 differs in shape from row 0 at layer 0; give it its own brain\.$/);
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, [preyNet(), [layer(2, 3, 'tanh'), layer(3, 2, 'tanh')]]),
+        /^Error: MlpBrain: the network for row 1 differs in shape from row 0 at layer 1; give it its own brain\.$/);
+    const F = A.mlpLayout(preyNet()).floats;
+    m.engine.device.limits.maxStorageBufferBindingSize = 2 * F * 4;
+    assert.throws(() => A.MlpBrain.byGenome(m.engine, [preyNet(), wolfNet(), thirdNet()]),
+        /^Error: MlpBrain: weights exceed device buffer limits\.$/);
+    assert.equal(m.buffers.length, 0, 'a refused construction allocated a buffer');
+    m.engine.device.limits.maxStorageBufferBindingSize = 128 * 1024 * 1024;
+    const brain = A.MlpBrain.byGenome(m.engine, [preyNet(), wolfNet(), thirdNet()]);
+    const single = new A.MlpBrain(m.engine, preyNet());
+    const perSpecies = A.MlpBrain.bySpecies(m.engine, twoSpecies(), { prey: preyNet(), wolf: wolfNet() });
+    assert.throws(() => brain.setWeights(preyNet()),
+        /^Error: MlpBrain: this brain holds one network per row; call setWeights\(network, \{ row \}\)\.$/);
+    assert.throws(() => brain.setWeights(preyNet(), { species: 'prey' }),
+        /^Error: MlpBrain: setWeights\(\{ species \}\) needs a brain from MlpBrain\.bySpecies\.$/);
+    assert.throws(() => single.setWeights(preyNet(), { row: 0 }),
+        /^Error: MlpBrain: setWeights\(\{ row \}\) needs a brain from MlpBrain\.byGenome\.$/);
+    assert.throws(() => perSpecies.setWeights(preyNet(), { row: 0 }),
+        /^Error: MlpBrain: setWeights\(\{ row \}\) needs a brain from MlpBrain\.byGenome\.$/);
+    assert.throws(() => single.setRows(A.packMlpWeights(preyNet())),
+        /^Error: MlpBrain: setRows needs a brain from MlpBrain\.byGenome\.$/);
+    assert.throws(() => perSpecies.setRows(A.packMlpWeights(preyNet())),
+        /^Error: MlpBrain: setRows needs a brain from MlpBrain\.byGenome\.$/);
+    for (const bad of [-1, 3, 4, 1.5, NaN]) {
+        assert.throws(() => brain.setWeights(preyNet(), { row: bad }),
+            new RegExp(`^Error: MlpBrain: row ${bad} is outside this brain's 3 rows\\.$`));
+    }
+    assert.throws(() => brain.setWeights(wide, { row: 1 }), /same shape and activations/);
+    for (const bad of [new Float32Array(0), new Float32Array(F - 1), new Float32Array(F + 1)]) {
+        assert.throws(() => brain.setRows(bad),
+            new RegExp(`^Error: MlpBrain: setRows needs whole rows of ${F} floats; got ${bad.length}\\.$`));
+    }
+    const oneRow = A.packMlpWeights(preyNet());
+    for (const bad of [-1, 3, 1.5, NaN]) {
+        assert.throws(() => brain.setRows(oneRow, { first: bad }),
+            new RegExp(`^Error: MlpBrain: row ${bad} is outside this brain's 3 rows\\.$`));
+    }
+    assert.throws(() => brain.setRows(new Float32Array(2 * F), { first: 2 }),
+        /^Error: MlpBrain: row 3 is outside this brain's 3 rows\.$/);
+    const nonFinite = oneRow.slice();
+    nonFinite[5] = NaN;
+    assert.throws(() => brain.setRows(nonFinite), /MlpBrain:.*finite/);
+    assert.equal(m.writes.length, 3, 'only the three constructions uploaded');
+    brain.destroy(); single.destroy(); perSpecies.destroy();
+    assert.throws(() => brain.setRows(oneRow), /after destroy/);
+});
+
+test('U43: the staged genome shader parses in the cooperative wrapper, tiles wide layers, reads ids.z and guards out-of-range genomes', () => {
+    for (const [net, rows] of [
+        [preyNet(), 4],
+        [[layer(128, 64, 'tanh'), layer(64, 64, 'relu'), layer(64, 64, 'sigmoid'), layer(64, 16)], 64],
+    ]) {
+        const m = mock();
+        const brain = A.MlpBrain.byGenome(m.engine, Array.from({ length: rows }, () => net));
+        const quads = A.mlpLayout(net).floats / 4;
+        assert.match(brain.wgsl, /\bfn thinkBlock\(i: u32, species: u32, tick: u32, thinking: bool, lane: u32\)/);
+        assert.match(brain.wgsl, new RegExp(`stagedRow = min\\(agents\\[i\\]\\.ids\\.z, ${rows - 1}u\\) \\* ${quads}u;`));
+        assert.match(brain.wgsl, /let rowBase = workgroupUniformLoad\(&stagedRow\);/);
+        assert.match(brain.wgsl, new RegExp(`let g = agents\\[i\\]\\.ids\\.z;\\s*if \\(g < ${rows}u\\)`));
+        assert.match(brain.wgsl, /if \(myBase == rowBase\)/);
+        assert.match(brain.wgsl, /else \{ setAct\(i, k, bitcast<f32>\(nan\)\); \}/);
+        assert.ok(!brain.wgsl.includes('`'));
+        if (net[0].input === 128) {
+            // 128 × 64 = 2048 vec4s in layer 0 → 4 tiles of 16 rows × 32 vec4s (512 vec4s each).
+            assert.match(brain.wgsl, /for \(var r = 0u; r < 16u; r\+\+\)/);
+            assert.match(brain.wgsl, /for \(var r = 48u; r < 64u; r\+\+\)/);
+        }
+        const definition = A.defineAgents({ capacity: 65, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: [{ name: 'unit', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+            sensors: [A.Sensors.custom({ name: 'features', width: net[0].input,
+                wgsl: `fn features(i: u32, a: Agent) -> array<f32, ${net[0].input}> { return array<f32, ${net[0].input}>(); }` })],
+            actions: A.Actions.custom({ name: 'controls', width: net.at(-1).output, wgsl: 'fn controls(i: u32) {}' }) });
+        const sys = new A.AgentSystem(m.engine, definition, { thinkEvery: 3 });
+        sys.setBrain(brain);
+        const stage = m.stages.at(-1);
+        assert.equal(stage.groups[1][0].resource.buffer, brain.buffers[0]);
+        const reflect = new WgslReflect(stage.shaderCode);
+        assert.equal(reflect.entry.compute[0].name, 'cs_main');
+        assert.ok(stage.shaderCode.includes('thinkBlock(i, kind, state.tick, thinking, lane);'));
+        sys.destroy();
+        brain.destroy();
+    }
+});
