@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
-import { AgentSystem, MlpBrain, RuleBrain, defineAgents, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
+import { AgentSystem, MlpBrain, RuleBrain, defineAgents, mlpLayout, packMlpWeights, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
 import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
 import { standIn } from './stand-in-engine.mjs';   // runs an example's setup without a GPU
 
@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 test('API guide: every example type-checks, bundles and generates a valid think module', async () => {
     const guide = readFileSync(join(root, 'docs/api/agents.md'), 'utf8');
     const examples = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map(match => match[1]);
-    assert.equal(examples.length, 5, 'validate every TypeScript example in the guide');
+    assert.equal(examples.length, 6, 'validate every TypeScript example in the guide');
     const dir = mkdtempSync(join(root, 'test/.agents-api-'));
     try {
         const files = examples.map((source, n) => {
@@ -40,7 +40,7 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             assert.ok(declaration, 'every example declares its definition');
             return Function('defineAgents', 'Sensors', `return defineAgents(${declaration[1]});`)(defineAgents, Sensors);
         };
-        let rules = 0, networks = 0, perSpecies = 0, trained = 0, switching = 0;
+        let rules = 0, networks = 0, perSpecies = 0, byGenome = 0, trained = 0, switching = 0;
         for (const [n, source] of examples.entries()) {
             const result = await build({ stdin: { contents: source, loader: 'ts', resolveDir: root },
                 bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
@@ -97,6 +97,48 @@ test('API guide: every example type-checks, bundles and generates a valid think 
                 wgsl = thinks[0].shaderCode;
                 agents.destroy();
                 for (const b of brains) b.destroy();
+            } else if (/MlpBrain\.byGenome\(/.test(source)) {
+                // The per-agent network example (step 11, phase 11.4): 4 rows in one weight table,
+                // agents spawned in 64-agent blocks, and single-row / multi-row updates without a compile.
+                byGenome++;
+                const module = join(dir, `example${n}.mjs`);
+                writeFileSync(module, result.outputFiles[0].text);
+                const { createByGenomeDemo, rowForGain } = await import(pathToFileURL(module).href);
+                const { engine, stages } = standIn(), writes = [];
+                engine.device.queue.writeBuffer = (buffer, offset, data, dataOffset = 0, size = data.length - dataOffset) => {
+                    if (data instanceof Float32Array) writes.push({ buffer, offset, data: data.slice(dataOffset, dataOffset + size) });
+                };
+                const demo = createByGenomeDemo(engine);
+                const floats = mlpLayout(rowForGain(1)).floats, weightsBuf = demo.brain.buffers[0];
+                assert.equal(demo.brain.rowCount, 4);
+                assert.equal(demo.brain.cooperative, true);
+                const tableWrites = () => writes.filter(w => w.buffer === weightsBuf);
+                assert.equal(tableWrites().length, 1, 'construction uploaded the 4-row table once');
+                for (let r = 0; r < 4; r++) {
+                    assert.deepEqual(tableWrites()[0].data.subarray(r * floats, (r + 1) * floats), packMlpWeights(rowForGain(r + 1)));
+                }
+                const words = new Uint32Array(demo.agents.records.data.buffer, demo.agents.records.data.byteOffset, demo.agents.capacity * 16);
+                for (let i = 0; i < demo.agents.capacity; i++) {
+                    assert.equal(words[i * 16 + 14], Math.floor(i / 64), `agent ${i} is in block ${Math.floor(i / 64)}`);
+                }
+                demo.agents.advance(demo.agents.definition.dt);
+                const [thinkPass, ...extra] = demo.agents.getComputeStages().filter(s => s.name === 'AgentSystem think');
+                assert.ok(thinkPass && !extra.length && thinkPass.shaderCode.includes('fn thinkBlock('), 'one cooperative think pass');
+                const built = stages.length;
+                demo.setRowGain(2, 5);
+                assert.equal(stages.length, built, 'updating one row compiles nothing');
+                assert.equal(tableWrites().length, 2);
+                assert.equal(tableWrites()[1].offset, 2 * floats * 4);
+                assert.deepEqual(tableWrites()[1].data, packMlpWeights(rowForGain(5)));
+                demo.setPairGains(1, 6, 7);
+                assert.equal(stages.length, built, 'updating a range of rows compiles nothing');
+                assert.equal(tableWrites().length, 3);
+                assert.equal(tableWrites()[2].offset, 1 * floats * 4);
+                assert.deepEqual(tableWrites()[2].data.subarray(0, floats), packMlpWeights(rowForGain(6)));
+                assert.deepEqual(tableWrites()[2].data.subarray(floats), packMlpWeights(rowForGain(7)));
+                wgsl = thinkPass.shaderCode;
+                demo.destroy();
+                assert.equal(weightsBuf.destroyed, true);
             } else if (/setBrain\(\w+, \{ species: /.test(source)) {
                 // The per-species example: run its setup on a stand-in engine and check what its
                 // comments promise about passes and compiles. Its think modules are the stages it built.
@@ -140,10 +182,10 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             }
             assert.equal(new WgslReflect(wgsl).entry.compute[0].name, 'cs_main');
         }
-        assert.deepEqual([rules, networks, perSpecies, trained, switching], [1, 1, 1, 1, 1],
-            'one rule example, one network example, one per-species example, one trained-network example, one switching example');
+        assert.deepEqual([rules, networks, perSpecies, byGenome, trained, switching], [1, 1, 1, 1, 1, 1],
+            'one rule, one network, one per-species, one byGenome, one trained-network and one switching example');
         console.log('API examples: TypeScript, browser bundles, the network example\'s numbers, the per-species example\'s passes, ' +
-            'the switching example\'s prepared passes, the trained-network example\'s loading and generated WGSL passed.');
+            'the byGenome example\'s blocks and row updates, the switching example\'s prepared passes, the trained-network example\'s loading and generated WGSL passed.');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

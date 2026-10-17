@@ -2,11 +2,11 @@
 
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
 entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
-which runs a small dense network you supply, per-species brains, switching brains without a
-compile in the frame, and loading a trained network (C2 steps 7 and 9). Training, camera eyes and
-a replay/rewind UI are not implemented by this API. Training is done by tools in the repository,
-outside the package ([a trained network](#a-trained-network)). An `.onnx` file is read, and
-ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
+which runs a small dense network you supply, per-species brains, [a network per agent](#a-network-per-agent)
+(Phase 2 step 11), switching brains without a compile in the frame, and loading a trained network
+(C2 steps 7 and 9). Training, camera eyes and a replay/rewind UI are not implemented by this API.
+Training is done by tools in the repository, outside the package ([a trained network](#a-trained-network)).
+An `.onnx` file is read, and ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
 ([inference.md](./inference.md)).
 
 **See it running:** the test site's Herd & Wolves demo ([nullgraph.dev](https://nullgraph.dev/),
@@ -236,7 +236,8 @@ Render it with the same frame function as the rule example: `advance`, `upload`,
   expects.
 - **One network for every species it serves:** identical observations give identical actions,
   whatever the species. When species need different policies, give them their own brains
-  ([per-species brains](#per-species-brains)).
+  ([per-species brains](#per-species-brains)); when individual agents need their own networks of
+  one shape, use [a network per agent](#a-network-per-agent).
 - **Numerics:** tanh's input is clamped to ±15 (the FXC compiler behind Dawn's D3D12 backend
   returns NaN beyond about 89);
   sigmoid is evaluated stably; identity and relu outputs are not clipped. The act stage still
@@ -373,6 +374,115 @@ fn think(i: u32, species: u32, tick: u32) {
   - Spawn each species in one contiguous index block when you can.
 - **Cost for one brain:** a system with one brain reads one more uniform per thinking agent than
   before.
+
+## A network per agent
+
+`MlpBrain.byGenome(engine, networks)` holds `N` (`networks.length >= 1`) networks of one shape as
+the rows of one weight table (`brain.rowCount === N`), and each agent reads the row its record's
+`genome` word names (`spawn(i, { ..., genome })`). With no `genome` given, `spawn` sets it to `0`,
+and `inspect(i)` reports it.
+
+```ts
+import type { NullGraph } from 'null-graph';
+import { AgentSystem, MlpBrain, defineAgents, mlpLayout, packMlpWeights, Sensors, type MlpNetwork } from 'null-graph/agents';
+
+export function rowForGain(gain: number): MlpNetwork {
+    return [{
+        input: 4, output: 2, activation: 'tanh',
+        weights: new Float32Array([
+            0, 0, -gain, 0,   // turn     = tanh(-gain · bounds.side)
+            0, 0, 0, -2,      // throttle = tanh(1 - 2 · bounds.forward)
+        ]),
+        biases: new Float32Array([0, 1]),
+    }];
+}
+
+export function createByGenomeDemo(engine: NullGraph) {
+    const definition = defineAgents({
+        capacity: 256,
+        world: { min: [-40, -40], max: [40, 40] },
+        cellSize: 8,
+        species: [{ name: 'scout', maxSpeed: 3, maxTurn: 2, accel: 4,
+            senseRadius: 8, radius: 0.4 }],
+        sensors: [Sensors.self(), Sensors.bounds()],
+    });
+    const rows = [1, 2, 3, 4].map(rowForGain);
+    const floats = mlpLayout(rows[0]).floats;
+    const brain = MlpBrain.byGenome(engine, rows);   // 4 rows in one weight table
+    const agents = new AgentSystem(engine, definition);
+    agents.setBrain(brain);                          // one cooperative think pass
+    for (let i = 0; i < definition.capacity; i++) {
+        // Lay rows out in 64-agent blocks: agents 0–63 share row 0, 64–127 row 1, …
+        agents.spawn(i, { species: 'scout', genome: Math.floor(i / 64), heading: i * 2.4,
+            position: [(i % 16) * 4 - 30, 0, Math.floor(i / 16) * 4 - 30] });
+    }
+    agents.upload();
+    return {
+        agents,
+        brain,
+        // One row in place: one upload, no recompile.
+        setRowGain(row: number, gain: number) {
+            brain.setWeights(rowForGain(gain), { row });
+        },
+        // Contiguous rows packed back to back: one upload for the range, no recompile.
+        setPairGains(first: number, gainA: number, gainB: number) {
+            const packed = new Float32Array(2 * floats);
+            packMlpWeights(rowForGain(gainA), packed.subarray(0, floats));
+            packMlpWeights(rowForGain(gainB), packed.subarray(floats));
+            brain.setRows(packed, { first });
+        },
+        destroy() {
+            agents.destroy();
+            brain.destroy();
+        },
+    };
+}
+```
+
+- **Construction and updates:**
+  - `MlpBrain.byGenome(engine, networks)` checks that every network matches row `0`'s layer widths
+    and activations, packs row `r` at `r * mlpLayout(network).floats`, and uploads the table once.
+    `brain.rowCount` is `networks.length` (`1` on a single-network `MlpBrain`, the species count on
+    `MlpBrain.bySpecies`).
+  - `brain.setWeights(network, { row })` validates and uploads one row at `row * floats * 4` bytes.
+    Calling `setWeights(network)` without `{ row }` on a `byGenome` brain is refused.
+  - `brain.setRows(packed, { first })` uploads one or more whole rows packed back to back with
+    `packMlpWeights`, starting at row `first` (`0` when omitted), in one `writeBuffer` call. Every
+    weight must be finite.
+  - Neither update creates a buffer or recompiles a pass. The row count is fixed for the brain's
+    lifetime; changing `rowCount` or the network shape requires a new brain (`prepareBrain`
+    compiles it ahead).
+- **The 64-agent block layout and the staged kernel:**
+  - The think pass runs in workgroups of 64 agents (`0–63`, `64–127`, …). When a block has at least
+    one thinking agent, all 64 lanes cooperatively copy the block's first agent's row
+    (`agents[block * 64].genome`) into 8 KB of workgroup memory (`512 vec4<f32>`) a tile at a time
+    and evaluate from there. Any lane in the block whose `genome` names another row falls back to
+    reading its own row from storage. With `thinkEvery > 1`, a resting block with no newborn exits
+    before staging anything.
+  - **Spawn agents that share a row in contiguous 64-agent blocks when you can.** Every layout gives
+    the same actions as a single-network `MlpBrain` holding that row, bit for bit on the same GPU,
+    and agrees with `mlpForward` within the tolerance of [network brains](#network-brains-mlpbrain);
+    but mixed blocks pay for both the cooperative stage and per-lane storage reads.
+  - **Measured cost** (`npm run spike:s6`, 24→64→64→64→2 networks, 64 rows, 16,384 agents,
+    `thinkEvery: 1`): with rows aligned to 64-agent blocks, a full simulation step ran **9.8%
+    faster** than a single-network `MlpBrain` on an NVIDIA GPU under Node/Dawn (`−8.1%` at
+    `thinkEvery: 3`), **38.0% faster** in Chrome on an AMD iGPU (`−22.6%` at `thinkEvery: 3`), and
+    **30.6% slower** under Node/Dawn on the AMD iGPU (`+12.4%` at `thinkEvery: 3`). When agents in
+    a block were shuffled across rows, the step cost `+164%`, `+34.4%` and `+114%`. Smaller
+    networks gain less: with 24→32→32→2 networks and aligned rows, the step cost `−4.6%`, `+14.2%`
+    and `+4.9%` on the same three hosts. Under FXC
+    (Node/Dawn on Windows), compiling a `byGenome` pass takes 2–3 s (0.4–0.6 s in Chrome); use
+    [prepareBrain](#switching-brains-without-a-hitch) when building one after load.
+- **Out-of-range genomes:**
+  - An agent whose `genome` word is `>= brain.rowCount` never reads outside the weight table. Its
+    think writes `NaN` to every action (and `0` to `reason`), so the built-in steering brakes the
+    agent to a stop while `inspect(i)` still reports its `genome`. Custom actions receive the `NaN`
+    values and must guard them as for any brain.
+- **`byGenome` and `bySpecies`:**
+  - `MlpBrain.bySpecies` chooses a row from the agent's species; `MlpBrain.byGenome` chooses it
+    from `genome`. They are separate constructors. One `byGenome` brain can serve several species
+    when they share a shape (for example, rows `0–31` for one species and `32–63` for another) in
+    one pass.
 
 ## Switching brains without a hitch
 
@@ -529,18 +639,20 @@ Dispose those caller-owned resources separately once no dependent work can use t
 Headless tests cover layouts, CPU mirrors, generated WGSL, the MLP's mathematics and validation,
 request queues and refusals. The agents GPU suite covers the production loop, instance output,
 picking, label following, inspection, the allocation/upload budget, teardown (A20), `MlpBrain`
-on the production chain (A4), weight-table rows (A21), per-species passes (A22), the grid's exact
-order and crowded-cell windows (A1), and bit-exact reruns without overflow (A7) and with overflow
-in every step (A23). It passes 137/137 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU
-and on an NVIDIA GPU, and in Chrome. A4's networks, from one affine layer to the largest allowed
-shape, agree with `mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found
-3.8e-7 on an NVIDIA GPU.
+on the production chain (A4), weight-table rows (A21), per-species passes (A22), the cooperative
+think entry and per-agent weight rows (A35), the grid's exact order and crowded-cell windows (A1),
+and bit-exact reruns without overflow (A7) and with overflow in every step (A23). It passes
+142/142 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU and on an NVIDIA GPU, and in
+Chrome. A4's networks, from one affine layer to the largest allowed shape, agree with `mlpForward`
+within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA GPU.
 
-`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's five TypeScript
+`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's six TypeScript
 examples:
 - each one type-checks and bundles, and its generated think WGSL parses;
 - the network example's numbers match its comment;
 - the per-species example runs on a stand-in engine that checks its passes and compiles;
+- the per-agent network example packs 4 rows on a stand-in engine, spawns 64-agent blocks on rows
+  `0–3`, and updates one row and a pair of rows without compiling a new stage;
 - the switching example prepares a network and a rule brain on a stand-in engine, each compiled
   once, asynchronously, and its switches compile nothing;
 - the trained-network example loads the two committed files on a stand-in engine, and refuses a
@@ -550,9 +662,10 @@ Prepared brains are measured on the GPU by the `inference` suite (A33), on the s
 and GPU pairs, with an `MlpBrain` and an ONNX Runtime brain.
 
 The `agent-tools` GPU suite covers the training tools and the committed networks: the label pass
-(A25), repeatable recordings (A24), the networks as `MlpBrain`s against `mlpForward` (A26), and
-their error and catches in the running simulation (A8). It passes 15/15 checks with zero WebGPU
-errors on the same three host and GPU pairs.
+(A25), repeatable recordings (A24), the networks as `MlpBrain`s against `mlpForward` (A26), their
+error and catches in the running simulation (A8), and Herd & Wolves on 64 identical per-agent rows
+matching today's single-network brains word for word (A35 P3). It passes 17/17 checks with zero
+WebGPU errors on the same three host and GPU pairs.
 
 Integrated-demo CPU frame work averaged 0.57 ms at 4,096 agents and 0.60 ms at 16,384 agents on
 an AMD GCN-5/Chrome host: means of the host's roughly 250 ms reporting windows, not GPU time or a
