@@ -1831,6 +1831,167 @@ fn thinkBlock(i: u32, species: u32, tick: u32, thinking: bool, lane: u32) {
             `off-cadence prey rows are written`, ungated.includes('(a.ids.y & 1u) != 0u &&') && changed === offCadence.length);
         sys.destroy();
     }
+
+    // A35, part 2 (phase 11.3, docs/agents-genome-rows-design.md §2, §9): MlpBrain.byGenome on the GPU.
+    // 64 distinct networks as rows; 600 agents (a partial last block), each on the row its genome
+    // names, laid out three ways: aligned to 64-agent blocks (the staged path), in runs of 8, and
+    // shuffled (the per-lane fallback beside the staged row).
+    // - P1: every live agent's actions are mlpForward of its own row and its observations, at
+    //   thinkEvery 1 and 3, with a newborn on another row in a resting block; no other row passes.
+    // - P2: setWeights({ row }) and setRows() change exactly their rows' agents.
+    // - P6: a genome outside the table writes NaN actions, and the built-in steering stops the agent.
+    // Watched failing: with every lane on row 0, the agents on other rows fail; with the fallback
+    // removed, the agents off their block's row fail.
+    {
+        const ROWS = 64, N = 600, NEWBORN = 3;
+        const def = A.defineAgents({ capacity: N, world: { min: [-8, -8], max: [8, 8] }, cellSize: 4,
+            species: [{ name: 'prey', maxSpeed: 3, maxTurn: 4, accel: 6, senseRadius: 4, radius: 0.4 }],
+            sensors: [probe(5)], actions: A.Actions.steering() });
+        const nets = Array.from({ length: ROWS }, () => mlpNet([5, 7, 'tanh'], [7, 2, 'tanh']));
+        const hash = i => {
+            let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+            h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+            return (h ^ (h >>> 16)) >>> 0;
+        };
+        const layouts = { aligned: i => Math.floor(i / 64) % ROWS, 'runs of 8': i => Math.floor(i / 8) % ROWS, shuffled: i => hash(i) % ROWS };
+        const everySpecies = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        allocated.push(everySpecies);
+        device.queue.writeBuffer(everySpecies, 0, new Uint32Array([0xffff, 0, 0, 0]));
+        // The system's think pass, rebuilt from `code` and dispatched alone over its buffers (thinkEvery 1).
+        const thinkWith = (sys, brain, code) => {
+            const pipeline = device.createComputePipeline({ label: 'A35 watched failing', layout: 'auto',
+                compute: { module: device.createShaderModule({ code }), entryPoint: 'cs_main' } });
+            const enc = device.createCommandEncoder(), pass = enc.beginComputePass();
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, device.createBindGroup({ layout: pipeline.getBindGroupLayout(0),
+                entries: [sys.buffer, sys.obs, sys.state, sys.act, sys.reason, sys.species, everySpecies]
+                    .map((b, binding) => ({ binding, resource: { buffer: b } })) }));
+            pass.setBindGroup(1, device.createBindGroup({ layout: pipeline.getBindGroupLayout(1),
+                entries: [{ binding: 0, resource: { buffer: brain.buffers[0] } }] }));
+            pass.dispatchWorkgroups(Math.ceil(N / 64));
+            pass.end();
+            device.queue.submit([enc.finish()]);
+        };
+        // Each listed agent against its own row; and against the next row, which must not pass.
+        const judge = async (sys, rowOf, rows, netOf = r => nets[r]) => {
+            const obs = await readF(sys.obs, N * 5), act = await readF(sys.act, N * 2), reason = await read(sys.reason, N);
+            const r = { bad: 0, values: 0, maxAbs: 0, maxRel: 0, crossPassed: 0, reasonOff: 0 };
+            for (const i of rows) {
+                const own = agree(netOf(rowOf(i)), def, obs, act, [i]);
+                r.bad += own.bad; r.values += own.values;
+                r.maxAbs = Math.max(r.maxAbs, own.maxAbs); r.maxRel = Math.max(r.maxRel, own.maxRel);
+                if (agree(netOf((rowOf(i) + 1) % ROWS), def, obs, act, [i]).bad === 0) r.crossPassed++;
+                if (reason[i] !== 0) r.reasonOff++;
+            }
+            return r;
+        };
+        const problems = [], kept = {};
+        let worst = { maxAbs: 0, maxRel: 0 }, judged = 0;
+        device.pushErrorScope('validation');
+        // P1, at thinkEvery 1 and 3 in each layout.
+        for (const [layout, layoutRow] of Object.entries(layouts)) {
+            for (const thinkEvery of [1, 3]) {
+                const sys = new A.AgentSystem(engine, def, { thinkEvery }), brain = A.MlpBrain.byGenome(engine, nets);
+                sys.setBrain(brain);
+                const live = populate(sys, def, undefined, i => ({ genome: layoutRow(i) }));
+                const dead = Array.from({ length: N }, (_, i) => i).filter(i => !live.includes(i));
+                const rowOf = i => (i === NEWBORN ? ROWS - 1 : layoutRow(i));
+                device.queue.writeBuffer(sys.act, 0, new Float32Array(N * 2).fill(-7));
+                fillReason(sys.reason, N, 99);
+                await sys.step();                   // tick 0: every agent is newborn and thinks
+                // Tick 1: block 0 rests at thinkEvery 3 ((1 + 0) % 3 ≠ 0), but a newborn thinks out of turn,
+                // on a row its block does not stage.
+                sys.spawn(NEWBORN, { position: [0, 0, 0], species: 0, genome: ROWS - 1 });
+                await sys.step();
+                await sys.step();
+                const r = await judge(sys, rowOf, live);
+                worst = { maxAbs: Math.max(worst.maxAbs, r.maxAbs), maxRel: Math.max(worst.maxRel, r.maxRel) };
+                judged += live.length;
+                const act = await readF(sys.act, N * 2), reason = await read(sys.reason, N);
+                if (r.bad) problems.push(`${layout}, thinkEvery ${thinkEvery}: ${r.bad}/${r.values} actions off their row`);
+                if (r.crossPassed) problems.push(`${layout}, thinkEvery ${thinkEvery}: ${r.crossPassed} agents also pass the next row`);
+                if (r.reasonOff) problems.push(`${layout}, thinkEvery ${thinkEvery}: ${r.reasonOff} reasons not 0`);
+                if (dead.some(i => reason[i] !== 99 || act[i * 2] !== -7 || act[i * 2 + 1] !== -7)) {
+                    problems.push(`${layout}, thinkEvery ${thinkEvery}: dead rows written`);
+                }
+                if (thinkEvery === 1 && layout !== 'aligned') kept[layout] = { sys, brain, rowOf, live };
+                else { sys.destroy(); brain.destroy(); }
+            }
+        }
+        // P2: rows 5 (setWeights) and 10–12 (setRows) take new networks; one step later, exactly their
+        // agents follow them, and no other agent changes its network.
+        const fresh = Array.from({ length: 4 }, () => mlpNet([5, 7, 'tanh'], [7, 2, 'tanh']));
+        const changed = new Map([[5, fresh[0]], [10, fresh[1]], [11, fresh[2]], [12, fresh[3]]]);
+        {
+            const { sys, brain, rowOf, live } = kept.shuffled;
+            brain.setWeights(fresh[0], { row: 5 });
+            const floats = A.mlpLayout(nets[0]).floats, packed = new Float32Array(3 * floats);
+            fresh.slice(1).forEach((net, k) => A.packMlpWeights(net, packed.subarray(k * floats, (k + 1) * floats)));
+            brain.setRows(packed, { first: 10 });
+            await sys.step();
+            const current = row => changed.get(row) ?? nets[row];
+            const after = await judge(sys, rowOf, live, current);
+            const onChanged = live.filter(i => changed.has(rowOf(i)));
+            const stale = await judge(sys, rowOf, onChanged);       // their old networks must no longer pass
+            if (after.bad) problems.push(`P2: ${after.bad}/${after.values} actions off their (rewritten) row`);
+            if (onChanged.length === 0 || stale.bad < stale.values * 0.99) problems.push(`P2: ${stale.values - stale.bad} of ${stale.values} actions still follow the old rows`);
+            judged += live.length;
+        }
+        // P6: a genome outside the table (64 of 64 rows) writes NaN actions; the agent brakes to a stop.
+        {
+            const sys = new A.AgentSystem(engine, def), brain = A.MlpBrain.byGenome(engine, nets), OUT = 70;
+            sys.setBrain(brain);
+            const live = populate(sys, def, i => i === 5, i => ({ genome: layouts.aligned(i) }));
+            sys.spawn(OUT, { position: [0, 0, 0], species: 0, speed: 2, heading: 0, genome: ROWS });
+            await sys.step();
+            const act = await read(sys.act, N * 2), reason = await read(sys.reason, N);
+            const nanBoth = act[OUT * 2] === 0x7fc00000 && act[OUT * 2 + 1] === 0x7fc00000 && reason[OUT] === 0;
+            const neighbours = await judge(sys, layouts.aligned, live.filter(i => i !== OUT && Math.floor(i / 64) === 1));
+            for (let s = 0; s < 25; s++) await sys.step();
+            const rec = new Float32Array((await read(sys.buffer, N * 16)).buffer, OUT * 64, 16);
+            const stopped = rec[4] === 0 && rec[5] === 0 && rec[6] === 0 && [0, 1, 2].every(k => Number.isFinite(rec[k]));
+            if (!nanBoth) problems.push(`P6: the out-of-range agent wrote act ${act[OUT * 2].toString(16)}/${act[OUT * 2 + 1].toString(16)}, reason ${reason[OUT]}`);
+            if (neighbours.bad) problems.push(`P6: ${neighbours.bad} actions of its block's other agents off their rows`);
+            if (!stopped) problems.push(`P6: the out-of-range agent did not stop (velocity ${rec[4]}, ${rec[5]}, ${rec[6]})`);
+            sys.destroy();
+            brain.destroy();
+        }
+        const error = await device.popErrorScope();
+        check(`A35 byGenome: 64 rows, aligned, in runs of 8 and shuffled, at thinkEvery 1 and 3 with a newborn: every live agent ` +
+            `follows its own row and no other (${errors(worst)}, ${judged} agent checks); rewritten rows (setWeights, setRows) ` +
+            `move exactly their agents; a genome outside the table writes NaN and its agent stops` +
+            (problems.length ? `; ${problems.slice(0, 4).join('; ')}` : ''), error === null && problems.length === 0);
+        // Watched failing, over the kept systems at thinkEvery 1: each pass rebuilt from the brain's own
+        // module with one part removed, then dispatched alone.
+        const module = brain => A.buildAgentThinkWGSL(def, brain.wgsl, 1, { cooperative: true });
+        const quads = A.mlpLayout(nets[0]).floats / 4;
+        {
+            const { sys, brain, rowOf, live } = kept.shuffled, current = row => changed.get(row) ?? nets[row];
+            const rowZero = module(brain).replace(/stagedRow = min\(agents\[i\]\.ids\.z, \d+u\) \* \d+u;/, 'stagedRow = 0u;')
+                .replace(`myBase = g * ${quads}u;`, 'myBase = 0u;');
+            thinkWith(sys, brain, rowZero);
+            const offRow = live.filter(i => rowOf(i) !== 0), onRow = live.filter(i => rowOf(i) === 0);
+            const off = await judge(sys, rowOf, offRow, current), on = await judge(sys, rowOf, onRow, current);
+            check(`A35 byGenome watched failing: with every lane on row 0, ${(off.values - off.bad) / 2} of ${offRow.length} agents on ` +
+                `other rows still pass their own row (want 0); the ${onRow.length} on row 0 do`,
+                rowZero.includes('stagedRow = 0u;') && rowZero.includes('myBase = 0u;') && off.bad === off.values && on.bad === 0);
+            sys.destroy();
+            brain.destroy();
+        }
+        {
+            const { sys, brain, rowOf, live } = kept['runs of 8'];
+            const noFallback = module(brain).replaceAll('if (myBase == rowBase) {', 'if (true) {');
+            thinkWith(sys, brain, noFallback);
+            const blockRow = i => rowOf(Math.floor(i / 64) * 64);
+            const mixed = live.filter(i => rowOf(i) !== blockRow(i)), staged = live.filter(i => rowOf(i) === blockRow(i));
+            const m = await judge(sys, rowOf, mixed), s = await judge(sys, rowOf, staged);
+            check(`A35 byGenome watched failing: without the fallback, ${(m.values - m.bad) / 2} of ${mixed.length} agents off their ` +
+                `block's row still pass their own row (want 0); the ${staged.length} on it do`,
+                noFallback.includes('if (true) {') && mixed.length > 0 && m.bad === m.values && s.bad === 0);
+            sys.destroy();
+            brain.destroy();
+        }
+    }
 }
 
 allocated.splice(0).forEach(b => b.destroy());

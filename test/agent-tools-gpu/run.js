@@ -5,8 +5,9 @@
 //   A24  a recording repeats, byte for byte
 //   A26  the committed Herd & Wolves networks run as MlpBrains and compute what mlpForward computes
 //   A8   cloning quality: the networks in the running simulation, against the label and its catches
+//   A35  (P3) a network per agent, 64 identical rows, runs the same simulation as today's brains
 import { NullGraph } from '../../dist/index.js';
-import { MlpBrain, mlpForward } from '../../dist/agents.js';
+import { MlpBrain, mlpForward, rand01 } from '../../dist/agents.js';
 import { harnessEnv } from '../gpu/harness-env.mjs';
 import { DRIVER, LABEL, TAG, createHerd, herdDefinition, herdRule, herdWolves } from '../../tools/agents/scenario/herd-wolves.mjs';
 import { createLabelPass, lockstep, readBuffers } from '../../tools/agents/label-pass.mjs';
@@ -192,6 +193,57 @@ for (const species of ['prey', 'wolf']) {
     check(`A8: the networks' mean catches over 5 seeds are within ${100 * BAR_CATCHES}% of the label's`,
         Math.abs(share) <= BAR_CATCHES, `${S.catches.mean.toFixed(1)} against ${C.catches.mean.toFixed(1)} (${(100 * share).toFixed(1)}%); ` +
         `networks ${S.catches.values.join(', ')}; label ${C.catches.values.join(', ')}`);
+}
+// A35, P3 (phase 11.3, docs/agents-genome-rows-design.md §2, §9): a network per agent runs the same
+// simulation as one network per species. Herd & Wolves (4,096 agents, thinkEvery 3) for 300 steps from
+// one spawn, three times: on today's brains; on MlpBrain.byGenome brains of 64 identical rows per
+// species, each agent on a row chosen at random, so that most 64-agent blocks mix rows and the per-lane
+// fallback runs beside the staged row; and the same with one prey row changed by one weight, which must
+// change the simulation (watched failing). Every record word but the genome, and the catches, agree.
+{
+    const ROWS = 64, STEPS = 300;
+    const hash = i => {
+        let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+        h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+        return (h ^ (h >>> 16)) >>> 0;
+    };
+    const nudged = net => net.map((layer, k) => ({ ...layer, weights: Float32Array.from(layer.weights, (w, j) => (k === 0 && j === 0 ? w + 1e-3 : w)) }));
+    async function run(rowsOf) {
+        const herd = createHerd(engine), def = herd.definition, names = def.species.map(s => s.name);
+        const brains = names.map(name => (rowsOf ? MlpBrain.byGenome(engine, rowsOf(name)) : students[name]));
+        names.forEach((name, k) => herd.agents.setBrain(brains[k], { species: name }));
+        // createHerd's spawn, again, with each agent's row in its genome word.
+        const inset = def.world.maxX - 1, seed = herd.options.seed;
+        for (let i = 0; i < def.capacity; i++) {
+            herd.agents.spawn(i, { position: [(rand01(i, seed, 0) * 2 - 1) * inset, 0.08, (rand01(i, seed, 1) * 2 - 1) * inset],
+                species: i < herd.wolves ? 'wolf' : 'prey', heading: rand01(i, seed, 2) * Math.PI * 2 - Math.PI,
+                genome: rowsOf ? hash(i) % ROWS : 0 });
+        }
+        for (let s = 0; s < STEPS; s++) await herd.agents.step();
+        const [records, stats] = await readBuffers(device, [herd.agents.buffer, herd.stats]);
+        herd.destroy();
+        if (rowsOf) brains.forEach(b => b.destroy());
+        return { records, catches: stats[0] };
+    }
+    const differing = (a, b) => {
+        let n = 0;
+        for (let i = 0; i < a.length; i += 16) {
+            for (let w = 0; w < 16; w++) if (w !== 14 && a[i + w] !== b[i + w]) { n++; break; }
+        }
+        return n;
+    };
+    device.pushErrorScope('validation');
+    const today = await run(null);
+    const rows = await run(name => Array.from({ length: ROWS }, () => networks[name]));
+    const off = await run(name => Array.from({ length: ROWS }, (_, r) => (name === 'prey' && r === 7 ? nudged(networks.prey) : networks[name])));
+    const error = await device.popErrorScope();
+    const agents = today.records.length / 16;
+    check(`A35 P3: Herd & Wolves for ${STEPS} steps on 64 identical rows per species, agents on random rows, runs the same ` +
+        `simulation as today's brains: every record word but the genome, and the catches`,
+        error === null && differing(today.records, rows.records) === 0 && today.catches === rows.catches && today.catches > 0,
+        `${fmt(differing(today.records, rows.records))} of ${fmt(agents)} records differ; catches ${today.catches} and ${rows.catches}`);
+    check('A35 P3 watched failing: with one weight of one prey row changed by 1e-3, the simulation changes',
+        differing(today.records, off.records) > 0, `${fmt(differing(today.records, off.records))} of ${fmt(agents)} records differ`);
 }
 for (const brain of Object.values(students)) brain.destroy();
 

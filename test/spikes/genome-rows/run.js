@@ -30,9 +30,10 @@
 // (a) is measured on all three.
 //
 // Part 2, a whole Herd & Wolves step (tools/agents/scenario/herd-wolves.mjs), as the films run it:
-// today's brains (one MlpBrain per species, one pass each) against (a) with 64 rows per species, every
-// row an identical copy of its species' network. The simulation is then the same, word for word
-// (checked), and only the weights' addressing differs. Two groups: the committed networks (C2's shape),
+// today's brains (one MlpBrain per species, one pass each) against two rows brains with 64 rows per
+// species, every row an identical copy of its species' network: (a), and since phase 11.3 the library's
+// MlpBrain.byGenome (the staged kernel with its per-lane fallback). The simulation is then the same,
+// word for word (checked), and only the weights' addressing differs. Two groups: the committed networks (C2's shape),
 // and random networks of 7.2's smaller shape, the size lever of plan-2 §4.4. A group's configurations
 // are built together, stepped in lockstep and timed in turn, so clock drift falls on all of them. Each
 // submission is sized from a measured step and kept far below the ~2 s after which Windows resets a GPU.
@@ -563,21 +564,29 @@ async function runSteps(device, name) {
     // behaves differently, but identically within the group). Within a group every configuration runs
     // the same simulation; all are built together, stepped in lockstep, and timed in turn, trial by
     // trial, so that a GPU's clocks drifting between configurations falls on all of them alike.
+    // A configuration is today's brain (null), or a rows brain on a layout: (a), this spike's per-lane
+    // prototype, or byGenome, the library's MlpBrain.byGenome (phase 11.2's staged kernel with its
+    // per-lane fallback; timed here for phase 11.3).
+    const rowsConfigs = layouts => [null, ...layouts.flatMap(layout => [{ kind: '(a)', layout }, { kind: 'byGenome', layout }])];
     const GROUPS = [
-        { shape: 'C2 24→64→64→64→2 (committed)', nets, layouts: [null, ...Object.keys(STEP_LAYOUTS)] },
-        { shape: '7.2 24→32→32→2 (random)', nets: { prey: SHAPES[1].nets[0], wolf: SHAPES[1].nets[1] }, layouts: [null, 'aligned'] },
+        { shape: 'C2 24→64→64→64→2 (committed)', nets, configs: rowsConfigs(Object.keys(STEP_LAYOUTS)) },
+        { shape: '7.2 24→32→32→2 (random)', nets: { prey: SHAPES[1].nets[0], wolf: SHAPES[1].nets[1] }, configs: rowsConfigs(['aligned']) },
     ];
-    const configName = layout => (layout ? `(a) ${layout}` : 'today');
-    function build(group, layout, n, thinkEvery) {
+    const configName = config => (config ? `${config.kind} ${config.layout}` : 'today');
+    function build(group, config, n, thinkEvery) {
         const sim = herdWolves.create(engine, { count: n, thinkEvery });
         const brains = [];
         try {
             for (const s of ['prey', 'wolf']) {
-                const brain = layout ? rowsBrain(device, group.nets[s], STEP_ROWS) : new A.MlpBrain(engine, group.nets[s]);
+                const net = group.nets[s];
+                const brain = !config ? new A.MlpBrain(engine, net)
+                    : config.kind === '(a)' ? rowsBrain(device, net, STEP_ROWS)
+                    : A.MlpBrain.byGenome(engine, Array.from({ length: STEP_ROWS }, () => net));
                 brains.push(brain);
                 sim.agents.setBrain(brain, { species: s });
             }
-            if (layout) {
+            if (config) {
+                const layout = config.layout;
                 // The spawn createHerd made, again, with each agent's row in its genome word.
                 const inset = sim.definition.world.maxX - 1, s = sim.options.seed;
                 for (let i = 0; i < n; i++) {
@@ -588,7 +597,7 @@ async function runSteps(device, name) {
             }
             if (sim.agents.advance(sim.definition.dt) !== 1) throw new Error('S6: advance(dt) did not select one step');
             sim.agents.upload();
-            return { name: configName(layout), sim, brains, chain: sim.agents.getComputeStages(),
+            return { name: configName(config), sim, brains, chain: sim.agents.getComputeStages(),
                 destroy() { sim.destroy(); brains.forEach(b => b.destroy()); } };
         } catch (error) {
             sim.destroy();
@@ -605,7 +614,7 @@ async function runSteps(device, name) {
                 const sims = [];
                 let skipped = false;
                 try {
-                    for (const layout of group.layouts) sims.push(build(group, layout, n, thinkEvery));
+                    for (const config of group.configs) sims.push(build(group, config, n, thinkEvery));
                     for (const s of sims) await timed([...s.chain, ...s.chain]);      // pipelines compile on first use
                     const probe = await timed(sims[0].chain);
                     for (const s of sims.slice(1)) await timed(s.chain);           // the same steps for every one
@@ -633,9 +642,9 @@ async function runSteps(device, name) {
                 }
                 if (skipped) break;
                 rows.push(row);
-                for (const layout of group.layouts.slice(1)) {
-                    const c = row.configs[configName(layout)];
-                    check(`${name}: steps, ${group.shape}, thinkEvery ${thinkEvery}, ${fmt(n)}: ${configName(layout)} runs the same simulation as today's brain`,
+                for (const config of group.configs.slice(1)) {
+                    const c = row.configs[configName(config)];
+                    check(`${name}: steps, ${group.shape}, thinkEvery ${thinkEvery}, ${fmt(n)}: ${configName(config)} runs the same simulation as today's brain`,
                         c.differing === 0, `${fmt(c.differing)} of ${fmt(n)} records differ after the same steps`);
                 }
             }
@@ -662,8 +671,10 @@ function reportSteps(r) {
                     return (nm === 'today' ? c.ms.toFixed(3) : `${c.ms.toFixed(3)} (${pct(c.ms, today)})`).padStart(22);
                 }).join(''));
         }
-        const aligned = mine.filter(row => row.thinkEvery === 1).map(row => row.configs['(a) aligned'].ms / row.configs.today.ms - 1);
-        log(`   the worst cost of (a) aligned at thinkEvery 1, over counts: ${(100 * Math.max(...aligned)).toFixed(1)}% of a step`);
+        for (const kind of ['(a)', 'byGenome']) {
+            const aligned = mine.filter(row => row.thinkEvery === 1).map(row => row.configs[`${kind} aligned`].ms / row.configs.today.ms - 1);
+            log(`   the worst cost of ${kind} aligned at thinkEvery 1, over counts: ${(100 * Math.max(...aligned)).toFixed(1)}% of a step`);
+        }
     }
 }
 
