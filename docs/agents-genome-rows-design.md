@@ -4,8 +4,9 @@
 [`agents-design.md`](./agents-design.md) §4.1 (the record's `genome` word), §9.3 (the Phase 2 seam)
 and §13 ("Deferred — Phase 2").
 **Status:** decided 2026-10-17 (§14): the user took every recommendation, Q5 parked. Spike S6 came
-first (phase 11.0). Phases 11.0–11.2 committed (`6042e41`, `2e3c8c2`, `2d51159`; results at the
-end). Next: phase 11.3, A35 on three host/GPU pairs and a 16,384-agent step timed.
+first (phase 11.0). **Step 11 is complete and committed:** 11.0 `6042e41`, 11.1 `2e3c8c2`, 11.2
+`2d51159`, 11.3 `2509267`, 11.4 `71641f6`, each validated alone in a temporary worktree. Results at
+the end.
 **Builds on:** per-species rows ([`agents-species-brains-design.md`](./agents-species-brains-design.md)
 §5, `MlpBrain.bySpecies`) and `MlpBrain` ([`agents-mlp-design.md`](./agents-mlp-design.md)).
 **Target:** `src/extras/agents/` (`MlpBrain`, `mlpShaders`; with the recommended kernel, a
@@ -176,8 +177,8 @@ item 1). The variants measured:
   - phase 7.2's small network in Chrome: 3.0–4.0×, where (b) and (c) cost 1.7–2.1× and (a)
     3.6–4.8×.
 - **Estimated effect on a 16,384-agent step** with C2's networks, from part 1's numbers (part 2
-  could time only (a)): about −9% on NVIDIA, +13% under Node on AMD, −44% in Chrome. Phase 11.3
-  measures it.
+  could time only (a)): about −9% on NVIDIA, +13% under Node on AMD, −44% in Chrome. **Measured in
+  phase 11.3** (thinkEvery 1): −9.8%, +30.6% and −38.0%.
 
 **The alternative: (a).** No change outside `MlpBrain`, and the simplest code. It adds 4–7% to a step
 on NVIDIA, 9–17% in Chrome and 33–36% under Node on the AMD iGPU (C2's networks, 4,096–16,384 agents,
@@ -283,8 +284,8 @@ carry no MLP code (`size.mjs`).
 | **11.0** ✅ `6042e41` | Spike S6 (`npm run spike:s6`) | Results below; the kernel to the user (Q4) |
 | **11.1** ✅ `2e3c8c2` | The cooperative think entry; U44, and A35's first part on the GPU | Green and watched failing; every other brain's entry unchanged, byte for byte (results below) |
 | **11.2** ✅ `2d51159` | `byGenome`, `setWeights({ row })`, `setRows`, the kernel and its guard; U43; the size line | U43 green and watched failing; size reported (results below: 21,362 B, 133 B under C2's limit) |
-| **11.3** | A35 on three host/GPU pairs; a 16,384-agent step timed against today's brains | Green, watched failing; zero WebGPU errors; the step's cost reported |
-| **11.4** | The guide: "A network per agent" in `docs/api/agents.md`, with a checked example and the block layout | The example runs in `agents-api-example.test.mjs` |
+| **11.3** ✅ `2509267` | A35 on three host/GPU pairs; a 16,384-agent step timed against today's brains | Green, watched failing; zero WebGPU errors; the step's cost reported (results below) |
+| **11.4** ✅ `71641f6` | The guide: "A network per agent" in `docs/api/agents.md`, with a checked example and the block layout | The example runs in `agents-api-example.test.mjs`, watched failing (results below) |
 
 Phase 11.1 also runs A35's first part, the cooperative entry on the GPU, so the entry is proven on
 three host/GPU pairs before any network uses it.
@@ -633,3 +634,155 @@ commit was validated alone in a temporary worktree:
 - the agents GPU suite: 139/139 on NVIDIA;
 - at 11.2, a `byGenome` think module compiled on a device.
 
+---
+
+## Phase 11.3 results — 2026-10-17: A35 on three host/GPU pairs, and the step's cost
+
+**Built** (uncommitted; test files and the spike only, no library change):
+- **A35's second part** (`test/agents-gpu/run.js`): 64 distinct networks as rows, 600 agents (a partial
+  last block), laid out aligned to 64-agent blocks, in runs of 8, and shuffled.
+  - **P1:** every live agent follows its own row and no other, at thinkEvery 1 and 3, with a newborn
+    on another row in a resting block.
+  - **P2:** after `setWeights({ row: 5 })` and `setRows(rows 10–12)`, exactly those rows' agents follow
+    the new networks.
+  - **P6:** an agent whose genome is outside the table writes NaN actions (reason 0), its block's
+    other agents follow their rows, and the built-in steering brings it to a stop with a finite
+    record.
+  - **Watched failing:** with every lane on row 0, 563 of 563 agents on other rows fail their own row
+    (the 11 on row 0 pass); with the fallback removed, 499 of 499 agents off their block's row fail
+    (the 75 on it pass).
+- **A35's P3** (`test/agent-tools-gpu/run.js`, beside A26, which loads the committed networks): Herd &
+  Wolves at 4,096 agents and thinkEvery 3 for 300 steps.
+  - On 64 identical rows per species, with every agent on a random row so that most blocks mix rows,
+    it runs the same simulation as today's brains: 0 of 4,096 records differ (every word but the
+    genome), and catches agree (275 and 275).
+  - **Watched failing:** one weight of one prey row changed by 1e-3 changes 2,770 records (NVIDIA)
+    and 2,921 (AMD).
+- **Spike S6's part 2** also times `MlpBrain.byGenome`, beside today's brains and the per-lane
+  prototype (a).
+
+**Runs** (nothing else on the GPU):
+- the agents GPU suite: 142/142 under Node on NVIDIA and on AMD, green in Chrome on AMD;
+- the agent-tools GPU suite: 17/17 under Node on NVIDIA and on AMD, green in Chrome on AMD;
+- the timing (`NG_SPIKE_PART=steps npm run spike:s6`, and its page with `?part=steps`): 96/96
+  checks under Node, green in Chrome. Every `byGenome` configuration ran the same simulation as
+  today's brains, word for word: at 4,096, 16,384 and 65,536 agents, at both cadences, in three
+  layouts, on all three pairs.
+
+### The step's cost
+
+A whole Herd & Wolves step, C2's networks, 64 rows per species, every row a copy of its species'
+network. Today's step in ms, then what a rows brain adds, in % of that step, at 4,096 / 16,384 /
+65,536 agents:
+
+| Host | thinkEvery | Today (ms) | `byGenome`, aligned | (a), aligned |
+|---|---|---|---|---|
+| NVIDIA, Node | 1 | 1.12 / 2.99 / 15.7 | −16.6 / **−9.8** / −5.1 | +5.4 / +4.6 / +3.5 |
+| NVIDIA, Node | 3 | 1.04 / 2.53 / 13.5 | −15.2 / **−8.1** / −2.8 | +13.6 / +6.3 / +2.8 |
+| AMD, Node | 1 | 1.79 / 5.09 / 62.3 | +21.8 / **+30.6** / +11.0 | +33.8 / +34.7 / +12.3 |
+| AMD, Node | 3 | 1.68 / 4.26 / 68.3 | +8.7 / **+12.4** / +6.6 | +17.2 / +15.4 / +5.2 |
+| AMD, Chrome | 1 | 2.76 / 10.36 / 86.2 | −17.2 / **−38.0** / −19.1 | +19.3 / +11.4 / +4.3 |
+| AMD, Chrome | 3 | 1.87 / 5.76 / 66.2 | −7.3 / **−22.6** / −10.1 | +14.6 / +9.6 / +0.6 |
+
+- **Blocks that mix rows** cost more with `byGenome` than with (a) under Node, and about the same
+  or less in Chrome. At 16,384 agents and thinkEvery 1, runs of 8 / shuffled:
+  - NVIDIA: +38.7 / +164% (a: +17.6 / +121%);
+  - AMD under Node: +98 / +114% (a: +61 / +81%);
+  - Chrome: +21.4 / +34.4% (a: +21.9 / +48.0%).
+- **Phase 7.2's small network,** `byGenome` aligned, thinkEvery 1, at 4,096 / 16,384 agents:
+  −13.1 / −4.6% on NVIDIA, +8.1 / +4.9% under Node on AMD, +15.6 / +14.2% in Chrome.
+
+### What it shows
+
+1. **With rows aligned to blocks, a network per agent costs less than today's single network** on
+   NVIDIA (−8 to −10% of a 16,384-agent step) and in Chrome (−23 to −38%). Under Node on the AMD iGPU
+   it costs 12–31% more.
+2. **§6's estimate held for NVIDIA (−9%) and Chrome (−44% against −38% measured), not for Node on
+   AMD:** it said +13% at thinkEvery 1, and the step measured +31%. Part 1 timed the kernel alone; in
+   the whole step the staged kernel costs that GPU more.
+3. **Lay rows out by block.** With mixed blocks, `byGenome` under Node costs 1.2–1.6× what (a) costs
+   (the fallback and the staging both run). Step 14's arenas give each 64-agent block one row, and the
+   guide (phase 11.4) says so.
+4. **In Chrome the small network pays for staging** (+14–16%), as S6 found for single networks
+   (§14, Q5, parked).
+
+### Where the tests refine §9
+
+P3 runs in the agent-tools GPU suite, which already loads the committed Herd & Wolves networks, not
+in the agents suite. A35 is therefore spread over two suites; both run on the three pairs.
+
+**Review** (2026-10-17):
+- Checked `test/agents-gpu/run.js` (A35 part 2: P1, P2, P6, and both watched-failing shader mutations),
+  `test/agent-tools-gpu/run.js` (A35 P3 and its watched-failing weight perturbation), and
+  `test/spikes/genome-rows/run.js` (S6 part 2 `byGenome` step timing and lockstep record comparison).
+  Every property in §2 (P1–P6) and §9 is covered, GPU resources are cleanly destroyed, and no library
+  source changed.
+
+---
+
+## Phase 11.4 results — 2026-10-17: the guide and closure
+
+**The guide** (`docs/api/agents.md`, `README.md`):
+- **A new "A network per agent" section** (`docs/api/agents.md`), kept general-purpose per the library
+  rule (plan-2 §3: no evolution vocabulary in its API or example):
+  - executable TypeScript example (`createByGenomeDemo` and `rowForGain`): 4 rows of a `4→2` `'tanh'`
+    wall-avoider in one `MlpBrain.byGenome` table, 256 `scout` agents spawned in 64-agent blocks
+    (`genome: Math.floor(i / 64)`), `setRowGain` updating one row via `setWeights(network, { row })`,
+    and `setPairGains` packing two rows back-to-back with `packMlpWeights` and uploading them via
+    `setRows(packed, { first })`;
+  - construction and update rules (`rowCount`, `{ row }` requirement, `setRows`, fixed row count);
+  - the 64-agent block layout and how the staged cooperative kernel works, with S6 / phase 11.3's
+    measured step costs on all three host/GPU pairs and FXC compile note (`prepareBrain`);
+  - out-of-range genomes (`genome >= rowCount` writes `NaN` actions and `0` reason without reading
+    outside the table; built-in steering stops the agent; `inspect` reports the genome);
+  - how `byGenome` and `bySpecies` differ and how one `byGenome` brain can serve multiple same-shape
+    species.
+- **Refreshed lines in `docs/api/agents.md` and `README.md`:**
+  - the introduction and the single-network `MlpBrain` bullet now point to "A network per agent";
+  - "Current validation and limits" now lists A35 (142/142 in the agents GPU suite, 17/17 in
+    `agent-tools`) and the six checked TypeScript examples;
+  - `README.md` (`### GPU agents`) names `MlpBrain.byGenome`.
+
+**The example test** (`test/agents-api-example.test.mjs`):
+- Validates all six TypeScript examples in `docs/api/agents.md`.
+- Runs `createByGenomeDemo` on `standIn()` and checks what its comments promise:
+  - `brain.rowCount === 4` and `brain.cooperative === true`;
+  - construction uploads the 4 packed rows once at byte offset `0`;
+  - all 256 agents are spawned with `genome === Math.floor(i / 64)` (64-agent blocks);
+  - one cooperative think pass (`fn thinkBlock`) is built and its WGSL parses;
+  - `setRowGain(2, 5)` uploads row 2 at byte offset `2 * floats * 4` and compiles nothing;
+  - `setPairGains(1, 6, 7)` uploads rows 1–2 at byte offset `1 * floats * 4` in one `writeBuffer`
+    call and compiles nothing;
+  - `destroy()` releases the weight buffer.
+- **Watched failing, three ways**, each restored byte for byte:
+  - before `test/agents-api-example.test.mjs` was updated (`6 !== 5` examples);
+  - with `genome: i % 4` instead of `Math.floor(i / 64)` in the guide (`agent 1 is in block 0`
+    failed);
+  - with `brain.setRows(packed)` omitting `{ first }` in the guide (`0 !== 80` byte offset failed).
+
+**Runs:**
+- `npm run test:agents`: 91/91 node:test + 24 reference checks;
+- `npm run test:inference`: 24/24.
+
+**Step 11 closes here:**
+- **Built:** the cooperative think entry (`Brain.cooperative`, `fn thinkBlock`), `MlpBrain.byGenome`,
+  `brain.rowCount`, `brain.setWeights(network, { row })`, `brain.setRows(packed, { first })`, and the
+  staged cooperative kernel (e′) with per-lane fallback and out-of-range genome guard; tested by
+  U43/U44 headless and A35 on three host/GPU pairs; documented with a checked example.
+- **Next in Phase 2:** spikes S7 and S8 (`docs/work/plan-2.md` §5).
+
+**Review** (Claude, 2026-10-17, before the commit; the user asked for a review):
+- **Fixed, a wrong claim:** "any layout is bit-exact against `mlpForward`". Rows are bit for bit
+  what a single-network `MlpBrain` holding that row computes on the same GPU (S6, A35); they agree
+  with `mlpForward` only within the tolerance the guide states for network brains
+  (`1e-5 + 1e-5·|cpu|`). Reworded.
+- **Added, a missing caveat:** the measured costs were C2's network only. With phase 7.2's smaller
+  network, aligned rows cost −4.6% on NVIDIA, +14.2% in Chrome and +4.9% under Node on AMD (phase
+  11.3); a reader with a small network would have read a gain.
+- **Checked, no change:**
+  - the example builds what its comments say (4 rows, 64-agent blocks, one cooperative pass, row
+    updates without a compile), and the test checks each of them;
+  - the block-skip, staging and out-of-range text match §6 and the kernel;
+  - the general-purpose rule holds (no evolution words);
+  - the validation counts (142/142, 17/17) match phase 11.3's runs.
+- `npm run test:agents` 91/91 after the fixes.
