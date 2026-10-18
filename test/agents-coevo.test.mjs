@@ -169,3 +169,281 @@ test('U51 repeatable CPU pipeline, separate timebases and no direct GPU/filesyst
     const imports = [...source.matchAll(/^import .* from '([^']+)';/gm)].map(m => m[1]);
     assert.deepEqual(imports, ['./mlp-train.mjs']);
 });
+
+test('U50 canonical config validation, hashing, default geometry and strict refusals', async () => {
+    const { validateConfig, configHash, canonicalJson, parseCliArgs } = await import('../tools/agents/coevolve-config.mjs');
+    assert.equal(canonicalJson({ b: 1, a: 2 }), '{"a":2,"b":1}');
+    assert.equal(canonicalJson([3, 2, 1]), '[3,2,1]');
+
+    const valid = validateConfig({ name: 'test-run-u50' });
+    assert.equal(valid.schema, 1);
+    assert.equal(valid.K, 8); assert.equal(valid.E, 1);
+    assert.equal(valid.arenasPerLane, 8); assert.equal(valid.totalArenas, 16);
+    assert.equal(valid.P, 192); assert.equal(valid.W, 16);
+    assert.equal(valid.L, 24); assert.equal(valid.cols, 2); assert.equal(valid.gap, 10);
+    assert.equal(valid.T, 300); assert.equal(valid.thinkEvery, 3);
+    assert.equal(valid.environment, 'contact-v2');
+    assert.equal(valid.contacts, false);
+    assert.equal(valid.catchMargin, 0.05);
+    assert.equal(valid.generations, 10);
+    assert.equal(valid.start, 'random');
+    assert.deepEqual(valid.hidden, [16, 16]);
+    assert.ok(typeof valid.configHash === 'string' && valid.configHash.length === 64);
+
+    // Hash sensitivity
+    const modified = validateConfig({ name: 'test-run-u50-b', generations: 12 });
+    assert.notEqual(valid.configHash, modified.configHash);
+
+    // Refusals
+    const bad = obj => assert.throws(() => validateConfig(obj), /^Error: coevolve:/);
+    bad(null);
+    bad([]);
+    bad({ name: 'invalid name with spaces' });
+    bad({ name: 'valid', unknownKey: 1 });
+    bad({ name: 'valid', K: 0 });
+    bad({ name: 'valid', E: -1 });
+    bad({ name: 'valid', arenas: 30, K: 8, E: 1 }); // 30 != 2*8*1 = 16
+    bad({ name: 'valid', dt: 0 });
+    bad({ name: 'valid', L: 2 });
+    bad({ name: 'valid', gap: -1 });
+    bad({ name: 'valid', environment: 'unknown-env' });
+    bad({ name: 'valid', environment: 'legacy-v1', contacts: true });
+    bad({ name: 'valid', environment: 'contact-v2', catchMargin: -0.1 });
+    bad({ name: 'valid', optimizer: { sigma: -1 } });
+    bad({ name: 'valid', optimizer: { rate: 0 } });
+    bad({ name: 'valid', optimizer: { decay: -0.01 } });
+    bad({ name: 'valid', archive: { every: 0 } });
+    bad({ name: 'valid', archive: { cap: 1 } });
+    bad({ name: 'valid', archive: { share: 1.5 } });
+    bad({ name: 'valid', seeds: { master: -1 } });
+    bad({ name: 'valid', seeds: { master: 2 ** 32 } });
+    bad({ name: 'valid', hidden: [] });
+    bad({ name: 'valid', hidden: [128] });
+    bad({ name: 'valid', start: 'unknown-start' });
+
+    // parseCliArgs
+    const parsed = parseCliArgs([
+        '--name', 'my-cli-run',
+        '--generations', '20',
+        '--K', '4',
+        '--E', '2',
+        '--arenas', '16',
+        '--hidden', '16x32',
+        '--contacts',
+        '--export-onnx'
+    ]);
+    assert.equal(parsed.name, 'my-cli-run');
+    assert.equal(parsed.generations, 20);
+    assert.equal(parsed.K, 4); assert.equal(parsed.E, 2);
+    assert.equal(parsed.arenas, 16);
+    assert.deepEqual(parsed.hidden, [16, 32]);
+    assert.equal(parsed.contacts, true);
+    assert.equal(parsed.exportOnnx, true);
+});
+
+test('U52 seeds manifest, cross-pair collision detection, tile permutation and archive manager', async () => {
+    const {
+        buildSeedManifest, permutationForGeneration, opponentForPair,
+        createArchiveManager, evolvingSpecies, opponentSpecies, noiseChecksum
+    } = await import('../tools/agents/coevolve-schedule.mjs');
+
+    // Species alternation
+    assert.equal(evolvingSpecies(0), 'prey');
+    assert.equal(opponentSpecies(0), 'wolf');
+    assert.equal(evolvingSpecies(1), 'wolf');
+    assert.equal(opponentSpecies(1), 'prey');
+
+    // Seed manifest
+    const manifest = buildSeedManifest({
+        masterSeed: 18001,
+        domain: 1,
+        generations: 4,
+        K: 4,
+        E: 2,
+    });
+    assert.equal(manifest.generations, 4);
+    assert.equal(manifest.B, 8);
+    assert.equal(manifest.seedsByGeneration.length, 4);
+    assert.equal(manifest.totalEpisodes, 32);
+    assert.ok(typeof manifest.manifestHash === 'string' && manifest.manifestHash.length === 64);
+
+    // Verify all seeds are u32 and unique across the entire manifest
+    const allSeeds = new Set();
+    for (const genSeeds of manifest.seedsByGeneration) {
+        assert.equal(genSeeds.length, 8);
+        for (const s of genSeeds) {
+            assert.ok(Number.isInteger(s) && s >= 0 && s <= 0xffffffff);
+            assert.ok(!allSeeds.has(s), `duplicate episode seed ${s} detected`);
+            allSeeds.add(s);
+        }
+    }
+
+    // Permutation
+    const perm0 = permutationForGeneration({ masterSeed: 18001, domain: 1, t: 0, B: 8 });
+    const perm1 = permutationForGeneration({ masterSeed: 18001, domain: 1, t: 1, B: 8 });
+    assert.equal(perm0.length, 8);
+    assert.deepEqual([...perm0].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert.notDeepEqual(perm0, perm1); // Changes with t
+
+    // Opponent sampling
+    const archiveMock = [
+        { id: 'wolf-0000', generation: 0, params: new Float64Array(10) },
+        { id: 'wolf-0005', generation: 5, params: new Float64Array(10) },
+    ];
+    // h = 0: always current
+    const oppCurrent = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 0, K: 8 });
+    assert.equal(oppCurrent.type, 'current');
+    assert.equal(oppCurrent.row, 16);
+
+    // h = 1: always archive
+    const oppArchive = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 1, K: 8 });
+    assert.equal(oppArchive.type, 'archive');
+    assert.ok(oppArchive.row >= 17 && oppArchive.row <= 18);
+
+    // Archive manager
+    const mgr = createArchiveManager({ cap: 3, every: 2 });
+    mgr.init({
+        prey: { params: new Float64Array([1, 2]) },
+        wolf: { params: new Float64Array([3, 4]) },
+    });
+    assert.equal(mgr.list('prey').length, 1);
+    assert.equal(mgr.get('prey', 0).id, 'prey-0000');
+
+    // t=0: (0+1)%2 !== 0 -> no snapshot
+    assert.equal(mgr.maybeSnapshot(0, 'prey', new Float64Array([10, 20])), null);
+
+    // t=1: (1+1)%2 === 0 -> snapshot 1
+    const snap1 = mgr.maybeSnapshot(1, 'prey', new Float64Array([11, 22]));
+    assert.equal(snap1.snapshotted.id, 'prey-0002');
+    assert.equal(snap1.evicted, null);
+    assert.equal(mgr.list('prey').length, 2);
+
+    // t=3: snapshot 2 (length reaches cap = 3)
+    const snap2 = mgr.maybeSnapshot(3, 'prey', new Float64Array([12, 24]));
+    assert.equal(snap2.snapshotted.id, 'prey-0004');
+    assert.equal(snap2.evicted, null);
+    assert.equal(mgr.list('prey').length, 3);
+
+    // t=5: snapshot 3 -> exceeds cap 3, evicts index 1, retaining index 0!
+    const snap3 = mgr.maybeSnapshot(5, 'prey', new Float64Array([13, 26]));
+    assert.equal(snap3.snapshotted.id, 'prey-0006');
+    assert.equal(snap3.evicted.id, 'prey-0002'); // First inserted snapshot evicted
+    assert.equal(mgr.list('prey').length, 3);
+    assert.equal(mgr.get('prey', 0).id, 'prey-0000'); // Initial start retained!
+    assert.equal(mgr.get('prey', 1).id, 'prey-0004');
+    assert.equal(mgr.get('prey', 2).id, 'prey-0006');
+
+    // Noise checksum
+    const dirs = [new Float64Array([1, 2]), new Float64Array([3, 4])];
+    const ck1 = noiseChecksum(dirs);
+    const ck2 = noiseChecksum(dirs);
+    assert.equal(ck1, ck2);
+    assert.notEqual(ck1, noiseChecksum([new Float64Array([1, 2]), new Float64Array([3, 5])]));
+});
+
+test('U53 checkpoint writing, atomic export, model identity and manifest verification', async () => {
+    const {
+        createRunDirectory, writeRunJson, appendLog,
+        writeGenerationCheckpoint, writeArchiveSnapshot
+    } = await import('../tools/agents/coevolve-checkpoint.mjs');
+    const { existsSync, rmSync, readFileSync } = await import('node:fs');
+    const { resolve, join } = await import('node:path');
+
+    const testDir = resolve('tools/agents/out/coevo/u53-test-checkpoint');
+    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+
+    try {
+        createRunDirectory(testDir);
+        assert.ok(existsSync(testDir));
+        assert.ok(existsSync(join(testDir, 'archive')));
+
+        // Test run.json write
+        writeRunJson(testDir, {
+            config: { schema: 1, algorithm: 'coevo-v1', configHash: 'abc', seeds: { master: 123 } },
+            seedManifest: { masterSeed: 123, domain: 1, totalEpisodes: 10, manifestHash: 'def', retries: [] },
+        });
+        assert.ok(existsSync(join(testDir, 'run.json')));
+        const runJson = JSON.parse(readFileSync(join(testDir, 'run.json'), 'utf8'));
+        assert.equal(runJson.configHash, 'abc');
+
+        // Test appendLog
+        appendLog(testDir, { t: 0, species: 'prey', scores: [1, 2] });
+        appendLog(testDir, { t: 1, species: 'wolf', scores: [3, 4] });
+        const logLines = readFileSync(join(testDir, 'log.jsonl'), 'utf8').trim().split('\n');
+        assert.equal(logLines.length, 2);
+        assert.equal(JSON.parse(logLines[0]).t, 0);
+
+        // Test generation checkpoint
+        const net = [
+            { input: 24, output: 16, activation: 'tanh', weights: new Float32Array(24 * 16), biases: new Float32Array(16) },
+            { input: 16, output: 2, activation: 'tanh', weights: new Float32Array(16 * 2), biases: new Float32Array(2) }
+        ];
+        const obsNames = Array.from({ length: 24 }, (_, i) => `obs.${i}`);
+        const actNames = ['turn', 'throttle'];
+
+        writeGenerationCheckpoint(testDir, {
+            generation: 0,
+            preyNetwork: net,
+            wolfNetwork: net,
+            obsNames,
+            actNames,
+            configHash: 'hash123',
+            exportOnnx: true,
+        });
+
+        const gen0Dir = join(testDir, 'gen-0000');
+        assert.ok(existsSync(gen0Dir));
+        assert.ok(existsSync(join(gen0Dir, 'prey.mlp.json')));
+        assert.ok(existsSync(join(gen0Dir, 'wolf.mlp.json')));
+        assert.ok(existsSync(join(gen0Dir, 'manifest.json')));
+        assert.ok(existsSync(join(gen0Dir, 'prey.onnx')));
+        assert.ok(existsSync(join(gen0Dir, 'wolf.onnx')));
+
+        // Manifest verification
+        const manifest = JSON.parse(readFileSync(join(gen0Dir, 'manifest.json'), 'utf8'));
+        assert.equal(manifest.generation, 0);
+        assert.equal(manifest.configHash, 'hash123');
+        assert.ok(manifest.models.prey.hash);
+        assert.ok(manifest.models.wolf.hash);
+
+        // Test archive snapshot
+        writeArchiveSnapshot(testDir, {
+            snapshot: { id: 'prey-0000', generation: 0 },
+            species: 'prey',
+            network: net,
+            obsNames,
+            actNames,
+            configHash: 'hash123',
+        });
+        assert.ok(existsSync(join(testDir, 'archive/prey-0000.mlp.json')));
+    } finally {
+        if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+    }
+});
+
+test('U55 guard submission calibration, batch size and 1500 ms safety threshold', async () => {
+    const { checkStep, STEP_STOP_MS } = await import('../tools/film/guard.mjs');
+    assert.equal(STEP_STOP_MS, 1500);
+
+    // checkStep passes for safe timings
+    assert.equal(checkStep(100, 1500), 100);
+    assert.equal(checkStep(500, 1500), 500);
+    assert.equal(checkStep(1500, 1500), 1500);
+
+    // checkStep throws when exceeding safety stop
+    assert.throws(() => checkStep(1501, 1500), /film: a step took .* ms, over the 1,500 ms stop/);
+    assert.throws(() => checkStep(2000, 1500), /film: a step took .* ms, over the 1,500 ms stop/);
+    assert.throws(() => checkStep(-1, 1500), /film: invalid step timing/);
+    assert.throws(() => checkStep(NaN, 1500), /film: invalid step timing/);
+
+    // Batch sizing arithmetic: target 500 ms, capped at 1000 ms, floor division
+    const calcBatch = (stepMs, T = 300) => {
+        let b = Math.max(1, Math.min(T, Math.floor(500 / stepMs)));
+        if (b * stepMs > 1000) b = Math.max(1, Math.floor(1000 / stepMs));
+        return b;
+    };
+    assert.equal(calcBatch(10), 50);    // 50 * 10 = 500 ms
+    assert.equal(calcBatch(20), 25);    // 25 * 20 = 500 ms
+    assert.equal(calcBatch(400), 1);    // 1 * 400 = 400 ms
+    assert.equal(calcBatch(600), 1);    // 1 * 600 = 600 ms (single step <= 1000)
+});

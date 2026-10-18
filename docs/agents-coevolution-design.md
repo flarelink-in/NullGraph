@@ -1,487 +1,528 @@
-# NullGraph Agents — Phase 2 step 14: co-evolution in Herd & Wolves (`agents:coevolve`) — Technical Design
+# NullGraph Agents — Phase 2 step 14: co-evolution in Herd & Wolves — Technical Design
 
-**Parent:** [`work/plan-2.md`](./work/plan-2.md) §4 (the first question) and §5 (milestone 2C, step 14).
-**Status:** decided 2026-10-17 (§15): the user took every recommendation. Phase 14.0 (spike S7,
-`npm run spike:s7`) measured on all three host/GPU pairs (results in §16): A = 64, P = 256, W = 16,
-K = 32, E = 1, T = 600 set from the data. Next: phase 14.1, the arena scenario.
-**Builds on:**
-- `MlpBrain.byGenome` (step 11, [`agents-genome-rows-design.md`](./agents-genome-rows-design.md));
-- the training tools ([`agents-cloning-design.md`](./agents-cloning-design.md)): the scenario, the
-  evaluator, the model files, the ONNX writer;
-- the films' step guard (`tools/film/guard.mjs`).
+**Parent:** [`work/plan-2.md`](./work/plan-2.md) §3–§5.
+**Revision 2 — 2026-10-18:** complete revision after steps 12–13 and code review.
+**Status (2026-10-18):** replacement 14.0 browser correctness verified (77/77); full-run safety and
+both-species quality gates remain unaccepted. 14.1 infrastructure validated on all three pairs;
+14.2 pure optimizer implemented and tested; 14.3 schedule, archive, trainer, guard, checkpoints and logs delivered (I5/I6 verified on Node NVIDIA/AMD). No training settings accepted. At the user's request, **all original
+phase 14.0 / S7 results are discarded**: invariant acceptance, timing/noise tables, learning and
+exploit conclusions, derived defaults and browser feasibility. **14.0 is reopened, not complete.**
+The old spike source remains historical code, not a reference implementation. No new results are
+claimed here, including acceptance based on rerunning the old checks.
 
-**Target:** `tools/agents/` only, never shipped in the package. **No library change** (plan-2 §3).
-
----
-
-## 1. Purpose
-
-Train the prey and the wolves of Herd & Wolves by competition, with evolution strategies (ES), in
-many independent arenas at once, on the user's GPU, headless under Node. What comes out:
-- **checkpoints** (`.mlp.json`, `.onnx` on request) that any demo, film (step 15) or evaluation
-  loads;
-- **run logs** that answer plan-2 §4.2's hypotheses H1–H3.
-
-### Pre-existing facts this design rests on
-
-1. **A network per agent exists** (step 11). One `MlpBrain.byGenome` brain per species holds every
-   candidate as a row. When a 64-agent block shares a row, the row is staged in workgroup memory: at
-   16,384 agents a step costs −10% on NVIDIA, −38% in Chrome and +31% under Node on AMD, against
-   today's brains (phase 11.3).
-2. **Every piece of an arena is a hook** (plan-2 §3), so the library does not change:
-   - custom actions: the steering integrator, with the arena's walls;
-   - a custom sensor: the arena's walls, in `Sensors.bounds()`'s format;
-   - step stages: today's catches; respawn inside the arena; one catch counter per arena;
-   - the record's free words: `genome` names the row, `user1` the arena.
-3. **The tools already have most of what a trainer needs:**
-   - the scenario (`createHerd`, the rule's texts, catches and respawns);
-   - the evaluator (held-out seeds 21–25, the matchups T, C, S, Sp and Sw);
-   - model files (`modelText`, `networkFromModel`) and the ONNX writer (`onnxFromNetwork`);
-   - parameter vectors and a seeded start (`flatParams`, `networkOf`, `initNetwork`), and Adam's
-     constants (`TRAIN_DEFAULTS`);
-   - the films' step guard (`predictStep`, `calibrateSteps`, a 1 s limit per submission).
-4. **Reruns are exact on one device** (A7, A23). With the noise seeded, a whole run is reproducible
-   (I5).
-
-### Non-goals
-
-- **Library code.** Everything lives in `tools/agents/`.
-- **Gradient reinforcement learning** (PPO and the like): ES only, as plan-2 decided.
-- **Evolution in the browser.** Step 16 decides from S7's generation rate.
-- **Contacts, obstacles, stamina.** S8 and steps 12–13 come later; H4 waits for them.
-- **The ecosystem** (births, deaths, mutation on the GPU): plan-2's backlog.
-- **Films of the results:** step 15.
-
-### Principles
-
-- **The library rule** (plan-2 §3): the optimizer sees weight vectors and scores, nothing of Herd &
-  Wolves; the scenario's code lives in its own file.
-- **Research hygiene:**
-  - fitness and metrics are fixed before a run;
-  - held-out seeds never train;
-  - every run records its config, seeds, git commit, adapter and driver.
-- **Exact and reproducible:** integer counters, seeded noise, a fixed order everywhere.
-- **Measured, not assumed:** S7 sets the arena layout, the population and the episode length.
-- **Within the GPU guard:** no submission near 2 s; steps per submission come from a measured step.
+**Target:** application code in `tools/agents/`, tests and docs. No core or library changes.
+Builds on [genome rows](./agents-genome-rows-design.md), [training tools](./agents-cloning-design.md),
+[query-only lists](./agents-queries-design.md), [contacts](./physics/physics-contacts-design.md), and
+`tools/film/guard.mjs`. Steps 12–13 and their independent S8/S9 evidence are not discarded.
 
 ---
 
-## 2. The formal definition
+## 1. Purpose, decisions and scope
 
-**Symbols.**
-- **Arenas** a = 0 … A−1. Arena a is a square tile of side L at (xₐ, zₐ), on a grid of C columns.
-  Tiles are g apart, and g is more than the sense radius r (8 m), so no query reaches across.
-- **Bodies.** W wolves and P prey per arena; P is a multiple of 64, so prey blocks share a row. The
-  wolves come first, as in today's scenario: arena a's wolves are agents [aW, (a+1)W), and its prey
-  are [AW + aP, AW + (a+1)P).
-- **Policies.** θ for prey and φ for wolves, as unpadded parameter vectors (`flatParams`).
-- **A generation t** evolves one species X (§7). Its candidates are xₜ ± σ εₜ,ₖ for k = 0 … K−1, where
-  εₜ,ₖ is a standard Gaussian vector drawn from (seed, t, k).
-- **Arenas of a pair.** Candidate (k, +) plays in arena 2k and (k, −) in arena 2k+1. With E = 1
-  arena per candidate by default (§16; configurable), the pair takes 2E arenas (A = 64, K = 32,
-  P = 256, W = 16, T = 600).
-- **The opponent.** The frozen species Y plays one policy oₖ per pair, the same in both of its arenas
-  (I3): its current weights, or a member of its archive (§7).
-- **An episode.** Spawn sₜ,ₖ: positions and headings relative to the tile, drawn from (seed, t, k),
-  and the same in both arenas of a pair. Then T steps. Cₐ counts the catches in arena a; a caught
-  prey respawns inside its tile.
-- **Fitness.** A candidate scores −Cₐ when prey evolve and +Cₐ when wolves evolve: zero-sum, exact
-  integers.
-- **The update** (Salimans et al. 2017):
-  - u are the centered ranks of the 2K scores, in [−0.5, 0.5], ties broken by arena index;
-  - g = Σₖ (u⁺ₖ − u⁻ₖ) εₜ,ₖ / (2Kσ);
-  - xₜ₊₁ = Adam(xₜ, g − λxₜ), which climbs.
-- **The archive.** Every H generations, each species' current weights join its archive.
+Train prey and wolves by alternating evolution strategies (ES), headless on the user's GPU. Export
+ordinary `.mlp.json` checkpoints, optional ONNX, reproducible metadata and H1–H3 research data.
+Contacts are an explicit environment configuration, never a hidden change to the baseline.
 
-**Properties, each one a test (§10):**
+### Decisions carried forward from 2026-10-17
 
-| | Property | Means |
-|---|---|---|
-| I1 | Independence | No agent sees, touches or is counted with an agent of another arena (plan-2 §4.1) |
-| I2 | Equivalence | With one arena covering the world, the arena scenario's records equal `createHerd`'s, bit for bit |
-| I3 | Fair pairs | Both arenas of a pair have the same spawn and the same opponent |
-| I5 | Reproducible runs | The same seed, config, build and device give the same checkpoints, byte for byte |
-| I6 | No readback in the step loop | Scores come back once per episode, A × 4 B |
-| E1 | Ascent | On a known objective (a quadratic in parameter space), the optimizer's loss falls |
-| E2 | Neutral pairs | When every candidate scores the same, g is exactly 0 |
-| E3 | Rank invariance | A monotone change of the scores leaves the update unchanged, bit for bit |
-| E4 | Seeded noise | (seed, t, k) gives the same ε on every run and every host |
-| E5 | Counted once | The per-arena counters add up to the scenario's own catch count |
+- Alternate prey/wolf updates, starting with prey; no simultaneous perturbation of both species.
+- Fitness: prey negative catches, wolves positive catches; no shaping by default.
+- Archive every 5 completed generations, cap 32 per species, retain the starting network;
+  probability 0.5 of sampling an archived opponent. One generation is one species update.
+- Checkpoint every 10 completed generations and the last; ONNX on request.
+- H1 starts from committed clones; H2 from seeded `24 → 16 → 16 → 2` tanh networks.
 
-(I4, exact rows, is step 11's A35.)
+These decisions are independent of S7 and remain recorded. Population, arena size, T, E, σ, learning
+rate and throughput have **no accepted measured defaults**. Former settings are not carried forward
+as accepted defaults merely because they occurred in an old run.
 
----
+### Revision-2 choices
 
-## 3. Integration facts (verified against this repository, 2026-10-17)
+Mirrored signs use separate, identically indexed lane systems. Episodes start from fresh systems
+and solvers. Equal scores get average ranks. Legacy and contact environments have separate versioned
+identities. Contact catch semantics in §5 are a **proposed resolution** of step 13 Q8, not a claim
+that the user previously accepted it; replacement 14.0 must validate it before settings freeze.
 
-| Fact | Where | Consequence |
-|---|---|---|
-| `AgentInit` takes `genome` and `user1` | `agentRecords.ts:15–40` | The row and the arena go in the record; no new field |
-| A custom sensor is `fn name(i: u32, a: Agent) -> array<f32, width>` in the sense module | `agentSenseShaders.ts:58–70` | The arena's wall sensor reads `a.ids.w` (the arena) and the heading |
-| The built-in wall sensor: nearest of four walls, `max(0, 1 − distance / senseRadius)`, projected on side and forward | `agentSenseShaders.ts:44–56` | Copied with the tile's bounds; I2 checks the copy |
-| Custom actions replace the integrator: `fn name(i: u32)` over `agents` (read-write) | `agentActShaders.ts` | The steering integrator copied with the tile's bounds; I2 checks it |
-| A step stage binds at most 3 buffers of its own on a default device; today's respawn binds 3 (settings, stats, the catch ring) | `AgentSystem.checkExtraBuffers`, `herd-wolves.mjs` | The arena's respawn binds settings, stats and the arena counters; it drops the catch ring, which only the demo's flashes read |
-| Today's respawn picks a point anywhere in the world | `herdRespawnWGSL` (`randomPointInWorld`) | The arena's respawn picks a point in the tile |
-| Wolves are the first 1 in 16 agents; thinkEvery 3; a caught wolf rests 5 s | `herd-wolves.mjs` | Kept, per arena |
-| The committed networks check observation names on load | `networkFromModel` | They are loaded against `herdDefinition()`, then used in the arena system, whose shapes match |
-| The evaluator runs held-out seeds 21–25 and the matchups T, C, S, Sp, Sw | `evaluator.mjs`, `evaluate.mjs` | A checkpoint folder of `<species>.mlp.json` evaluates as students, unchanged |
-| Parameter vectors, seeded starts, Adam's constants | `mlp-train.mjs` | Reused by the optimizer |
-| A step guard: 1 s per submission, predicted from measured steps | `tools/film/guard.mjs` | Reused for the episode loop |
+Non-goals: PPO, differentiable simulation, ecosystem births/deaths, obstacles, stamina, resume,
+browser trainer, films and site work. Contacts are included. H4's combined contacts-and-obstacles
+hypothesis remains deferred; a contacts-only ablation does not answer all of H4.
 
----
+## 2. Integration constraints verified against the repository
 
-## 4. Data model
+| Existing behavior/API | Consequence |
+|---|---|
+| `genome` and `user1` are record words | Store policy row and tile ID without new library fields |
+| Sense/think gate uses `(state.tick + i / 64) % thinkEvery`, except newborns | Corresponding signs need identical indices and initial tick |
+| Rule and respawn randomness use i/tick | Equal initial spawn seeds alone are insufficient |
+| Bounded query windows depend on cell ID/tick | Signs also need identical grid/world coordinates |
+| Contact coincidence normals hash body indices; contact window phase is private | Fresh, identically indexed solvers; do not assume a reset API |
+| `AgentSystem.upload()` uploads dirty records/species, not episode state | Re-spawning records alone is not a complete reset |
+| Custom sensors/actions and ordered app stages exist | Arena walls, rules, respawn and containment stay in tools |
+| `Sensors.query` does not widen obs | Extra diagnostic/rule queries need not invalidate models |
+| `addStepStage({ name, stages })` accepts external stages | Contacts belong inside every fixed step through the shipped seam |
+| `DiscContacts` has one world clamp, not per-tile bounds | Add tile containment after contacts |
+| A compiled app stage allows at most 3 caller storage buffers on a default device | Respawn binds settings, stats, tile counters; omit the demo flash ring |
+| Model loading checks obs/action names | Preserve canonical feature meanings and metadata, not merely widths |
+| Current evaluation uses teacher/label/student and min/max spread | Explicit clone opponents and confidence intervals need implementation |
 
-- **Constants compiled into the arena's WGSL:** A, L, g, C, W, P.
-- **Record words:** `genome` is the row; `user1` is the arena.
-- **Caller buffers:**
-  - the arena catch counters (A × u32, atomics), zeroed at each episode's start;
-  - the scenario's settings and stats, as today.
-- **Brains:** one `MlpBrain.byGenome` per species, with a fixed table of 2K + M rows (M, the archive's
-  cap, §7), set at the run's start and never rebuilt.
-  - When a species evolves, rows 0 … 2K−1 hold its candidates.
-  - When it is frozen, row 2K holds its current weights and rows 2K+1 … its archive.
-  - Rows are rewritten with one `setRows` per species per generation.
-- **Block alignment:**
-  - Prey: P is a multiple of 64, so every prey block reads one row (the staged path).
-  - Wolves: W per arena (e.g. 16) puts 64/W arenas in a block. When wolves are frozen, those
-    arenas meet one opponent, so the block shares a row. When wolves evolve, a block mixes 64/W rows
-    and the fallback runs; the wolf pass is small (1 agent in 17).
-- **Files** (`tools/agents/out/coevo/<name>/`, ignored by git):
-  - `run.json`: the config, the seeds, the git commit, the adapter and driver, the starting
-    networks' hashes;
-  - `log.jsonl`: one line per generation (§8);
-  - `gen-NNNN/prey.mlp.json` and `wolf.mlp.json` (and `.onnx` with `--onnx`), written with
-    `modelText`. Their `trainedOn` names the tool, the run, the generation and the config's hash, so
-    `agents:evaluate -- --students gen-NNNN` reads them as it reads the clones;
-  - `archive/prey-NNNN.mlp.json` and `wolf-NNNN.mlp.json`.
+Relevant sources: `AgentSystem.ts`, `agentSenseShaders.ts`, `agentThinkShaders.ts`,
+`contactShaders.ts`, `DiscContacts.ts`, `tools/agents/scenario/herd-wolves.mjs`, `model.mjs` and
+`evaluator.mjs`. Exact reruns are a same-device/build/runtime requirement, not a cross-GPU promise.
 
----
+## 3. Formal definition and mirrored lanes
 
-## 5. The arena scenario (`tools/agents/scenario/herd-wolves-arenas.mjs`)
+### 3.1 Arenas and indexing
 
-- **The definition:** today's species, `thinkEvery` and sensors, with one change: `Sensors.custom`
-  (2 floats, the arena's walls) in place of `Sensors.bounds()`. The networks' inputs keep their
-  order and meaning.
-- **The actions:** `Actions.custom` (2 floats): today's steering integrator, its walls the tile's.
-- **The step stages:**
-  - **catches:** `HERD_CATCHES` unchanged; neighbours never cross tiles (I1);
-  - **respawn:** today's, with a point inside the tile and `atomicAdd(&arenaCatches[a.ids.w], 1u)`
-    beside the scenario's own count (E5).
-- **An episode's start:**
-  - every agent is spawned on the CPU: its arena's tile, the pair's seed, its row and its arena;
-  - the counters are zeroed;
-  - one upload.
-- **Equivalence (I2):** with A = 1 and the tile equal to the world, the arena scenario must give
-  `createHerd`'s records, bit for bit. It also proves the copied sensor and integrator match.
+- K ≥ 1 mirrored perturbation pairs; E ≥ 1 replicas per candidate.
+- B = KE arenas **per lane**; A = 2KE total evaluated arena episodes per generation.
+  `--arenas` means A; require exact equality and no unscored spare arenas.
+- Sign s = 0 is plus, s = 1 minus. Logical tile b = kE + e. Apply a seeded permutation of B tiles
+  each generation, shared by both lanes, to avoid attaching directions permanently to tile biases.
+- Each tile has W wolves and P prey. For physical tile b, wolves occupy `[bW,(b+1)W)` and prey
+  `[BW+bP,BW+(b+1)P)`. The same body occupies the same global i in both signs.
+- Production alignment requires P a multiple of 64 and BW a multiple of 64. Mixed-row wolf blocks
+  use the existing fallback. Never correlate independent pairs' opponents just to share a block.
+- Square tiles of side L on C columns have edge gap g. Require g greater than every enabled query
+  radius and greater than `2 maxRadius + 2J maxPush`, conservatively protecting isolation during J
+  contact passes before containment. Validate this bound in stress fixtures, not only on spawn.
+- Require positive finite geometry, enough room for radii/spawn inset and legal world/grid/buffer/
+  dispatch sizes. Validate integer products and device limits before allocation.
 
----
+The plus and minus lanes have identical definitions, world origin, coordinates and indices, but
+separate record buffers and candidate assignments. They can execute sequentially; concurrent GPU
+execution is not required. Agents never query the other lane. Bounded-grid effects inside one lane
+must be mirrored exactly, even if tiles differ from one another in alignment/cadence.
 
-## 6. The optimizer (`tools/agents/es.mjs`)
+### 3.2 Policies, scores and update
 
-Pure functions over vectors; it knows nothing of the scenario.
-- **`noise(seed, t, k, n)`:** a standard Gaussian vector (Box–Muller over `rand01`'s hash). Every host
-  computes the same numbers (E4).
-- **`candidates(x, σ, K, t, seed)`:** the 2K perturbed vectors, in pair order.
-- **`centeredRanks(scores)`:** ranks scaled to [−0.5, 0.5], ties broken by index (E3).
-- **`gradient(ranks, ε, σ)`:** Σₖ (u⁺ₖ − u⁻ₖ) εₖ / (2Kσ), exactly 0 when every score is equal (E2).
-- **`adam(state, g, rate, λ)`:** `TRAIN_DEFAULTS`' β₁, β₂ and ε, with weight decay λ.
-
-Its tests (E1–E4) run headless, on known objectives.
-
----
-
-## 7. The schedule
-
-- **Alternating** (recommended, §15 Q1): generation t evolves the prey when t is even and the wolves
-  when it is odd. The frozen species keeps its weights for that generation. This is textbook ES:
-  each score depends on one perturbation.
-- **The opponents of the frozen species:**
-  - each pair meets its current weights with probability 1 − h, or else a member of its archive,
-    drawn uniformly;
-  - the draw is seeded by (seed, t, k), and both arenas of a pair meet the same opponent (I3);
-  - arenas that share a wolf block share it too.
-- **The archive** (recommended, Q3): each species' current weights join every H = 5 generations, up
-  to M = 32 members; past the cap, the oldest after the first goes. The first member, the starting
-  network, stays. h = 0.5 once the archive holds anyone.
-- **The start:** the clones (C2's shape, for H1) or `initNetwork` of a smaller shape (for H2).
-
----
-
-## 8. Runs, logs and the guard (`tools/agents/coevolve.mjs`, `npm run agents:coevolve`)
+At generation t, evolving master vector x produces `x ± σ ε(t,k)`. Opponent o(t,k) is drawn once per
+pair, shared by signs and E replicas. Replica e has its own episode seed, shared by the signs.
+With catch counter C(s,k,e) after exactly T fixed steps:
 
 ```
-npm run agents:coevolve -- --name h1-clones --start clones --generations 200 --arenas 64 --pairs 32 \
-    --episode 600 --sigma 0.02 --rate 0.01 --decay 0.005 --archive-every 5 --archive-share 0.5 --seed 1
-npm run agents:coevolve -- --name h2-small --start random --hidden 16x16 …
+f(s,k) = speciesSign * sum_e C(s,k,e) / E     (prey −1, wolves +1)
+g = sum_k (u(+,k) − u(−,k)) * ε(t,k) / (2 K σ)
+x_next = AdamAscent(x, g − λx)
 ```
 
-- **One generation:**
-  1. write both tables' rows;
-  2. spawn every arena and zero the counters;
-  3. run T steps in submissions of s steps, s from the guard;
-  4. read the counters (A × 4 B);
-  5. compute the scores, the ranks and the update;
-  6. log, and write a checkpoint when one is due.
-- **The guard:** `calibrateSteps` measures a step at the run's population, and s keeps a submission
-  under 1 s. A step over 1.5 s stops the run (`checkStep`). Costs are cached per adapter, driver and
-  workload, as the films cache them.
-- **One `log.jsonl` line per generation:** t, the species evolved, the scores' mean, median, best and
-  worst, the catches in all arenas, the seconds per generation, the steps a second.
-- **Checkpoints:** every N = 10 generations and at the end (Q4); the archive as it fills.
-- **Reproducible (I5):** the GPU's steps are exact, the noise is seeded, and the optimizer runs in
-  float64 in a fixed order. Two runs give the same files, byte for byte.
+Rank integer catch sums since E is identical for all candidates; retain every replica's counter.
+Candidate row is `2k+s`. Canonical logs order by k, sign, replica, independent of physical permutation.
+Bodies are not independent statistical episodes. Archived policies are snapshots, not established
+champions unless evaluation proves that claim.
 
----
+### 3.3 Fairness contract
 
-## 9. Evaluation (plan-2 §4.2–4.3)
+Both signs receive the same opponents, spawn streams, global i, tick zero, think cadence, contact
+phase and grid coordinates. Policy-dependent trajectories may diverge; common randomness can
+reduce noise but does **not** guarantee cancellation.
 
-- **H1 and H2: evolved brains against the rule and the clones.** `agents:evaluate -- --students
-  gen-NNNN --episodes 20 --seed 21` runs the matchups T, S, Sp and Sw on held-out seeds. Plan-2's
-  protocol asks for at least 20 episodes; the seeds stay none of training's. It reports means with
-  95% intervals.
-- **H3: cycling.** A new `agents:crossplay -- --run <dir> --every 10` plays the prey of generation i
-  against the wolves of generation j, on held-out seeds, for chosen generations. It writes the
-  catches as a matrix (the data of Cliff & Miller's CIAO plots), for a run with the archive and one
-  without.
-- **Where results go:** each research run's numbers are recorded in this design's results sections.
-  Charts come later, through the films (step 15) or the demo (step 16).
+**Neutral oracle:** assign identical networks to both signs. On one supported runtime/device,
+normalized records, obs/actions and catches must agree word for word. Normalize only intentional
+candidate genome IDs, not positions or errors. Include forced respawns, rest timers, off-cadence
+newborns, crowded-cell windows, coincidences and contacts. Any mismatch blocks acceptance. Adjacent
+tiles with equal spawn seeds are not an acceptable substitute for this oracle.
 
----
+## 4. Data model, files and ownership
 
-## 10. Test suite
+Implement browser-loadable `tools/agents/scenario/herd-wolves-arenas.mjs` with no Node-only imports.
+Record `genome` names the policy row; `user1` names the physical tile. Settings and stats retain the
+scenario's existing meaning; each lane additionally owns B atomic u32 catch counters.
 
-IDs continue from U45 and A36; U43, U44 and A35 are step 11's.
+Persistent caller-owned `MlpBrain.byGenome` tables have **2K + 1 + M rows per species**:
+`[0,2K)` candidates, row 2K current opponent, `[2K+1,2K+1+M)` archive. Both lane systems attach the
+same species brains; replicas reference the same candidate row. One `setRows` per species per
+generation packs all required rows. Tables never rebuild during a run; reject out-of-range rows.
 
-**Headless (`test/agents-coevo.test.mjs`):**
-- **E1–E4:** the optimizer on known objectives (a quadratic falls; neutral scores give g = 0; a
-  monotone change of scores leaves the update unchanged; the same seeds give the same noise);
-- **I3:** the schedule gives both arenas of a pair the same spawn and opponent, and alternates the
-  species;
-- **the layout:** tiles never closer than the sense radius; prey blocks aligned; the CLI refuses a
-  layout that breaks either;
-- **the files:** a checkpoint written with `modelText` reads back with `networkFromModel`, bit for
-  bit.
+Output: ignored `tools/agents/out/coevo/<name>/`. Refuse an existing run directory; no resume.
 
-**GPU (agent-tools suite, three host/GPU pairs):**
-- **I1:** over 600 steps, in every layout used, no neighbour index points into another arena;
-- **I2:** one arena covering the world equals `createHerd`, bit for bit;
-- **E5:** the arena counters add up to the scenario's count;
-- **I5:** a 3-generation run twice gives the same checkpoints, byte for byte;
-- **I6:** one readback per episode (instrumented).
+- `run.json`: schema/algorithm versions, canonical resolved config/hash, complete seed manifests,
+  git commit **and** dirty status/relevant content hashes, build/model hashes, adapter/driver/limits,
+  OS/runtime versions. A commit alone does not identify dirty code.
+- `log.jsonl`: t, completed updates, evolved species, replica catches/aggregates, score summaries,
+  tie share, opponent IDs, permutation, noise checksum, gradient/penalty/update/weight norms, f32
+  perturbation collision count, archive changes, detailed timing and guard observations.
+- `gen-0000/` always stores both starts. `gen-NNNN/` means after N completed species updates;
+  write both networks every N = 10 and finally, without duplicating an already due final export.
+  JSON through `modelText`; optional ONNX through `onnxFromNetwork`; environment/config/hash manifest.
+- `archive/`: immutable snapshots with stable IDs, insertion generation and model hashes.
 
-**Watched failing** for each: the tiles closer than the sense radius (I1); the original
-`randomPointInWorld` in respawn (I1, E5); the copied integrator with one wall dropped (I2); a pair
-given two seeds (I3).
+Checkpoint deterministic metadata excludes wall times, absolute paths and mutable output-directory
+names. Run identity derives from canonical config/seeds/code/start hashes. Performance belongs in
+logs. I5 compares checkpoint JSON/manifest bytes, not timing logs or machine metadata; ONNX byte
+repeatability is a separate test. `modelText` rejects nonfinite/unrepresentable round trips including
+negative zero: fail explicitly, never silently change weights. Write checkpoints to temporary paths
+then rename; failures leave the run incomplete rather than publish partial final models.
 
----
+## 5. Arena environments and contacts (step 13 Q8)
 
-## 11. Errors (the CLI's refusals, verbatim when built)
+Custom wall sensor and steering integrator use tile bounds while retaining canonical input/output
+order and meaning. Assert actual generated names against the canonical model names; custom names
+are not automatically equivalent. Rule/settings/species values reuse existing scenario constants.
 
-- `coevolve: prey per arena (<P>) must be a multiple of 64.`
-- `coevolve: the gap between arenas (<g> m) must be more than the sense radius (<r> m).`
-- `coevolve: <A> arenas cannot hold <K> pairs of <E> arenas each.`
-- `coevolve: --start clones needs the committed networks' shape; got --hidden <shape>.`
+### `legacy-v1`, contacts off
 
----
+Preserve catch distance `< 0.9 m`, rest 5 s, rule and respawn semantics. Tile-local respawn uses the
+same lane i, episode tick and random streams. One tile covering the original `createHerd` world,
+original count/species ratio, seed and thinkEvery 3 must match records and catches bitwise throughout
+a rollout. This diagnostic layout may bypass production alignment via the test API only.
+Equivalence is claimed only for this mode; other counts/cadences/worlds are distinct workloads.
 
-## 12. Engine touchpoints
+### `contact-v1`, proposed contact-compatible rules
 
-- **Core:** none.
-- **Library:** none. The trainer uses step 11's `MlpBrain.byGenome`, custom actions, custom sensors,
-  step stages and caller buffers, all shipped.
+Initial explicit solver options come from completed step 13, **not S7**: J = 2, relaxation 1.75,
+maxPush 0.25 m, budget 32, damping 1, area mass, compliance 0. Map alive/frozen masks and velocity
+offset from exported agent layout constants; frozen wolves are fixed bodies. Record actual
+resolved solver cell size and device-dependent grid choices.
 
----
+Per fixed step, after built-in grid/queries/sense/think/act:
+
+1. Catch detection on moved positions, before separation.
+2. Consume flags, count once, respawn inside the tile, update wolf rest/frozen state.
+3. External `DiscContacts` stages via `addStepStage`.
+4. Tile containment: clamp centres to bounds inset by radius; remove outward wall-normal velocity
+   components only. Keep heading/frozen semantics; do not reflect heading a second time.
+5. Built-in tick finishes the step.
+
+Proposed Q8 resolution: catch reach = prey radius + wolf radius + catchMargin, strict `<` on both
+branches, provisional margin 0.05 m. Reach/order/rest are versioned environment parameters frozen
+before research. Verify just-inside/outside, resting wolves, dense walls and multiple prey. Keep
+legacy many-prey-per-wolf-step behavior; one-catch arbitration would be a separate rule change.
+
+Catch candidate lists were queried before act, like the original scenario. They are not exhaustive
+post-move nearest queries. Replacement 14.0 checks controlled cases against brute force and reports
+misses; any needed rule/query change is versioned before accepting measurements. `Sensors.query`
+can provide extra candidates without changing obs, but adding a query alone does not make a
+bounded pre-act list exhaustive.
+
+Global solver clamping is not tile containment. Containment can reintroduce wall overlap; measure
+that limitation. The gap bound and per-step clamp must prevent any cross-tile influence during
+contact passes. Never credit a catch to a tile reached by an escaped agent.
+
+For a **controlled contacts ablation**, disable the solver while retaining contact-v1 catch rules
+and containment/order semantics. Legacy-v1 versus contact-v1 changes multiple environment factors
+and cannot isolate contacts alone. Contacts mode is explicit in every research config, not inferred
+from discarded data. Obstacles and stamina remain deferred.
+
+### `contact-v2`, user-selected exhaustive eligible-wolf rule (2026-10-18)
+
+14.1 may begin as infrastructure despite 14.0 remaining **unaccepted**. Preserve the original
+scenario and protocol-2.1 spike unchanged. `contact-v2` is not pooled with `contact-v1` evidence.
+After act and before respawn/separation, copy the complete record buffer into a read-only snapshot.
+For each live prey, test every live same-tile wolf whose snapshot rest timer is <= 0, using strict
+distance < radius sum + explicit nonnegative catchMargin. Count each touching prey once; every
+eligible touching wolf enters rest, including equal-distance ties. Frozen alone does not imply
+ineligibility (rest timer does); dead bodies never catch or trigger rest. Multiple prey per wolf per
+step remain permitted. Independent per-record writes read only the snapshot, not peers' mutable
+flags. Respawn/rest then contacts then containment then tick retain their order. Containment applies
+to resting bodies too. Margin 0.05 is a correctness fixture parameter, not an accepted training default.
+
+New validation registration: `test/coevo-arena-gpu/protocol.json`. Phase 14.1 foundation verification
+is complete across all three required runtime/device pairs (Node/NVIDIA 40/40, Node/AMD 40/40,
+Chrome/AMD 40/40, zero WebGPU errors). Coverage verifies correctness (A42 legacy equivalence,
+A46 exhaustive ties/boundaries/resting/dead), shared policy table allocation and candidate discrimination
+on caller-owned `MlpBrain.byGenome` tables with in-place `setRows` updates (A43, A45), broader I1/I3/E5/C1
+stress (4-arena 10m-gap cross-tile isolation, dense contact/coincidence mirrored exactness, multi-arena
+catch counter sum equality, containment wall clamping), and contact-v2 60-step smoke rollout under
+the 1500 ms safety stop (NVIDIA max 39.7 ms, AMD max 14.1 ms, Chrome max 133.8 ms) with exact reproducibility
+(A47). 14.1 foundation is delivered; production module builds fresh lane systems and attaches shared brain
+tables; training optimizer/CLI and full research screening remain for phases 14.2–14.5.
+
+## 6. Complete episode lifecycle
+
+Correctness-first: create fresh plus/minus `AgentSystem`s and fresh contact solvers for each
+generation episode, attaching persistent caller-owned brains. This resets private solver phase and
+GPU tick without a library change. Setup/compilation may be expensive and is included in rates.
+Pooling is deferred until an explicit reset design passes the same tests.
+
+1. Resolve noise, opponents, tile permutation and episode seeds on CPU, in fixed order.
+2. Write policy tables. Build both identical lane definitions/systems and fresh settings/stats/
+   counters/solvers, with exception-safe ownership.
+3. Spawn every record in fixed global index order, using canonical initialization for age, flags,
+   velocity, memory and timers; one contiguous record upload per lane. Fresh buffers start zero.
+4. Select/cache a one-step chain via public `advance(dt)`/`getComputeStages`; assert one step was
+   selected. Submit exactly T copies in guarded batches, not further accumulator-derived counts.
+5. Copy both B-counter buffers into one staging buffer, submit copies, **map once after both lanes**.
+   No map/inspect/`readCounters()`/stats readback inside the production step loop.
+6. Aggregate and update only the evolving species; log/export. Destroy lane systems before buffers
+   they bind; explicitly destroy solvers and settings/counters. Destroy brains only when run ends.
+
+Use `try/finally` for mapping, failures and cancellation. Validation can inspect records/neighbours/
+solver counters outside the production contract; diagnostic readback runs are not timing evidence.
+Calibration uses disposable systems, never scored episode state. Fresh research systems follow
+warm-up, so exactly T scored steps start at tick zero. R1 tests fresh episodes after unrelated
+calibration/episodes against a fresh-process reference with the same brains.
+
+## 7. Pure ES optimizer
+
+`tools/agents/es.mjs`: pure functions, no GPU/filesystem/scenario imports. Reuse confirmed parameter
+packing helpers and `TRAIN_DEFAULTS` Adam constants from `mlp-train.mjs`; no new dependencies.
+
+**14.2 implemented, 2026-10-18:** `es.mjs` exports `noise`, `tupleHash`, `centeredRanks`,
+`gradient`, `createAdamState`, `adamAscent`, `masterParams`, `candidateNetworks`. Noise version
+`es-tuple-box-muller-v1` mixes [0x45530101, stream, seed, generation, direction, even parameter index];
+stream 1 selects radius, 2 angle. Fields are u32; no seed arithmetic packing. Allocation/work per
+vector capped at 2^24 parameters. Integer goldens have an independent BigInt oracle; floating
+goldens recorded on Node v24.12.0 use 2e-15 tolerance. Candidate shape validation matches current
+MlpBrain dimension/activation limits, with existing f32 layer packing. Masters/moments stay f64.
+Adam updates are transactional and reject nonfinite intermediates; rate/decay/sigma are explicit.
+U51 has ten headless tests; watched-failing mutations detect index-ranked ties, missing factor 2,
+wrong ascent sign and omitted coupled decay. The CPU repeat test is not GPU training acceptance.
+
+- Master vectors, noise, moments and reductions use float64, fixed k/j loop order. Convert only
+  candidate networks at the f32 boundary; retain float64 archive masters. Log plus/minus f32 weight
+  collisions and norms; stalled learning is not explained from weight magnitude alone.
+- `noise(seed,t,k,n)`: documented versioned u32 tuple hash with separate fields; no unchecked
+  `t*4096+k` packing or doubling seeds that aliases half the u32 domain. Check domain/budget bounds.
+  Box–Muller uniforms avoid log(0). Golden integer-hash fixtures are exact; floating fixtures pin
+  the supported runtime. JS transcendental bit equality across all engines is not promised.
+- `centeredRanks(scores)`: deterministic ascending sort; equal scores share average occupied rank.
+  For N = 2K, utility = averageRank/(N−1) − 0.5. All-equal scores yield exactly zero; reject nonfinite
+  scores. Sorting index order may aid bookkeeping but must not invent utility differences.
+- `gradient`: §3 formula in fixed order. Equal mirrored utilities contribute zero, including within
+  partially tied populations. Rank invariance means strictly increasing transforms preserving ties.
+- `adamAscent`: separate moments/timebase per species, increment on its turn only. Apply `g − λx`
+  as coupled L2 penalty, **not AdamW**. Zero fitness gradient does not mean no movement with old
+  momentum or nonzero decay. Test those separately.
+- Refuse σ ≤ 0, rate ≤ 0, decay < 0, nonfinite vectors/candidates/moments/updates before GPU upload
+  or export. Golden Adam steps and a known quadratic maximum test direction and normalization.
+
+## 8. Schedule, seeds and archive
+
+Even zero-based t evolves prey, odd t wolves. After `(t+1) % H == 0`, append each species' current
+snapshot. Initial archive member 0 exists before t = 0. Choose current with probability 1−h,
+otherwise uniform archive, independently per pair and shared by all E replicas/signs. This starts
+immediately; start/current equality initially is harmless. h = 0 disables sampling. Require M ≥ 2;
+over cap remove index 1, retaining the start. Log all IDs/evictions. No opponent grouping by wolf block.
+
+Use versioned separate tuple fields for master seed, experiment domain, purpose, t, k and replica.
+Separate perturbation/spawn/opponent/permutation streams. Precompute numerical training episode
+seed manifests for the requested budget; compare with fixed validation/final-test manifests and
+reject or deterministically regenerate collisions with recorded retry counters. Domains alone do
+not prove numerical seeds differ. Detect unintended cross-pair episode-seed reuse; plus/minus reuse
+is intentional. Reserve generation/u32 bounds; refuse overflow. Persist noise checksums.
+
+Validation seeds guide settings. Final test seeds do not tune T/E/σ, margin, architecture, stopping
+or checkpoint selection. Research manifests fix seeds and budgets before final outcomes are read.
+
+## 9. Trainer and guarding
+
+Implement `tools/agents/coevolve.mjs`, `npm run agents:coevolve`, and small pure config/schedule
+helpers. Before replacement 14.0, examples are illustrative, not measured presets:
+
+```text
+npm run agents:coevolve -- --name h1 --start clones --config research-config.json
+npm run agents:coevolve -- --name h2 --start random --hidden 16x16 --config research-config.json
+```
+
+Resolved config explicitly includes K/E/A/P/W/L/C/g/T/dt/thinkEvery/budgets, environment/catch
+version and contacts options, optimizer, seed manifests, generations, archive/export settings.
+Canonicalize before hashing. Refuse unknown options, missing explicit profile, incompatible clone
+shape, existing output directory, row/device overflow and unsafe layouts. No silent population,
+adapter, episode-length or environment fallback. Bound per-arena catches conservatively by PT;
+refuse bounds ≥ 2^32. Nonfinite runtime state, device loss or any WebGPU error marks run incomplete.
+
+Reuse film guard prediction/calibration/cache primitives through tools code. Valid calibration
+counts must obey its ≥64/multiple-of-16 contract **and** actual arena layout constraints; arbitrary
+quarter-population layouts are not automatically valid. Adapter/driver/build/network/layout/
+thinkEvery/budget/environment/contact/grid-resolved settings form the cache identity.
+
+Calibrate disposable ordinary, dense/wall/coincident and candidate/frozen-row workloads. Record
+compilation warm-up separately; conservative step maxima gate probes, not mean timings. Initial
+submission target 500 ms (never over 1,000 ms); use `floor`, not rounded-up batching. Wait/check
+every batch; reduce on overruns. Stop on a measured single step or batch above 1,500 ms. A post-hoc
+check cannot prevent the first timeout; never submit a probe predicted unsafe.
+
+Report fresh setup/compile, CPU packing, both GPU lane episodes, readback, optimizer, exports and
+end-to-end wall times. Queue-completion wall time is not GPU timestamp time. Record warm/cold/cache
+conditions. A generation includes **both signs and all replicas**; checkpoint-inclusive research
+wall time is separate. No browser/minutes-per-run promise before replacement measurements.
+
+## 10. Evaluation and research protocol
+
+Keep existing `agents:evaluate --students <dir>` backward compatible as a legacy diagnostic. Add
+manifest-aware, arena-matched evaluation with explicit environment settings. Loading the same model
+into the legacy 4K world is not a training-environment comparison merely because shapes match.
+
+For selected generations evaluate evolved prey against rule wolves, clone wolves and evolved
+wolves; rule/clone prey against evolved wolves; rule/rule and clone/clone references. Include the
+label rule without wander where plan-2 asks. Store both opponent identities, environment and raw
+seed-level catches. Use identical seeds in paired baseline comparisons and fresh episode state.
+
+`agents:crossplay` plays prey generation i versus wolf generation j, in the same environment; export
+raw data, mean/interval matrices and generation-0 anchors. Archive-on/off runs share environment,
+budgets and master-seed lists. Preregister a scalar forgetting measure against fixed historical
+anchors (sign-adjusted catches per species); a heatmap alone does not establish reduced cycling.
+Freeze anchor selection before reading final results.
+
+- At least 20 independent held-out episodes per pairing. Repeated training runs use multiple master
+  seeds, report per-run results and between-run uncertainty; bodies/replicas are not independent
+  training runs. Number of runs and budgets are frozen before 14.5.
+- Fitness is catch count, **not mathematically equivalent to average survival time** with respawns.
+  Report catches and rates; lifetime survival needs explicit counters before it can be claimed.
+- Implement deterministic paired bootstrap intervals on seed-level differences: 10,000 resamples,
+  fixed separate analysis seed, 95% percentile bounds. Also report marginal mean intervals. Test
+  indexing/constant samples/known shifts; no new dependency needed.
+- Primary superiority: paired improvement interval strictly favorable to zero. This explicitly
+  refines plan-2's conservative marginal-nonoverlap rule; report marginal intervals too. H1 claims
+  require both species' preregistered matchups, not a favorable subset.
+- H2 requires a preregistered noninferiority margin against clone baselines. No significance is not
+  equivalence. Checkpoint choice, generation budget, primary tests/margins and multiple-comparison
+  handling are specified before final testing. Exploratory σ sweeps use validation seeds only.
+- Exploit diagnostics include wall share **over time**, overlap/penetration, nearest prey, speeds,
+  rest fraction and catch locations. A final-frame distance alone does not prove an episode-wide
+  strategy or causal exploit mechanism.
+
+## 11. Invariants, test allocation and negative controls
+
+Existing steps own U43–U49 and A35–A41. Reserve **U50–U55, A42–A47** here; recheck concurrent
+allocations before implementation. E/I labels name properties, not global test numbers.
+
+| Property | Required evidence |
+|---|---|
+| I1 Independence | Every admitted layout, cross-tile sensing/catch/contact isolation including wall corrections/respawn |
+| I2 Equivalence | One legacy-v1 tile vs `createHerd`, records/catches bitwise at spawn and during rollout |
+| I3 Fair pairs | Identical-policy lane oracle with respawns, cadence, dense windows, coincidences and contacts |
+| I4 Rows | Step-11 exact rows plus replica/opponent/table assignment checks |
+| I5 Repeatability | Two fresh short same-runtime/device/config runs, identical checkpoint JSON/manifest bytes |
+| I6 Readback | One score mapping after both lanes, none inside production loop |
+| E1–E4 | Quadratic ascent, tied/neutral utilities, monotone invariance, deterministic noise/golden fixtures |
+| E5 Counted once | Tile sum equals scenario catches, forced/reset cases nonvacuous |
+| C1 Contacts | Catch boundary/rest, containment, frozen agents, limitations quantified |
+| R1 Reset | Fresh episodes after unrelated calibration/episodes match fresh-process reference |
+
+Headless `test/agents-coevo.test.mjs`: U50 config/refusals; U51 optimizer; U52 seeds/schedule/archive;
+U53 checkpoint/model identity; U54 statistics/evaluation; U55 lifecycle/guard orchestration. Include
+in `test:agents` when implemented, not in this documentation change.
+
+GPU agent-tools suite, Node/NVIDIA, Node/AMD and Chrome/AMD: A42 isolation, A43 equivalence, A44
+neutral/reset, A45 counters/row/replicas, A46 contacts/catches, A47 short-run repeatability/readback.
+Three generations exercise both species; use small H deliberately to exercise archive operations.
+Sampled isolation checks supplement, not replace, boundary fixtures and layout proofs.
+
+Watched-failing controls: sign seed/cadence/tick skew; adjacent-tile sign mapping; mismatched respawn
+IDs; index-ranked ties; omit row-capacity +1; world-wide respawn; dropped wall/containment; stale
+contact phase; double catch counting; per-step readback. Each must fail the intended assertion and
+be restored. No new tests are claimed as implemented by this design revision.
+
+## 12. CLI errors and failure behavior
+
+Pin implemented wording in tests; errors start `coevolve:` and name offending values/constraints.
+Refuse nonfinite optimizer inputs, integer/seed overflow, A ≠ 2KE, invalid alignment/geometry,
+unknown versions, unsafe gap, counter/device/row overflow, incompatible models, seed-manifest
+collisions, invalid archive probabilities/caps and incomplete explicit research settings. Refuse
+unsafe guard predictions before submission. Never silently change the experiment to make it run.
+Checkpoint export failures are errors, not successful training artifacts. Preserve failure metadata
+and cleanup all resources; do not overwrite unrelated or previously completed outputs.
 
 ## 13. Build order
 
 | Phase | Delivers | Exit |
 |---|---|---|
-| **14.0** ✅ | Spike S7 (§16): one generation end to end, its rate, its noise, a 20-generation run, exploits | Results recorded (§16); the *S7* numbers set; questions answered (uncommitted) |
-| **14.1** | The arena scenario (§5); I1, I2, E5 on the GPU | Green on three host/GPU pairs, watched failing |
-| **14.2** | The optimizer (§6); E1–E4 headless | Green, watched failing |
-| **14.3** | The trainer (§7, §8): the schedule, the archive, the guard, logs, checkpoints; I3, I5, I6 | Green; a 10-generation run on both Node GPUs |
-| **14.4** | Evaluation (§9): checkpoints in `agents:evaluate`, `agents:crossplay`; the tools' README | A run evaluated on 20 held-out seeds |
-| **14.5** | The first research runs: H1 from the clones, H2 from random weights, H3 with the archive on and off | Results and verdicts recorded here |
+| **14.0 reopened** | Replacement revision-2 S7, scripts only, §16 | Correctness before measurements, raw evidence on three pairs, new settings proposed |
+| **14.1 ✅** | Production lane/arena factory, legacy/contact modes, lifecycle | I1/I2/I3/E5/C1/R1, three pairs (Node NVIDIA/AMD, Chrome/AMD 40/40), watched failing; Q8 semantics settled |
+| **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
+| **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | I5/I6 verified; ten-generation runs completed on Node NVIDIA & AMD, headless tests green |
+| **14.4** | Arena evaluation, clone opponents, crossplay, intervals, README | At least 20 held-out episodes per validation pairing; raw-data replay |
+| **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
 
-### Deferred
+Replacement 14.0 implements spike versions needed to measure end to end; it does not complete
+production phases. Promote reviewed behavior, not copied bugs. Fresh-system setup costs may reject
+an approach; report them instead of weakening reset guarantees. Resume/pooling, obstacles, stamina,
+simultaneous updates, live browser training and films remain deferred designs.
 
-- Simultaneous co-evolution (a 2 × 2 design for mirrored pairs on both sides).
-- Resuming a run from a checkpoint.
-- Shaping terms (distance, closing speed), as experiments.
-- More than one arena per candidate, if S7 finds the scores too noisy at E = 1.
-- Evolution in the browser (step 16, from S7's rate).
+## 14. Refinements of plan-2
 
----
-
-## 14. Where this refines plan-2
-
-| Plan-2 | This design |
+| Parent formulation | Step-14 contract |
 |---|---|
-| §4.1: prey fitness is "the share of the episode each prey survives"; wolves, "catches per wolf" | Both from one exact count per arena, zero-sum: prey −Cₐ, wolves +Cₐ. With respawns the two orderings agree, and the counters stay integers |
-| §4.1: arenas are tiles further apart than the sense radius | The arena is stored in `user1`; respawn stays in the tile; the walls are the tile's |
-| §5: step 14 writes `.mlp.json` and `.onnx` | `.onnx` on request (`--onnx`); `.mlp.json` always, in the clones' format |
+| Survival share / wolf catches | Chosen zero-sum catches, no survival-equivalence claim |
+| Independent adjacent candidates | Separate signs at identical indices/coordinates |
+| Same spawn/opponent | Complete matched conditions and neutral rollout oracle |
+| Centered ranks | Equal average utilities for ties |
+| Archive champions | Historical snapshots, no assumed quality |
+| Nonoverlapping marginal intervals | Report marginals plus paired differences, preregister decisions |
+| JSON and ONNX | JSON always, optional ONNX, explicit environment manifest |
+| Contacts later | Step 13 exists; contacts/catch semantics live in scenario tools |
 
----
+No library change follows. Scope expansion or rejected architecture returns to the user rather
+than silently modifying the engine or research hypothesis.
 
-## 15. Questions for the user
+## 15. Decision ledger and pending freeze
 
-**Decided 2026-10-17.** The user: "i choose all recommended option for this one and u can run s7".
-Q1 alternating every generation; Q2 catches per arena, zero-sum, no shaping; Q3 the archive every 5
-generations, half the frozen side's pairs, 32 members, the start kept; Q4 checkpoints every 10
-generations and the last, `.onnx` on request; Q5 24 → 16 → 16 → 2 for H2.
+**2026-10-17:** Q1–Q5 accepted (§1); those decisions remain, not the old measurements.
+**2026-10-18:** user requested full revision and discarding original phase 14.0 results. Old S7
+acceptance/defaults/conclusions withdrawn; S8/S9 remain independent evidence.
 
-The questions as they were asked:
+Before 14.1: replacement S7 validates lane/reset architecture, proposes population/T/E and tuning
+ranges, and tests proposed contact-v1 Q8 margin/order. Final settings and any trade-off requiring
+scope change are recorded explicitly before production implementation/research acceptance. Browser
+feasibility is undecided. No final research budget or obstacle/stamina design is implicitly approved.
 
-1. **Q1. The schedule:** alternate the evolving species every generation (recommended); in blocks of
-   several generations; or both at once (deferred: it needs a 2 × 2 design).
-2. **Q2. Fitness:** catches per arena, zero-sum (recommended), with no shaping by default.
-3. **Q3. The archive:** every 5 generations, half of the frozen side's pairs meet archived opponents,
-   capped at 32 members, the start always kept (recommended). Revisited after the first runs.
-4. **Q4. Checkpoints:** every 10 generations and the last; `.onnx` only on request (recommended).
-5. **Q5. H2's network:** 24 → 16 → 16 → 2 tanh, about 700 parameters (recommended), or phase 7.2's
-   24 → 32 → 32 → 2 (about 2,000). S6 found small networks cost little per agent.
+## 16. Replacement phase 14.0 protocol — no accepted results
 
-The population, the arena size and the episode length come from S7 (§16).
+`npm run spike:s7` now invokes the **protocol-2 replacement**. Its first validation is recorded in
+[`test/spikes/coevo/RESULTS.md`](../test/spikes/coevo/RESULTS.md): 14.0 remains open, with safety stops
+on Node/AMD and Chrome/AMD, incomplete correctness coverage and no accepted settings. Original
+source remains in git history, and original results remain withdrawn. Replacement scripts stay in `test/spikes/coevo/`, declare a
+protocol version and save raw evidence, source hashes, commands, seeds, devices, timings and errors.
 
----
+### Gate 1: correctness before performance
 
-## 16. Phase 14.0 — spike S7: one generation, end to end
+Neutral lanes, legacy equivalence, isolation, forced catch/respawn, contact boundaries/containment,
+row/replica/archive mapping, full reset and tied ranks. Include coincidence, wall/dense/overflow
+windows and off-cadence newborns. Compare after unrelated calibration and episodes. Check catch
+lookup against brute-force controlled fixtures. Demonstrate negative controls. Any failed invariant
+blocks performance/learning acceptance for that configuration.
 
-**Scripts only** (`test/spikes/coevo/`, `npm run spike:s7`), Node on both GPUs, and Chrome on the
-AMD iGPU for the rate.
+### Gate 2: throughput, memory and setup costs
 
-**What it builds, as spike code:** the arena scenario (§5), episodes, the per-arena counters, the
-optimizer (§6) and the alternating schedule (§7), with step 11's `MlpBrain.byGenome` as the brains.
+Exploratory screening values, **not defaults**: K in {8,16,32}, E in {1,2,4}, P in {192,256,384},
+W = 16 where BW alignment permits, T in {300,600,1200}; thinkEvery initially 3. Reference density
+`L = 160 sqrt((P+W)/4096)` is an explicit starting choice, not optimality evidence. Resolve a safe
+gap from §3. Test C2/H2 shapes, both environments and ordinary/dense states. Preregister a staged
+screening subset; a full Cartesian sweep is not required. Filter invalid layouts, not hidden padding.
 
-**What it measures:**
+Measure Node/NVIDIA, Node/AMD, Chrome/AMD: separate warm-up, at least five end-to-end generations
+per reported setting, median/range and setup/episode breakdown. Report active lane B(P+W), total A,
+peak two-lane memory, table memory, batch sizes and cache conditions. Include fresh construction/
+compilation; do not transplant rates from another architecture or contact mode.
 
-| | Question | How |
-|---|---|---|
-| 1 | Generations a minute | A = 16, 32, 64 arenas of 256 prey + 16 wolves; T = 300, 600, 1,200 steps; on the three host/GPU pairs |
-| 2 | How noisy a score is | The same candidate, 20 seeds, per T: the spread of Cₐ against the gap between candidates. Decides T and E |
-| 3 | Does it learn | 20 generations from the clones, prey and wolves alternating: the frozen side's catches against the rule's, on 5 held-out seeds, before and after |
-| 4 | Which exploits appear without physics | Prey packed against walls or corners (the share within 1 m of a wall), herds piled onto one point (the nearest-neighbour distance), wolves parked; with images of the arenas |
-| 5 | I1 and I2 hold | As in §10, as spike checks |
+### Gate 3: paired score quality
 
-Before any timing, the spike prints its estimate from phase 11.3's steps, with C2's networks at
-17,408 agents (64 arenas) and thinkEvery 3: about 40 generations a minute on NVIDIA, 20 under Node
-on AMD, and 22 in Chrome, at T = 600.
+Fixed actual perturbations/frozen opponents; ≥20 validation spawn seeds per direction on shortlisted
+T/E/σ. Store replica catches, paired differences, tie fraction, seed variation and direction ranking
+stability; compare directional signal against residual **paired** noise. Clone-only unperturbed CV
+cannot choose E. Record f32 perturbation collisions and update norms. Tune only on validation seeds.
 
-**What it decides:**
-- A, P, W, K, E and T (§2);
-- whether evolution in the browser is worth building (step 16);
-- whether contacts and obstacles matter to the research, or only to the look (S8, steps 12–13).
+Follow-up protocol **2.1** screens both species at E=2/4, T=600 and sigma=.1/.25 on a new
+seed domain, preserving 2.0 evidence separately. Before observing those outcomes, exploratory
+quality bars are registered as split-half direction-rank correlation >=.7, direction SD / residual
+paired RMS >=1 and at least four nonzero bootstrap intervals. Both species must pass the same
+setting; Gate 4 additionally requires its preregistered E=2/T=600/sigma=.1 setting to pass.
+These are conservative screening decisions, not a claim of research-level statistical proof.
+Do not silently choose a different smoke setting from favorable results.
 
----
+### Gate 4: smoke learning and diagnostics
 
-## Spike S7 results — 2026-10-17
+Only after gates 1–3, run a short alternating trajectory, evaluate before/after against fixed clone/
+rule anchors on validation seeds with paired intervals, and repeat a short run exactly. Collect
+wall/overlap/rest histories and visual snapshots where feasible. A short trajectory is not H1/H2
+proof; nearest-distance statistics alone are not causal exploit evidence.
 
-**Adapters measured** (nothing else on the GPU):
-- **Node/Dawn, NVIDIA Turing** (`D3D12 driver version 32.0.15.8183`);
-- **Node/Dawn, AMD GCN-5 iGPU** (`D3D12 driver version 31.0.12002.1002`);
-- **Chrome, AMD GCN-5 iGPU** (`npm run drive -- --serve . "test/spikes/coevo/index.html" --wait-for "S7 done" --timeout 2400`).
+### Evidence and verdict
 
-### 1. Invariant checks (`I1`, `I2`, `E5`)
+Accept settings only from new raw evidence passing all gates; report unsafe/failed settings rather
+than dropping them. Research runs, browser feasibility and learning conclusions remain pending.
+**There is intentionally no retained original S7 result table in revision 2.**
 
-All 4 checks passed on every adapter (8/8 under Node, 4/4 in Chrome, zero WebGPU errors):
-- **I2 (equivalence):** 1 arena of 4,096 agents (256 wolves, 3,840 prey) covering the world on the
-  rule, stepped 300 times in lockstep with `createHerd`: **0 of 4,096 records differ**, and catches
-  agree (`272` and `272`) on all three pairs.
-- **I1 (independence):** 64 arenas (`17,408` agents, tile side `L = 41.9 m`, gap `10 m > 8 m` sense
-  radius) on the clones over 600 steps (neighbour buffer read every 50 steps): **0 of 761,991**
-  sampled neighbour entries on NVIDIA and **0 of 761,498** on AMD (Node and Chrome) point to an agent
-  in another arena.
-- **E5 (counted once):** the 64 per-arena counters sum to `stats[0]` (`1,980 = 1,980` on NVIDIA;
-  `1,977 = 1,977` on AMD Node and Chrome).
-- **Cross-host reproducibility on one GPU:** on the AMD GCN-5 iGPU, Node/Dawn and Chrome produced
-  **bit-identical** catch counts, noise statistics, 20-generation trajectories, and held-out
-  evaluations.
+Protocol 2.1 persists completed generations/samples/settings/checkpoints in fsynced append-only
+Node JSONL and immediate browser console events. A later throw no longer erases earlier raw samples;
+recovery labels interrupted runs partial, never accepted. Compilation completion is separately timed
+without executing simulation steps. First four submissions are singles, subsequent batches are at most
+two, with a 25 ms target, slowest-observed cost, host yield and the unchanged 1,500 ms hard stop.
+Even a single submission can stall: this policy is not a safety guarantee.
 
-### 2. Generations a minute (`rate`)
-
-Arenas of 256 prey + 16 wolves (`272` agents/arena), `thinkEvery = 3`, C2's `24 → 64 → 64 → 64 → 2`
-networks on `MlpBrain.byGenome` (one full generation: Box–Muller noise, `setRows` on both species,
-CPU spawn + `upload`, `T` GPU steps, counter readback, and CPU Adam update):
-
-| Host / GPU | Arenas (`agents`) | `T = 300` | `T = 600` | `T = 1,200` |
-|---|---|---|---|---|
-| **NVIDIA, Node** | 16 (`4,352`) | 0.33 s (**180.8/min**) | 0.66 s (**91.6/min**) | 1.36 s (**44.1/min**) |
-| **NVIDIA, Node** | 32 (`8,704`) | 0.43 s (**140.9/min**) | 0.80 s (**74.8/min**) | 1.67 s (**35.9/min**) |
-| **NVIDIA, Node** | 64 (`17,408`) | 0.51 s (**116.6/min**) | **1.06 s (56.4/min)** | 2.10 s (**28.5/min**) |
-| **AMD, Node** | 16 (`4,352`) | 0.47 s (**128.4/min**) | 1.04 s (**57.5/min**) | 2.12 s (**28.3/min**) |
-| **AMD, Node** | 32 (`8,704`) | 0.64 s (**93.8/min**) | 1.45 s (**41.5/min**) | 3.03 s (**19.8/min**) |
-| **AMD, Node** | 64 (`17,408`) | 1.31 s (**45.9/min**) | **2.72 s (22.1/min)** | 5.58 s (**10.7/min**) |
-| **AMD, Chrome** | 16 (`4,352`) | 0.57 s (**105.0/min**) | 1.21 s (**49.7/min**) | 2.45 s (**24.5/min**) |
-| **AMD, Chrome** | 32 (`8,704`) | 0.78 s (**77.0/min**) | 1.61 s (**37.2/min**) | 3.34 s (**18.0/min**) |
-| **AMD, Chrome** | 64 (`17,408`) | 1.31 s (**45.9/min**) | **2.70 s (22.2/min)** | 5.51 s (**10.9/min**) |
-
-- **Against the pre-run estimate** at 64 arenas and `T = 600` (`~40/min` on NVIDIA, `~20/min` under
-  Node on AMD, `~22/min` in Chrome):
-  - **NVIDIA beat the estimate by 41%** (`56.4/min`, and `0.94–1.09 s` per generation during the
-    20-generation run): partitioning `17,408` agents across 64 disjoint tiles keeps spatial grid cells
-    lighter than a single crowded world.
-  - **AMD matched the estimate** on both Node (`22.1/min`, `2.52–2.70 s`) and Chrome (`22.2/min`,
-    `2.36–2.71 s`). With step 11's staged cooperative kernel, Chrome is as fast as Node at 64 arenas.
-
-### 3. Score noise (`noise`)
-
-64 arenas, all running the unperturbed clones on both sides, each arena on its own independent spawn:
-
-| Episode length `T` | Mean catches / arena | Spawn SD (`sd`) | Coefficient of variation (`cv`) | Candidate `scoreSd` in `learn` |
-|---|---|---|---|---|
-| **300** (5 s) | 17.0 | 1.34–1.35 | 7.9–8.0% | — |
-| **600** (10 s) | 30.5–30.6 | 2.25–2.27 | **7.4%** | **2.11–2.82** |
-| **1,200** (20 s) | 50.5–50.6 | 3.19–3.56 | 6.3–7.0% | — |
-
-- Across 64 arenas at `T = 600`, the standard error of the 64-arena mean is `2.26 / √64 = 0.28`
-  catches/arena (`95% CI ± 0.6`).
-- Within each mirrored pair `(2k, 2k+1)`, both candidates share the same spawn (`mix(seed, t, k)`)
-  and the same opponent (`I3`), so spawn-to-spawn variance cancels inside `(u⁺ₖ − u⁻ₖ)`. `T = 600`
-  and `E = 1` (32 pairs in 64 arenas) give ~30 catches per arena in 1.0 s on NVIDIA (2.7 s on AMD).
-
-### 4. 20-generation run from the clones and exploit check (`learn`)
-
-20 generations from the clones (`A = 64, K = 32, T = 600, σ = 0.02, rate = 0.01, decay = 0.005`,
-prey on even generations, wolves on odd), then evaluated on **64 held-out spawns** (`mix(900001, a)`):
-
-| Matchup (64 held-out spawns, `T = 600`) | Catches / arena ± 95% CI (NVIDIA) | Catches / arena ± 95% CI (AMD Node & Chrome) | Prey `< 1 m` from wall | Nearest prey (m) | Prey speed (m/s) | Wolf speed (m/s) |
-|---|---|---|---|---|---|---|
-| **clone prey · clone wolves** | 30.3 ± 0.6 | 30.2 ± 0.6 | 0.0% | 0.71–0.72 | 2.73 | 0.68–0.70 |
-| **evolved prey · clone wolves** | **29.8 ± 0.7** | **29.6 ± 0.7** | 0.0% | **0.66** / 0.72 | 2.69 / 2.45 | **0.87** |
-| **clone prey · evolved wolves** | 30.3 ± 0.6 | **30.8 ± 0.6** | 0.0–0.1% | 0.72–0.73 | 2.74 / 2.73 | 0.71 / 0.64 |
-| **evolved prey · evolved wolves** | 30.3 ± 0.6 | 30.1 ± 0.6 | 0.1% | 0.67 / 0.72 | 2.68 / 2.51 | 0.79 |
-| **rule · rule** | 33.0 ± 0.5 | 32.8 ± 0.6 | **4.4–4.6%** | **1.28** | 2.69 / 2.51 | 0.14–0.15 |
-
-### What it shows and decides
-
-1. **The *S7* parameters are set (§2, §8):**
-   - `A = 64` arenas, `P = 256` prey + `W = 16` wolves per arena (`17,408` agents, tile side
-     `L = 41.9 m`, gap `g = 10 m`), `K = 32` mirrored pairs (`E = 1` arena per candidate),
-     `T = 600` steps.
-   - At those settings, a 200-generation research run (H1–H3) takes **~3.5 minutes on NVIDIA** and
-     **~9 minutes on AMD**.
-2. **No measurable learning yet in 20 generations; H1 needs the longer runs** (Claude's review,
-   2026-10-18, corrected an earlier "directional movement appears"):
-   - after 10 prey and 10 wolf updates, every held-out change lies inside the noise: evolved prey
-     against clone wolves `29.8` vs `30.3` (NVIDIA) and `29.6` vs `30.2` (AMD), evolved wolves against
-     clone prey `30.3` vs `30.3` (NVIDIA) and `30.8` vs `30.2` (AMD), each `± 0.6–0.7` (95%);
-   - one candidate explanation, not measured: σ = 0.02 is small beside the clones' weights (up to
-     about 178, A26), so 20 updates move the policy little. Phase 14.5 runs 200 generations and may
-     try a larger σ; H1 is judged there.
-3. **Exploits without physics — contacts (S8, step 13) matter to both the research and the look:**
-   - **No wall-hugging exploit:** `0.0–0.1%` of clone or evolved prey sit within `1 m` of a tile
-     wall (less than the rule's `4.4–4.6%`).
-   - **Herd-stacking / body-overlap exploit:** under `rule · rule` (which includes random wander),
-     the mean distance to the nearest fellow prey is **`1.28 m`**, well above `2 × radius = 0.80 m`.
-     Under the clones (which have no random wander), prey pack to **`0.71–0.72 m`** — already
-     overlapping inside `0.80 m` — and on NVIDIA `evolved prey · clone wolves` packs even tighter to
-     **`0.66 m`**. Without collision resolution, stacking multiple prey on top of one another lets a
-     flock share a single evasion trajectory while a catching wolf's 5 s rest timer freezes it after
-     catching only one body from the stack. (A hypothesis, not measured: S7 measured only the distances.)
-4. **Live evolution in the browser (step 16):**
-   - Chrome on the AMD iGPU runs at **`22.2 generations/min`** at full scale (`A = 64, T = 600`) and
-     **`105.0 generations/min`** (`0.57 s/gen`) at `A = 16, T = 300`, bit-identical to Node/Dawn on
-     the same GPU. Step 16's checkpoint scrubber and arena viewer remain first; a live worker toggle
-     at `A = 16` or `64` is fast enough to offer if desired.
-
+Controlled brute-force fixtures now explicitly expose resting-nearest occlusion: an eligible second
+wolf within reach can be hidden by the nearest resting wolf. `contact-v1` retains this limitation;
+neither an exhaustive post-move catch rule nor Q8 acceptance is implied. Dense solver fixtures check
+private overflow and exact CPU contact counts at advancing ticks, rebasing the CPU oracle on each
+observed GPU input to avoid confusing accumulated floating-point drift with wrong window selection.
