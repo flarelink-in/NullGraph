@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { gzipSync } from 'node:zlib';
 import * as P from '../dist/physics.js';
+import * as A from '../dist/agents.js';
+import { standIn } from './stand-in-engine.mjs';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
 
 test('U46: declaration and refusals match §11 and resolve S9 defaults', () => {
@@ -519,4 +521,120 @@ test('13.2: generated modules parse and GPU owner validates, caches, updates and
     assert.throws(() => new P.DiscContacts(engine, records, options), /test binding failure/);
     assert.ok(buffers.every(b => b.destroyed));
     assert.ok(stages.every(s => !s.enabled));
+});
+
+test('U49: stages, size and the seam (declared names, stage order, agents size ceiling)', async () => {
+    // 1. Shaders parse and declared names check
+    const resolved = P.validateDiscContacts(
+        { capacity: 64, stride: 16, alive: { offset: 13, mask: 1 }, fixed: { offset: 13, mask: 2 }, velocity: { offset: 4 } },
+        { maxRadius: 0.6, world: { min: [-10, -10], max: [10, 10] }, cellSize: 2, clamp: true }
+    );
+    const shaders = [
+        P.buildContactGatherWGSL(resolved, 0),
+        P.buildContactGatherWGSL(resolved, 1),
+        P.buildContactApplyWGSL(resolved),
+        P.buildContactCountWGSL(resolved),
+        P.CONTACT_RESET_WGSL,
+        P.CONTACT_TICK_WGSL,
+    ];
+    for (const code of shaders) {
+        new WgslReflect(code);
+        for (const [name] of code.matchAll(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g)) {
+            assert.ok(code.includes(`const ${name} = `) || code.includes(`let ${name} = `) || code.includes(`var ${name} = `),
+                `${name} is used but never declared in shader`);
+        }
+    }
+
+    // 2. Stages array caching and zero frame allocations on DiscContacts
+    const { engine } = standIn();
+    const recordsBuf = engine.device.createBuffer({ size: 64 * 16 * 4, usage: GPUBufferUsage.STORAGE });
+    const contacts = new P.DiscContacts(engine, recordsBuf, {
+        capacity: 64, stride: 16, maxRadius: 0.6, world: { min: [-10, -10], max: [10, 10] }
+    });
+    const stages1 = contacts.getComputeStages();
+    const stages2 = contacts.getComputeStages();
+    assert.equal(stages1, stages2, 'DiscContacts.getComputeStages() must return the cached stage array');
+
+    // 3. AgentSystem seam S-A: addStepStage({ name, stages })
+    const def = A.defineAgents({
+        capacity: 64,
+        world: { min: [-10, -10], max: [10, 10] },
+        cellSize: 5,
+        species: [{ name: 'prey', radius: 0.5, maxSpeed: 1, maxTurn: 1, accel: 1, senseRadius: 5 }],
+        sensors: [A.Sensors.self()],
+    });
+    const agents = new A.AgentSystem(engine, def);
+    agents.setBrain(new A.RuleBrain('fn think(i: u32, species: u32, tick: u32) {}'));
+
+    // Test refusal when neither wgsl nor stages provided
+    assert.throws(() => agents.addStepStage({ name: 'empty' }), /must define fn step/);
+
+    const custom1 = engine.createComputeStage({ name: 'custom stage 1', shaderCode: '@compute @workgroup_size(1) fn cs_main() {}', dispatchCount: [1, 1, 1] });
+    const custom2 = engine.createComputeStage({ name: 'custom stage 2', shaderCode: '@compute @workgroup_size(1) fn cs_main() {}', dispatchCount: [1, 1, 1] });
+    const custom3 = engine.createComputeStage({ name: 'custom stage 3', shaderCode: '@compute @workgroup_size(1) fn cs_main() {}', dispatchCount: [1, 1, 1] });
+
+    const supplied = [custom1, custom2];
+    agents.addStepStage({ name: 'stageAB', stages: supplied, wgsl: 'ignored because stages wins' });
+    supplied.length = 0;
+    agents.addStepStage({ name: 'compiled', wgsl: 'fn step(i: u32, tick: u32) {}' });
+    agents.addStepStage({ name: 'stageC', stages: [custom3] });
+
+    // Duplicate name refusal
+    assert.throws(() => agents.addStepStage({ name: 'stageAB', stages: [custom1] }), /is added twice/);
+
+    // Verify stage order in chains for 1-3 steps
+    for (let n = 1; n <= 3; n++) {
+        agents.advance(n * def.dt);
+        const chain = agents.getComputeStages();
+        for (let step = 0; step < n; step++) {
+            const stepLen = chain.length / n;
+            const stepStages = chain.slice(step * stepLen, (step + 1) * stepLen);
+            const actIdx = stepStages.findIndex(s => s.name === 'AgentSystem act');
+            assert.ok(actIdx >= 0, 'AgentSystem act must be in step');
+            assert.equal(stepStages[actIdx + 1], custom1, 'custom1 must immediately follow act');
+            assert.equal(stepStages[actIdx + 2], custom2, 'custom2 must follow custom1');
+            assert.equal(stepStages[actIdx + 3]?.name, 'AgentSystem step compiled');
+            assert.equal(stepStages[actIdx + 4], custom3, 'external and compiled stages preserve call order');
+            assert.equal(stepStages[actIdx + 5]?.name, 'AgentSystem tick', 'AgentSystem tick must follow custom app stages');
+        }
+    }
+
+    // Verify order in step() acting half
+    const halves = agents['halves'];
+    assert.ok(halves && halves.length === 2, 'agents must have two halves for async brains');
+    const actingHalf = halves[1];
+    const actHalfIdx = actingHalf.findIndex(s => s.name === 'AgentSystem act');
+    assert.ok(actHalfIdx >= 0);
+    assert.equal(actingHalf[actHalfIdx + 1], custom1);
+    assert.equal(actingHalf[actHalfIdx + 2], custom2);
+    assert.equal(actingHalf[actHalfIdx + 3]?.name, 'AgentSystem step compiled');
+    assert.equal(actingHalf[actHalfIdx + 4], custom3);
+    assert.equal(actingHalf[actHalfIdx + 5]?.name, 'AgentSystem tick');
+
+    // 4. Bundled agents size meets Q3 ceiling (21,495 B) and carries NO physics code
+    const agentsBundle = await build({
+        entryPoints: ['src/extras/agents/index.ts'],
+        bundle: true,
+        minify: true,
+        platform: 'browser',
+        format: 'esm',
+        external: ['gl-matrix'],
+        write: false,
+        logLevel: 'silent',
+    });
+    const agentsCode = agentsBundle.outputFiles[0].text;
+    assert.ok(!agentsCode.includes('DiscContacts'), 'agents bundle must not contain DiscContacts');
+    assert.ok(!agentsCode.includes('resolveDiscContacts'), 'agents bundle must not contain resolveDiscContacts');
+    assert.ok(!agentsCode.includes('tieBreak'), 'agents bundle must not contain tieBreak');
+    assert.ok(!agentsCode.includes('CONTACT_TICK_WGSL'), 'agents bundle must not contain CONTACT_TICK_WGSL');
+
+    const agentsGzip = gzipSync(agentsBundle.outputFiles[0].contents).length;
+    console.log(`agents.js size with S-A seam: ${agentsGzip} B min+gzip (ceiling 21,495 B)`);
+    assert.ok(agentsGzip <= 21495, `agents.js is ${agentsGzip} B, must be <= 21,495 B ceiling`);
+
+    // Teardown
+    contacts.destroy();
+    agents.destroy();
+    assert.ok(custom1.enabled && custom2.enabled && custom3.enabled, 'external stages remain caller-owned');
+    recordsBuf.destroy();
 });

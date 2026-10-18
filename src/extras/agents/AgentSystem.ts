@@ -22,7 +22,9 @@ export interface AgentSystemOptions {
 
 export interface AgentStepStageOptions {
     name: string;
-    wgsl: string;
+    wgsl?: string;
+    /** External compute stages run in place of a compiled step WGSL kernel. */
+    stages?: readonly ComputeStageNode[];
     /** Caller-owned group-1 buffers; WGSL declares and uses these bindings in order. */
     buffers?: readonly GPUBuffer[];
 }
@@ -77,7 +79,7 @@ export class AgentSystem {
     private failure?: Error;
     /** Lockstep with an async brain: grid, queries and sense; then the passes, act, app stages, tick and instances. */
     private halves: [ComputeStageNode[], ComputeStageNode[]] = [[], []];
-    private readonly appStages = new Map<string, ComputeStageNode>();
+    private readonly appStages = new Map<string, readonly ComputeStageNode[]>();
     private instanceStage?: ComputeStageNode;
     private highlightBuffer?: GPUBuffer;
     private readonly highlightData = new Uint32Array([HIGHLIGHT_NONE, HIGHLIGHT_NONE, 0, 0]);
@@ -191,7 +193,7 @@ export class AgentSystem {
         const sensing = [...this.grid.getComputeStages(), ...this.stages.filter(s =>
             s.name.startsWith('AgentSystem query ') || s.name === 'AgentSystem sense')];
         const acting = [...[...this.thinks.values()].map(t => t.stage),
-            this.stages.find(s => s.name === 'AgentSystem act')!, ...this.appStages.values(),
+            this.stages.find(s => s.name === 'AgentSystem act')!, ...[...this.appStages.values()].flat(),
             this.stages.find(s => s.name === 'AgentSystem tick')!];
         const step = [...sensing, ...acting];
         this.chains.length = 0;
@@ -346,12 +348,17 @@ export class AgentSystem {
     public addStepStage(options: AgentStepStageOptions): void {
         this.assertAlive();
         if (this.appStages.has(options.name)) throw new Error(`AgentSystem: step stage "${options.name}" is added twice.`);
-        const code = buildAgentStepWGSL(this.definition, options.name, options.wgsl);
+        if (options.stages) {
+            this.appStages.set(options.name, [...options.stages]);
+            this.rebuildChains();
+            return;
+        }
+        const code = buildAgentStepWGSL(this.definition, options.name, options.wgsl!);
         const extra = options.buffers ?? [];
         this.checkExtraBuffers(`step stage "${options.name}"`, extra);
         const next = this.stage(`step ${options.name}`, code, [this.neighbours, this.obs, this.act, this.state, this.buffer, this.species],
             Math.ceil(this.capacity / 64), extra);
-        this.appStages.set(options.name, next);
+        this.appStages.set(options.name, [next]);
         this.rebuildChains();
     }
 

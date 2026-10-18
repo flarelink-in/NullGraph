@@ -173,7 +173,7 @@ async function completeness(cellSize, below = false) {
 await completeness(1.45);
 await completeness(0.6, true);
 
-// A39: steering is still provided by AgentSystem; splice only in this test until the 13.3 seam.
+// A39: exact reruns using the 13.3 addStepStage seam.
 async function rerun() {
     const count = 16384;
     const def = A.defineAgents({ capacity: count, world: base.world, cellSize: 8,
@@ -181,12 +181,11 @@ async function rerun() {
     const agents = new A.AgentSystem(engine, def);
     agents.setBrain({ kind: 'stage', wgsl: 'fn think(i: u32, species: u32, tick: u32) { setAct(i, ACT_TURN, 0.2); setAct(i, ACT_THROTTLE, 0.5); }', buffers: [], destroy() {} });
     for (let i = 0; i < count; i++) agents.spawn(i, { position: [(i % 128 - 64) * 0.45, 0, (Math.floor(i / 128) - 64) * 0.45], species: 'body', heading: i * 0.123 });
-    agents.upload(); agents.advance(def.dt);
+    agents.upload();
     const c = new P.DiscContacts(engine, agents.buffer, { ...base, ...layout(count), clamp: true });
-    const chain = agents.getComputeStages(), at = chain.findIndex(s => s.name === 'AgentSystem act') + 1;
-    if (at === 0) throw new Error('A39: agents act stage not found');
-    const stages = [...chain.slice(0, at), ...c.getComputeStages(), ...chain.slice(at)];
-    for (let k = 0; k < 600; k += 10) { run(stages, 10); await d.queue.onSubmittedWorkDone(); }
+    agents.addStepStage({ name: 'contacts', stages: c.getComputeStages() });
+    agents.advance(def.dt);
+    for (let k = 0; k < 600; k += 10) { run(agents.getComputeStages(), 10); await d.queue.onSubmittedWorkDone(); }
     const words = new Uint32Array(await read(agents.buffer));
     c.destroy(); agents.destroy(); return words;
 }
@@ -251,5 +250,114 @@ check('A39 two 600-step runs of 16,384 steering bodies are word-identical', equa
     for (let i = 0; i < count; i++) { moved += Math.hypot(actual[i * 4], actual[i * 4 + 2]) > 0.4; finite &&= Number.isFinite(actual[i * 4]) && Number.isFinite(actual[i * 4 + 2]); }
     check('A40 bounded pile opens over 300 steps without nonfinite positions', finite && moved > count * 0.5, `${moved}/${count} moved beyond a radius (not a claim of full separation)`);
     c.destroy(); b.destroy();
+}
+
+// A41: inside an AgentSystem: contacts as an app-stage group.
+{
+    const count = 256;
+    const def = A.defineAgents({
+        capacity: count,
+        world: { min: [-20, -20], max: [20, 20] },
+        cellSize: 4,
+        species: [{ name: 'prey', radius: 0.5, maxSpeed: 2, maxTurn: 3, accel: 3, senseRadius: 4 }],
+        sensors: [A.Sensors.self()],
+    });
+
+    function setup(useContacts) {
+        const sys = new A.AgentSystem(engine, def);
+        sys.setBrain({
+            kind: 'stage',
+            wgsl: 'fn think(i: u32, species: u32, tick: u32) { setAct(i, ACT_TURN, 0.2); setAct(i, ACT_THROTTLE, 0.8); }',
+            buffers: [],
+            destroy() {},
+        });
+        for (let i = 0; i < count; i++) {
+            if (i === 0) {
+                sys.spawn(i, { position: [0, 0, 0], species: 'prey', heading: 0, frozen: true });
+            } else {
+                sys.spawn(i, {
+                    position: [(i % 16 - 8) * 0.35, 0, (Math.floor(i / 16) - 8) * 0.35],
+                    species: 'prey',
+                    heading: i * 0.15,
+                });
+            }
+        }
+        sys.upload();
+        let c;
+        if (useContacts) {
+            c = new P.DiscContacts(engine, sys.buffer, {
+                capacity: count,
+                stride: 16,
+                world: { min: [-20, -20], max: [20, 20] },
+                maxRadius: 0.6,
+                maxPush: 0.25,
+                alive: { offset: 13, mask: 1 },
+                fixed: { offset: 13, mask: 2 },
+                velocity: { offset: 4 },
+                clamp: true,
+            });
+            sys.addStepStage({ name: 'contacts', stages: c.getComputeStages() });
+        }
+        return { sys, c };
+    }
+
+    function overlap(rec) {
+        let sum = 0;
+        for (let i = 0; i < count; i++) {
+            const xi = rec[i * 16], zi = rec[i * 16 + 2], ri = rec[i * 16 + 3];
+            for (let j = i + 1; j < count; j++) {
+                const xj = rec[j * 16], zj = rec[j * 16 + 2], rj = rec[j * 16 + 3];
+                const d = Math.hypot(xi - xj, zi - zj);
+                if (d < ri + rj) sum += (ri + rj - d);
+            }
+        }
+        return sum;
+    }
+
+    // Run without contacts for 60 steps
+    const { sys: sNo } = setup(false);
+    sNo.advance(def.dt);
+    for (let k = 0; k < 60; k++) run(sNo.getComputeStages());
+    await d.queue.onSubmittedWorkDone();
+    const noContactRec = new Float32Array(await read(sNo.buffer));
+    const ovNo = overlap(noContactRec);
+    sNo.destroy();
+
+    // Mode A: 1 step per frame for 60 frames (60 steps)
+    const { sys: s1, c: c1 } = setup(true);
+    for (let k = 0; k < 60; k++) { s1.advance(def.dt); run(s1.getComputeStages()); }
+    await d.queue.onSubmittedWorkDone();
+    const words1 = new Uint32Array(await read(s1.buffer));
+    const rec1 = new Float32Array(words1.buffer);
+    const ovWith = overlap(rec1);
+
+    // Mode B: 3 steps per frame for 20 frames (60 steps)
+    const { sys: s3, c: c3 } = setup(true);
+    for (let k = 0; k < 20; k++) { s3.advance(3 * def.dt); run(s3.getComputeStages()); }
+    await d.queue.onSubmittedWorkDone();
+    const words3 = new Uint32Array(await read(s3.buffer));
+
+    // Mode C: await sys.step() for 60 steps
+    const { sys: sStep, c: cStep } = setup(true);
+    for (let k = 0; k < 60; k++) await sStep.step();
+    const wordsStep = new Uint32Array(await read(sStep.buffer));
+
+    // (a) Cadence equivalence
+    check('A41 1 step/frame, 3 steps/frame and step() give identical records',
+        equal(words1, words3) && equal(words1, wordsStep));
+
+    // (b) Overlap falls with contacts vs without
+    check('A41 overlap falls significantly with contacts vs without',
+        ovWith < ovNo * 0.1,
+        `overlap with: ${ovWith.toFixed(2)}, without: ${ovNo.toFixed(2)}`);
+
+    // (c) Frozen agent stays put bit-for-bit
+    check('A41 frozen agent stays put bit-for-bit',
+        words1[0] === 0 && words1[1] === 0 && words1[2] === 0,
+        `pos: [${rec1[0]}, ${rec1[1]}, ${rec1[2]}]`);
+
+    s1.destroy(); c1.destroy();
+    s3.destroy(); c3.destroy();
+    sStep.destroy(); cStep.destroy();
 }
 await env.finish('Physics GPU checks passed.');
