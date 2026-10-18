@@ -6,8 +6,8 @@ milestone 2B step 12); [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md
 **Status:** decisions accepted 2026-10-17 (§13); corrected S8 validation resumed 2026-10-18.
 The user authorized proceeding with step 12 on 2026-10-18. Phase 12.1 is headless-validated
 at **21,468 B** min+gzip, below the unchanged **21,495 B** ceiling. A36 is validated on all
-three host/GPU pairs (corrected on review, `27a834a`). Phase 12.3, the checked API guide, meets
-its exit and is uncommitted; with it, every phase of step 12 has met its exit.
+three host/GPU pairs (corrected on review, `27a834a`). Phase 12.3, the checked API guide, is
+committed (`7ca3b0d`): **step 12 is complete** (2026-10-18).
 **Builds on:**
 - `defineAgents`, `Sensors.nearest` and the CPU mirrors ([`agents-design.md`](./agents-design.md) §6–§7);
 - `AgentSystem`'s shared `PointGrid`, per-sensor query stages, `addStepStage` and `inspect`
@@ -322,9 +322,9 @@ IDs continue from step 11 (`U43`, `U44`, `A35`).
 | Phase | Delivers | Exit |
 |---|---|---|
 | **12.0** ✅ `f777bc2` | Spike S8 (`npm run spike:s8`, `test/spikes/contacts/`): contacts over today's lists, over a query-only list, and over `PointGrid` (§14) | Complete 2026-10-18 on Node/NVIDIA, Node/AMD and Chrome/AMD; exact reruns, exhaustive dense-count oracle and 600-step histories pass, zero GPU errors; corrected findings and solver limits below |
-| **12.1** ✅ | `Sensors.query` / `Sensors.nearest({ observe, radius })`, custom-sensor neighbour constants, CPU mirror, U45 headless, bundle check | Complete 2026-10-18: U45 green and four mutations caught; `test:agents` 94/94 plus 24 mirror checks; whole entry 21,468 B min+gzip, 27 B under the unchanged ceiling |
-| **12.2** ✅ | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Complete 2026-10-18: 197/197 suite checks on each pair, including 55 A36 checks, radius mutation caught at both cadences, zero WebGPU errors |
-| **12.3** ✅ | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Complete 2026-10-18: the guide's seventh example runs on a stand-in engine, four mutations caught; `test:agents` 95/95 plus 24 mirror checks; also run once on the device under Node/NVIDIA and Node/AMD |
+| **12.1** ✅ `7b9c495` | `Sensors.query` / `Sensors.nearest({ observe, radius })`, custom-sensor neighbour constants, CPU mirror, U45 headless, bundle check | Complete 2026-10-18: U45 green and four mutations caught; `test:agents` 94/94 plus 24 mirror checks; whole entry 21,468 B min+gzip, 27 B under the unchanged ceiling |
+| **12.2** ✅ `f563938`, `27a834a` | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Complete 2026-10-18: 197/197 suite checks on each pair, including 55 A36 checks, radius mutation caught at both cadences, zero WebGPU errors |
+| **12.3** ✅ `7ca3b0d` | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Complete 2026-10-18: the guide's seventh example runs on a stand-in engine, four mutations caught; `test:agents` 95/95 plus 24 mirror checks; also run once on the device under Node/NVIDIA and Node/AMD |
 
 Add ✅ to each subsequent phase only when its own exit is verified; no check mark means pending.
 
