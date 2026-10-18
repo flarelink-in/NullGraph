@@ -6,7 +6,8 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js';
-import { AgentSystem, MlpBrain, RuleBrain, defineAgents, mlpLayout, packMlpWeights, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL } from '../dist/agents.js';
+import { AgentSystem, MlpBrain, RuleBrain, defineAgents, mlpLayout, packMlpWeights, Sensors, buildAgentThinkWGSL, buildMlpThinkWGSL,
+    agentSnapshotLayout, buildPointGrid, decodeAgentSnapshot, gridNearestNeighbours, senseAgent } from '../dist/agents.js';
 import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
 import { standIn } from './stand-in-engine.mjs';   // runs an example's setup without a GPU
 
@@ -15,7 +16,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 test('API guide: every example type-checks, bundles and generates a valid think module', async () => {
     const guide = readFileSync(join(root, 'docs/api/agents.md'), 'utf8');
     const examples = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map(match => match[1]);
-    assert.equal(examples.length, 6, 'validate every TypeScript example in the guide');
+    assert.equal(examples.length, 7, 'validate every TypeScript example in the guide');
     const dir = mkdtempSync(join(root, 'test/.agents-api-'));
     try {
         const files = examples.map((source, n) => {
@@ -40,13 +41,15 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             assert.ok(declaration, 'every example declares its definition');
             return Function('defineAgents', 'Sensors', `return defineAgents(${declaration[1]});`)(defineAgents, Sensors);
         };
-        let rules = 0, networks = 0, perSpecies = 0, byGenome = 0, trained = 0, switching = 0;
+        let rules = 0, networks = 0, perSpecies = 0, byGenome = 0, trained = 0, switching = 0, lists = 0;
         for (const [n, source] of examples.entries()) {
             const result = await build({ stdin: { contents: source, loader: 'ts', resolveDir: root },
                 bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
             assert.ok(result.outputFiles[0].contents.length > 0);
             const loads = /interface TrainedNetwork/.test(source), prepares = /prepareBrain\(/.test(source);
-            const definition = loads || prepares ? herdDefinition() : definitionOf(source);
+            // The neighbour-list example's definition holds WGSL, which definitionOf cannot cut out.
+            const queries = /Sensors\.query\(/.test(source);
+            const definition = loads || prepares ? herdDefinition() : queries ? undefined : definitionOf(source);
             const brain = source.match(/new RuleBrain\(`([\s\S]*?)`\)/);
             let wgsl;
             if (prepares) {
@@ -164,6 +167,50 @@ test('API guide: every example type-checks, bundles and generates a valid think 
                 herd.destroy();
                 assert.equal(new WgslReflect(rulesPass.shaderCode).entry.compute[0].name, 'cs_main');
                 wgsl = networkPass.shaderCode;
+            } else if (queries) {
+                // The neighbour-list example (step 12, phase 12.3), on a stand-in engine: its list adds
+                // no observation; its sensor, step stage and brain name only declared constants; its
+                // mirror repeats the grid's search through the definition it is given.
+                lists++;
+                const module = join(dir, `example${n}.mjs`);
+                writeFileSync(module, result.outputFiles[0].text);
+                const { createCrowd } = await import(pathToFileURL(module).href);
+                const { engine, stages } = standIn(), extraBuffers = new Map();
+                engine.setComputePassBindGroup = (stage, entries, group) => {
+                    if (group === 1) extraBuffers.set(stage.name, entries.map(entry => entry.resource.buffer));
+                };
+                const crowd = createCrowd(engine), def = crowd.agents.definition;
+                assert.equal(def.obsDim, 5, 'the list adds no observation floats');
+                assert.deepEqual(def.obsNames, ['self.speed', 'self.energy', 'bounds.side', 'bounds.forward', 'crowd.0']);
+                assert.equal(crowd.agents.neighbourStride, 8);
+                const code = name => stages.find(s => s.name === `AgentSystem ${name}`).shaderCode;
+                assert.ok(code('query contacts').includes('if (d2 > 1.44)') && code('query contacts').includes('result[i * 8u + n]'),
+                    'one list of 8 within 1.2 m');
+                assert.deepEqual(extraBuffers.get('AgentSystem step touching'), [crowd.touching], 'the step stage binds the app buffer');
+                crowd.agents.advance(def.dt);
+                const [think] = crowd.agents.getComputeStages().filter(s => s.name === 'AgentSystem think');
+                for (const shader of [code('sense'), code('step touching'), think.shaderCode]) {
+                    new WgslReflect(shader);
+                    // The parser accepts a name nothing declares; a device would refuse the module.
+                    for (const [name] of shader.matchAll(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g)) {
+                        assert.ok(shader.includes(`const ${name} = `), `${name} is used but never declared`);
+                    }
+                }
+                const rec = crowd.agents.records, crowdAt = def.constants.OBS_CROWD, listed = [];
+                const grid = buildPointGrid(def, rec.data, 16, def.capacity, i => rec.isAlive(i), def.maxScanPerCell);
+                for (let i = 0; i < def.capacity; i++) {
+                    const filled = gridNearestNeighbours(def, rec, grid, i, def.nearestMasks[0], 1.2, 8, listed, 0);
+                    assert.equal(senseAgent(def, rec, i)[crowdAt], filled / 8, `agent ${i}'s crowd`);
+                }
+                assert.deepEqual([0, 1, 33].map(i => senseAgent(def, rec, i)[crowdAt]), [0.25, 0.375, 0.5],
+                    'a corner, an edge and the inside, as the spawn comment says');
+                const layout = agentSnapshotLayout(def), bytes = new ArrayBuffer(layout.size), words = new Uint32Array(bytes);
+                words.fill(0xffffffff, layout.neighbours / 4, layout.state / 4);
+                words.set([1, 32], layout.neighbours / 4);
+                assert.deepEqual(decodeAgentSnapshot(def, 0, bytes, layout).neighbours, [{ sensor: 'contacts', indices: [1, 32] }]);
+                wgsl = think.shaderCode;
+                crowd.destroy();
+                assert.equal(crowd.touching.destroyed, true);
             } else if (brain) {
                 rules++;
                 wgsl = buildAgentThinkWGSL(definition, brain[1], 2);
@@ -182,10 +229,11 @@ test('API guide: every example type-checks, bundles and generates a valid think 
             }
             assert.equal(new WgslReflect(wgsl).entry.compute[0].name, 'cs_main');
         }
-        assert.deepEqual([rules, networks, perSpecies, byGenome, trained, switching], [1, 1, 1, 1, 1, 1],
-            'one rule, one network, one per-species, one byGenome, one trained-network and one switching example');
+        assert.deepEqual([rules, networks, perSpecies, byGenome, trained, switching, lists], [1, 1, 1, 1, 1, 1, 1],
+            'one rule, one network, one per-species, one byGenome, one trained-network, one switching and one neighbour-list example');
         console.log('API examples: TypeScript, browser bundles, the network example\'s numbers, the per-species example\'s passes, ' +
-            'the byGenome example\'s blocks and row updates, the switching example\'s prepared passes, the trained-network example\'s loading and generated WGSL passed.');
+            'the byGenome example\'s blocks and row updates, the switching example\'s prepared passes, the trained-network example\'s loading, ' +
+            'the neighbour-list example\'s list, constants and mirror, and generated WGSL passed.');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

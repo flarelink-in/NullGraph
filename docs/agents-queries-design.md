@@ -6,7 +6,8 @@ milestone 2B step 12); [`agents-gpu-loop-design.md`](./agents-gpu-loop-design.md
 **Status:** decisions accepted 2026-10-17 (§13); corrected S8 validation resumed 2026-10-18.
 The user authorized proceeding with step 12 on 2026-10-18. Phase 12.1 is headless-validated
 at **21,468 B** min+gzip, below the unchanged **21,495 B** ceiling. A36 is validated on all
-three host/GPU pairs; the checked API guide (12.3) follows.
+three host/GPU pairs (corrected on review, `27a834a`). Phase 12.3, the checked API guide, meets
+its exit and is uncommitted; with it, every phase of step 12 has met its exit.
 **Builds on:**
 - `defineAgents`, `Sensors.nearest` and the CPU mirrors ([`agents-design.md`](./agents-design.md) §6–§7);
 - `AgentSystem`'s shared `PointGrid`, per-sensor query stages, `addStepStage` and `inspect`
@@ -323,7 +324,7 @@ IDs continue from step 11 (`U43`, `U44`, `A35`).
 | **12.0** ✅ `f777bc2` | Spike S8 (`npm run spike:s8`, `test/spikes/contacts/`): contacts over today's lists, over a query-only list, and over `PointGrid` (§14) | Complete 2026-10-18 on Node/NVIDIA, Node/AMD and Chrome/AMD; exact reruns, exhaustive dense-count oracle and 600-step histories pass, zero GPU errors; corrected findings and solver limits below |
 | **12.1** ✅ | `Sensors.query` / `Sensors.nearest({ observe, radius })`, custom-sensor neighbour constants, CPU mirror, U45 headless, bundle check | Complete 2026-10-18: U45 green and four mutations caught; `test:agents` 94/94 plus 24 mirror checks; whole entry 21,468 B min+gzip, 27 B under the unchanged ceiling |
 | **12.2** ✅ | A36 in the agents GPU suite on Node/NVIDIA, Node/AMD, and Chrome/AMD | Complete 2026-10-18: 197/197 suite checks on each pair, including 55 A36 checks, radius mutation caught at both cadences, zero WebGPU errors |
-| **12.3** | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Example runs and is watched failing |
+| **12.3** ✅ | API guide (`docs/api/agents.md`) and checked example in `test/agents-api-example.test.mjs` | Complete 2026-10-18: the guide's seventh example runs on a stand-in engine, four mutations caught; `test:agents` 95/95 plus 24 mirror checks; also run once on the device under Node/NVIDIA and Node/AMD |
 
 Add ✅ to each subsequent phase only when its own exit is verified; no check mark means pending.
 
@@ -387,6 +388,51 @@ Add ✅ to each subsequent phase only when its own exit is verified; no check ma
   counts (55 A36 checks, 197 in the suite, 1,560 snapshots).
 - **Final file:** 197/197 on Node/NVIDIA, Node/AMD and Chrome/AMD, A36 55/55 under Node, zero
   WebGPU errors.
+
+### Phase 12.3 — the API guide and its checked example — 2026-10-18
+
+- **The guide** (`docs/api/agents.md`):
+  - `Sensors.query` and `Sensors.nearest({ radius, observe })` join the sensor list.
+  - The custom-sensor contract now covers the lists and the records they name, and the mirror's
+    definition argument.
+  - The reruns bullet extends to custom sensors that read records and lists: the sense stage
+    binds both read-only.
+  - A new section, "Neighbour lists for stages and custom sensors", builds `createCrowd`: a
+    query-only list (`contacts`, `k` 8, 1.2 m) read by a custom sensor (`crowd`, one float, with a
+    CPU mirror), by a step stage that writes an app buffer (`touching`), and, through `crowd`, by
+    a rule brain.
+  - The section also states the read contract and when lists are fresh, the mirror's limit past
+    `maxScanPerCell`, inspection and cost. It quotes S8's pile, so that nobody takes a list for a
+    contact solver.
+  - The validation section now reads 197/197 and lists A36 and seven examples. The section uses
+    none of plan-2 §3's research words.
+- **The checked example** (`test/agents-api-example.test.mjs`, now 7 examples) runs `createCrowd`
+  on the stand-in engine and checks:
+  - `obsDim` 5 and names unchanged by the list, stride 8, and the query's radius² and stride in
+    its WGSL;
+  - `touching` bound at group 1;
+  - every upper-case generated name used in the sense, step and think WGSL declared there. A probe
+    showed `WgslReflect` parses a module that uses an undeclared name;
+  - the mirror equal to `gridNearestNeighbours` for all 1,024 agents, and the spawn comment's
+    2/3/4 neighbours;
+  - the snapshot decode, and that teardown destroys `touching`.
+- **Watched failing,** each change restored byte for byte:
+  - `NEIGHBOURS_CONTACT` misspelled in the sensor: caught by the declared-name check, which
+    parsing alone misses;
+  - the mirror's radius set to 1.5: fails at agent 0's `crowd`;
+  - the step stage without `buffers`: fails the binding check;
+  - in the library, the `observe === false` guard removed from `defineAgents`: `obsDim` 45, not 5.
+- **Once on the device** (a scratch harness, not a suite): the example, bundled from the guide,
+  ran 240 steps on Node/NVIDIA and on Node/AMD with identical figures. Not run in Chrome.
+  - On 16 checked steps (16,384 rows), the lists equal `gridNearestNeighbours`. The largest cell
+    held 68 agents, over the 64-entry budget.
+  - `crowd` equals the share of its list that is filled on all 8,704 thinking rows.
+  - `touching` equals a CPU recount from the moved positions on 16,382 rows (8,532 overlaps). Two
+    rows within 1e-5 of contact were skipped.
+  - 80 snapshots matched, with zero validation errors.
+  - Two 240-step runs ended word for word identical.
+- `test:agents` 95/95 plus 24 mirror checks. No library change: the agents entry is still
+  21,468 B.
 
 ---
 

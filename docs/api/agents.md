@@ -3,7 +3,8 @@
 Import from `null-graph/agents`. Debug draws, visibility, picking and text are separate opt-in
 entries. This guide covers the GPU loop (C1 steps 3–4) with rule brains, `MlpBrain` (C2 step 6),
 which runs a small dense network you supply, per-species brains, [a network per agent](#a-network-per-agent)
-(Phase 2 step 11), switching brains without a compile in the frame, and loading a trained network
+(Phase 2 step 11), [neighbour lists for step stages and custom sensors](#neighbour-lists-for-stages-and-custom-sensors)
+(Phase 2 step 12), switching brains without a compile in the frame, and loading a trained network
 (C2 steps 7 and 9). Training, camera eyes and a replay/rewind UI are not implemented by this API.
 Training is done by tools in the repository, outside the package ([a trained network](#a-trained-network)).
 An `.onnx` file is read, and ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
@@ -79,19 +80,22 @@ are fixed for the system's lifetime. Species movement parameters can be tuned wi
 `agents.setSpecies(name, partial)`; the next `upload()` uploads the dirty species table.
 
 - `Sensors.self()`: normalized speed and energy.
-- `Sensors.nearest({ name, species, k })`: up to `k` neighbors, each with local side/forward
-  position, relative side/forward velocity and presence. Species filters use declared names.
+- `Sensors.nearest({ name, species, k, radius?, observe? })`: up to `k` neighbors, each with local
+  side/forward position, relative side/forward velocity and presence. Species filters use declared
+  names. `radius` narrows the search; `observe: false` keeps the list and drops its floats.
+- `Sensors.query({ name, species, k, radius? })`: a neighbour list that adds no observation floats,
+  for step stages and custom sensors ([neighbour lists](#neighbour-lists-for-stages-and-custom-sensors)).
 - `Sensors.bounds()`: proximity-weighted nearest-wall direction in the agent's local frame.
 - Custom sensors/actions require their declared WGSL signatures; CPU mirrors are needed when
   using the CPU reference routines.
 
-**What a custom sensor can read today.** `Sensors.custom({ name, width, wgsl, mirror? })` compiles
-`fn <name>(i: u32, a: Agent) -> array<f32, width>` into the sense stage. Its contract is the
-agent's own record, `a`.
+**What a custom sensor can read.** `Sensors.custom({ name, width, wgsl, mirror? })` compiles
+`fn <name>(i: u32, a: Agent) -> array<f32, width>` into the sense stage.
 
-- **No contract for other agents or the neighbour lists.** Both are in scope in that shader, but
-  nothing is generated or promised for them: no constants for the lists' layout, no documented
-  binding names, and the CPU `mirror` is not given the lists. Do not build on them yet.
+- **Its agent and its neighbours:** the agent's own record, `a`; every `nearest` and `query`
+  list, and the records the lists name ([neighbour lists](#neighbour-lists-for-stages-and-custom-sensors)).
+  Its CPU `mirror(records, u32, i, out, at, definition)` is given the definition, so it can repeat
+  the search.
 - **No app data.** A sensor cannot bind an app buffer, so walls and other occluders are out of its
   reach, and true line of sight is not available.
 - **"Can I see the nearest seeker?" needs no custom sensor.**
@@ -140,9 +144,9 @@ lockstep experiment/test path, not a replacement for the regular frame loop.
 definition, spawns and brains, stepped the same number of times, give the same records,
 observations, actions and reasons, word for word.
 
-- **It holds for** the built-in sensors, and for a custom sensor that reads only its own agent's
-  record. The grid lists each cell's agents in a fixed order, and a crowded cell's window depends
-  only on the cell and the tick.
+- **It holds for** the built-in sensors, and for custom sensors that read records and neighbour
+  lists: the sense stage writes neither. The grid lists each cell's agents in a fixed order, and a
+  crowded cell's window depends only on the cell and the tick.
 - **It needs** brains and app stages that write only their own agent's rows, as the next section
   asks.
 - **No cross-device guarantee is made:** float rounding differs between GPUs.
@@ -161,11 +165,140 @@ generated constants. Every species needs a brain before `getComputeStages()` or 
 
 `addStepStage({ name, wgsl, buffers? })` adds an app stage after act and before tick, with entry
 `fn step(i: u32, tick: u32)`. App stages see the same tick
-as that step's brain. Auxiliary group-1 buffers and brain objects remain caller-owned.
+as that step's brain, and read its [neighbour lists](#neighbour-lists-for-stages-and-custom-sensors).
+Auxiliary group-1 buffers and brain objects remain caller-owned.
 
 For peer-dependent mechanics, separate detection and mutation dispatches: the Herd & Wolves
 demo first reads peer positions and marks its own flags, then consumes them for respawn/rest.
 Do not write peer records concurrently and assume another invocation sees a consistent result.
+
+## Neighbour lists for stages and custom sensors
+
+Every `nearest` declaration fills, each step, a list of up to `k` neighbour indices per agent in
+`agents.neighbours`. `Sensors.query` declares a list that no brain observes: it adds no floats to
+the observation row, so `obsDim`, `obsNames` and any network trained on them stay as they are.
+Step stages and custom sensors read the lists.
+
+```ts
+import type { NullGraph } from 'null-graph';
+import { AgentSystem, RuleBrain, defineAgents, nearestNeighbours, Sensors } from 'null-graph/agents';
+
+export function createCrowd(engine: NullGraph) {
+    const found = new Uint32Array(8);   // the mirror's scratch, reused for every agent
+    const definition = defineAgents({
+        capacity: 1024,
+        world: { min: [-40, -40], max: [40, 40] },
+        cellSize: 8,
+        species: [{ name: 'walker', maxSpeed: 1.5, maxTurn: 3, accel: 3,
+            senseRadius: 8, radius: 0.3 }],
+        sensors: [
+            Sensors.self(),
+            Sensors.bounds(),
+            // Up to 8 agents within 1.2 m, nearest first: indices only, no observation floats.
+            Sensors.query({ name: 'contacts', k: 8, radius: 1.2 }),
+            // One float from that list: the share of its 8 slots that are filled.
+            Sensors.custom({ name: 'crowd', width: 1, wgsl: `
+fn crowd(i: u32, a: Agent) -> array<f32, 1> {
+    var filled = 0u;
+    for (var r = 0u; r < 8u; r++) {
+        if (neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_CONTACTS + r] != NO_AGENT) { filled++; }
+    }
+    return array<f32, 1>(f32(filled) / 8.0);
+}`,
+                // The CPU twin, for tests and recordings: the same search, through the definition.
+                // nearestMasks holds a species mask per nearest or query declaration: [0] is contacts.
+                mirror(records, u32, i, out, at, def) {
+                    out[at] = nearestNeighbours(def, { data: records, u32 }, i,
+                        def.nearestMasks[0], 1.2, 8, found) / 8;
+                } }),
+        ],
+    });
+    // definition.obsDim is 5: self (2), bounds (2) and crowd (1). The list adds none.
+    const agents = new AgentSystem(engine, definition, { thinkEvery: 2 });
+    // Away from walls, and slower the more crowded: crowd is read like any observation.
+    agents.setBrain(new RuleBrain(`
+fn think(i: u32, species: u32, tick: u32) {
+    setAct(i, ACT_TURN, -2.0 * obs(i, OBS_BOUNDS + BOUNDS_SIDE));
+    setAct(i, ACT_THROTTLE, 1.0 - obs(i, OBS_CROWD));
+    setReason(i, 1u);
+}`));
+    // Per agent, how many agents on its list its body overlaps. The app owns this buffer.
+    const touching = engine.device.createBuffer({ size: definition.capacity * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    agents.addStepStage({ name: 'touching', buffers: [touching], wgsl: `
+@group(1) @binding(0) var<storage, read_write> touching: array<u32>;
+fn step(i: u32, tick: u32) {
+    let me = agents[i].posRadius;
+    var overlaps = 0u;
+    for (var r = 0u; r < 8u; r++) {
+        let j = neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_CONTACTS + r];
+        if (j == NO_AGENT) { break; }
+        let other = agents[j].posRadius;
+        if (distance(other.xz, me.xz) < other.w + me.w) { overlaps++; }
+    }
+    touching[i] = overlaps;
+}` });
+    for (let i = 0; i < definition.capacity; i++) {
+        // A 32 × 32 block, 1 m apart: within 1.2 m, 4 agents inside it, 3 on an edge, 2 at a corner.
+        agents.spawn(i, { species: 'walker', heading: i * 2.4,
+            position: [(i % 32) - 15.5, 0, Math.floor(i / 32) - 15.5] });
+    }
+    agents.upload();
+    return {
+        agents,
+        touching,
+        destroy() {
+            agents.destroy();   // first: its step stage binds touching
+            touching.destroy();
+        },
+    };
+}
+```
+
+Render it with the same frame function as the rule example. `touching` stays on the GPU, for a
+later stage or a draw to read.
+
+- **Declaring a list:**
+  - `Sensors.query({ name, species, k, radius })` is `Sensors.nearest({ ..., observe: false })`.
+    `species` takes declared names (every species when omitted), `k` is 1–8 (default 1), and
+    `radius` is in `(0, cellSize]` (default `cellSize`).
+  - An observed `Sensors.nearest` takes `radius` too. It limits the search, and the 5 floats still
+    use `senseRadius`: a neighbour is seen within `min(senseRadius, radius)`, and its position is
+    still divided by `senseRadius`.
+  - A brain still needs something to read: a definition whose every sensor has `observe: false` is
+    refused with `AgentSystem: declare at least one observed sensor — a brain needs something to
+    read.` A radius out of range is refused with `AgentSystem: sensor "<name>" radius <r> must be
+    in (0, cellSize <cellSize>].`
+- **Reading a list in WGSL:** for a declaration named `contacts`, agent `i`'s list is
+  `neighbours[i * NEIGHBOURS_PER_AGENT + NEIGHBOURS_CONTACTS + r]`, for `r` from 0 to `k - 1`.
+  - It holds live agents other than `i`, of the declared species, within the radius (inclusive),
+    nearest first with ties to the lower index, then `NO_AGENT` in every unused slot.
+    `agents[j]` is agent `j`'s record.
+  - Names fold to upper case: `contacts` gives `NEIGHBOURS_CONTACTS`, and two names that fold to
+    the same constant are refused.
+  - Observed lists are read the same way, through their own `NEIGHBOURS_<NAME>`.
+- **When a list is read:** each step builds its lists first, from the positions the step starts
+  with (grid → queries → sense → think → act → app stages).
+  - A step stage reads them on every step, whatever `thinkEvery`, after act has moved the agents
+    by one step (here at most 1.5 m/s × 1/60 s = 2.5 cm). An agent that a stage kills stays on
+    other agents' lists until the next step.
+  - A custom sensor runs in the sense stage, on the brain's cadence: here, every other step.
+  - A brain reads observations only. To give it something from a list, reduce the list to a few
+    floats in a custom sensor, as `crowd` does.
+- **The CPU mirror:** `nearestNeighbours(def, { data: records, u32 }, i, mask, radius, k, out)`
+  is the reference search, and `def.nearestMasks` holds the species mask of each `nearest` and
+  `query` declaration, in declaration order. That search equals the GPU's list while no cell holds
+  more than `maxScanPerCell` agents. Past that the GPU scans a window of the cell (see
+  [definition and observations](#definition-and-observations)), and `gridNearestNeighbours`
+  ([agent-grid.md](./agent-grid.md)) mirrors that.
+- **Inspection:** `inspect(i).neighbours` holds `{ sensor: 'contacts', indices }` beside the
+  observed lists, empty slots dropped.
+- **Cost:** each list is one more query dispatch per step (the search an observed list runs) and
+  `4·k` bytes per agent in `agents.neighbours`. A query-only list adds nothing to sense or think.
+- **Not a contact solver:** a list finds overlaps; it does not separate them. In a pile of 256
+  agents, position corrections over an 8-neighbour list still left 86% of them overlapping a
+  neighbour by more than 5% of their summed radii after 180 steps, on every measured host; two
+  correction passes over the whole grid neighbourhood left 63% (`npm run spike:s8`).
 
 ## Network brains: MlpBrain
 
@@ -640,15 +773,19 @@ Headless tests cover layouts, CPU mirrors, generated WGSL, the MLP's mathematics
 request queues and refusals. The agents GPU suite covers the production loop, instance output,
 picking, label following, inspection, the allocation/upload budget, teardown (A20), `MlpBrain`
 on the production chain (A4), weight-table rows (A21), per-species passes (A22), the cooperative
-think entry and per-agent weight rows (A35), the grid's exact order and crowded-cell windows (A1),
-and bit-exact reruns without overflow (A7) and with overflow in every step (A23). It passes
-142/142 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU and on an NVIDIA GPU, and in
-Chrome. A4's networks, from one affine layer to the largest allowed shape, agree with `mlpForward`
-within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA GPU.
+think entry and per-agent weight rows (A35), query-only lists read by a custom sensor, a step
+stage and the inspector at `thinkEvery` 1 and 3 (A36), the grid's exact order and crowded-cell
+windows (A1), and bit-exact reruns without overflow (A7) and with overflow in every step (A23). It
+passes 197/197 checks with zero WebGPU errors on Node/Dawn, on an AMD iGPU and on an NVIDIA GPU,
+and in Chrome. A4's networks, from one affine layer to the largest allowed shape, agree with
+`mlpForward` within 4.2e-7 on an AMD iGPU; `npm run spike:mlp-think` found 3.8e-7 on an NVIDIA GPU.
 
-`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's six TypeScript
-examples:
+`test/agents-api-example.test.mjs`, in `npm run test:agents`, checks this guide's seven
+TypeScript examples:
 - each one type-checks and bundles, and its generated think WGSL parses;
+- the neighbour-list example runs on a stand-in engine: its list adds no observation, every
+  generated constant its WGSL names is declared, and its custom sensor's CPU mirror agrees with
+  the grid's reference search for every agent;
 - the network example's numbers match its comment;
 - the per-species example runs on a stand-in engine that checks its passes and compiles;
 - the per-agent network example packs 4 rows on a stand-in engine, spawns 64-agent blocks on rows
