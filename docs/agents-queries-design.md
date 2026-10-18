@@ -372,6 +372,22 @@ Add ✅ to each subsequent phase only when its own exit is verified; no check ma
   excluding dead candidates; sense and application stages skip dead observers. No production
   contract was changed. The final file was rerun green on all three pairs after this correction.
 
+### Fresh review of phase 12.2 — 2026-10-18
+
+- **The "off-cadence newborn" was on cadence.** Agent 64 was born on tick 2, and at `thinkEvery: 3`
+  its block (64–127) thinks on ticks 2 and 5, so the newborn rule was never needed. With the
+  newborn clause removed from `thinksNow`, the committed A36 still passed all 55 of its checks
+  (the suite 190/197 on Node/NVIDIA; the 7 failures were other tests).
+- **Corrected:** agent 64 is born on tick 3, off its block's cadence, and the non-vacuity check
+  now requires exactly one off-cadence newborn at `thinkEvery: 3`. The same mutation now fails A36
+  at ticks 3 and 4 (the row kept from tick 3), 188/197 in all.
+- **Checked and found sound:** both slices against `gridNearestNeighbours` for every agent and
+  tick, the custom sensor against a mirror that searches through its definition argument, the
+  step-stage checksum on every tick at both cadences, inspection, the radius mutation, and the
+  counts (55 A36 checks, 197 in the suite, 1,560 snapshots).
+- **Final file:** 197/197 on Node/NVIDIA, Node/AMD and Chrome/AMD, A36 55/55 under Node, zero
+  WebGPU errors.
+
 ---
 
 ## 12. Where this refines `plan-2.md`

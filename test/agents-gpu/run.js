@@ -2044,12 +2044,13 @@ fn step(i: u32, tick: u32) {
     consumed[i] = total;
 }` });
         const cachedObs = new Float32Array(N * def.obsDim), cachedAct = new Float32Array(N * 2);
-        let radiusWitnesses = 0, cadenceSkips = 0, changes = 0, prior;
+        let radiusWitnesses = 0, cadenceSkips = 0, offCadenceNewborns = 0, changes = 0, prior;
         for (let tick = 0; tick < 6; tick++) {
             for (let i = 0; i < N; i++) {
+                // Agent 64 is born on tick 3; at thinkEvery 3 its block thinks only on ticks 2 and 5.
                 sys.spawn(i, { position: [Math.floor(i / 10) * 12 + (i % 10) * 0.5,
                     0, i % 10 === 1 ? (tick % 2) * 0.75 : 0], species: i % 2,
-                    heading: 0, age: tick === 2 && i === 64 ? 0 : 1 });
+                    heading: 0, age: tick === 3 && i === 64 ? 0 : 1 });
                 if (i % 10 === 9) sys.kill(i);
             }
             const rec = sys.records;
@@ -2070,7 +2071,9 @@ fn step(i: u32, tick: u32) {
                 }
                 const wide = [], count = A.gridNearestNeighbours(def, rec, grid, i, 3, 4, 6, wide, tick);
                 radiusWitnesses += wide.slice(0, count).filter(j => !expected.subarray(i * 8 + 2, i * 8 + 8).includes(j)).length;
-                if ((tick === 2 && i === 64) || (tick + Math.floor(i / 64)) % thinkEvery === 0) {
+                const newborn = tick === 3 && i === 64, onCadence = (tick + Math.floor(i / 64)) % thinkEvery === 0;
+                if (newborn && !onCadence) offCadenceNewborns++;
+                if (newborn || onCadence) {
                     const row = A.senseAgent(def, rec, i);
                     cachedObs.set(row, i * def.obsDim);
                     cachedAct.set(A.mlpForward(net, row), i * 2);
@@ -2097,8 +2100,8 @@ fn step(i: u32, tick: u32) {
             if (prior && !equal(prior, actual)) changes++;
             prior = actual;
         }
-        check(`A36 every ${thinkEvery}: non-vacuous radius exclusions, changing lists and cadence skips`,
-            radiusWitnesses > 0 && changes === 5 && (thinkEvery === 1 || cadenceSkips > 0));
+        check(`A36 every ${thinkEvery}: non-vacuous radius exclusions, changing lists, cadence skips and an off-cadence newborn`,
+            radiusWitnesses > 0 && changes === 5 && (thinkEvery === 1 || (cadenceSkips > 0 && offCadenceNewborns === 1)));
         // Same buffers and query generator as AgentSystem, but with the radius selection broken.
         const enc = device.createCommandEncoder();
         dispatch(enc, A.buildAgentGridQueryWGSL(def, 3, def.cellSize, 6, { stride: 8, base: 2 }),
