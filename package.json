@@ -100,6 +100,8 @@
     "spike:s3": "node test/gpu/run-harness.mjs test/spikes/s3-think-kernel/run.js __S3_RESULTS__",
     "spike:mlp-think": "node test/gpu/run-harness.mjs test/spikes/mlp-think-cost/run.js __MLP_THINK_RESULTS__",
     "spike:s6": "node test/gpu/run-harness.mjs test/spikes/genome-rows/run.js __S6_RESULTS__",
+    "spike:s7": "node test/gpu/run-harness.mjs test/spikes/coevo/run.js __S7_RESULTS__",
+    "spike:s8": "node test/gpu/run-harness.mjs test/spikes/contacts/run.js __S8_RESULTS__",
     "spike:s1": "node test/gpu/run-harness.mjs test/spikes/ort/s1.js __ORT_SPIKE_RESULTS__",
     "spike:s2": "node test/gpu/run-harness.mjs test/spikes/ort/s2.js __ORT_SPIKE_RESULTS__",
     "spike:s4": "node test/gpu/run-harness.mjs test/spikes/ort/s4.js __ORT_SPIKE_RESULTS__",
@@ -133,8 +135,7 @@
     "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__",
     "film": "node tools/film/film.mjs",
     "film:check": "node tools/film/check.mjs",
-    "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs",
-    "spike:s8": "node test/gpu/run-harness.mjs test/spikes/contacts/run.js __S8_RESULTS__"
+    "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"
