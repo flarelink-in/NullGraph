@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "protocol": "phase14.1-contact-v2-verification-1",
+  "environment": "contact-v2",
+  "purpose": "Phase 14.1 foundation verification: correctness, shared policy tables, broader stress, and smoke validation on all required pairs",
+  "catchRule": "Exhaustive same-tile live wolf/prey post-act snapshot, wolf rest <= 0, strict radius sum plus explicit margin; every eligible touching wolf rests; each prey counted once; no arbitration",
+  "requiredPairs": ["Node/NVIDIA", "Node/AMD", "Chrome/AMD"],
+  "verifiedPairs": ["Node/NVIDIA (40/40)", "Node/AMD (40/40)", "Chrome/AMD (40/40)"],
+  "coverage": {
+    "correctness": ["legacy equivalence 300 steps (A42)", "neutral mirrored lanes (A43)", "fresh episode reset after unrelated episode (A44)", "contacts on/off (A46)", "resting-nearest watched-failing legacy control (A46)", "strict boundary/inside/outside (A46)", "dead/resting (A46)", "ties resting all eligible wolves (A46)", "multiple prey per wolf step (A46)"],
+    "sharedPolicy": ["shared caller-owned MlpBrain.byGenome tables across mirrored lanes (A43)", "candidate row discrimination on shared tables (A45)", "in-place setRows updates without buffer reallocation (A45)", "row index overflow validation (A45)"],
+    "stress": ["cross-tile sensing/catch/contact isolation across 10m gap in 4-arena layout (A42)", "all agents strictly contained within assigned tile bounds (A46)", "mirrored exactness under dense contacts and coordinate coincidence (A43)", "multi-arena multi-prey catch counters sum equals global stats[0] (A45)", "containment removes outward wall-normal velocity under contact push (A46)"],
+    "smoke": ["contact-v2 60-step smoke rollout under 1500ms safety stop (A47)", "smoke mirrored lanes exactness (A47)", "short-run exact reproducibility from identical seed (A47)"]
+  },
+  "acceptance": {
+    "failures": 0,
+    "webgpuErrors": 0,
+    "maxSmokeStepMs": {
+      "nodeNvidia": 39.7,
+      "nodeAmd": 14.1,
+      "chromeAmd": 133.8
+    },
+    "researchSettings": "BLOCKED pending separately preregistered contact-v2 throughput, both-species quality and gated smoke spike; preserve 1500ms safety stop"
+  }
+}
