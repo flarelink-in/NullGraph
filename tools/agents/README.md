@@ -8,6 +8,30 @@ The design, with every measurement, is
 [`docs/agents-cloning-design.md`](../../docs/agents-cloning-design.md). Loading a trained network
 in an app is in [`docs/api/agents.md`](../../docs/api/agents.md), "A trained network".
 
+## Co-evolution infrastructure (phase 14)
+
+The cloning commands below remain unchanged. `scenario/herd-wolves-arenas.mjs` provides fresh
+mirrored arenas with separate `legacy-v1` / exhaustive `contact-v2` identities. `es.mjs` is the
+CPU-only optimizer foundation, not a training CLI. Design: `docs/agents-coevolution-design.md` §7.
+
+- `noise(seed, generation, direction, n)` uses `es-tuple-box-muller-v1`: ordered u32 fields,
+  separate radius/angle streams, open-interval Box–Muller uniforms and f64 outputs. Each vector
+  is explicitly bounded to 2^24 parameters. Numerical episode-seed collision handling is separate.
+- `centeredRanks(scores)` shares average ranks across ties; `gradient(directions, utilities, sigma)`
+  expects interleaved plus/minus utilities and divides by `2 K sigma`.
+- `createAdamState(master)` copies f64 state; keep one per species. `adamAscent(state, gradient,
+  { rate, decay })` uses existing trainer beta/epsilon constants and coupled L2 ascent. Failed
+  updates do not partially mutate state; zero gradients can still move via momentum or decay.
+- `masterParams(network)` and `candidateNetworks(shape, master, direction, sigma)` use existing
+  layer packing, validating canonical network dimensions and finite f32 candidates. Diagnostics
+  include bit-equal plus/minus parameter collisions and perturbation/displacement norms.
+
+No accepted training presets or optimizer hyperparameter defaults. Browser correctness and short
+rollout smoke are not score-quality or learning acceptance. Schedule/archive/trainer/guard and
+checkpoints are phase 14.3; evaluation and research remain subsequent phases.
+
+Tests: `node --test test/agents-coevo.test.mjs test/coevo-arena.test.mjs` (also in `npm run test:agents`).
+
 ## What you need
 
 - Node, and a GPU that Dawn can use: recording and evaluating run the simulation headless.
