@@ -27,6 +27,7 @@ async function build() {
                 'text':'src/extras/text/index.ts',
                 'agents':'src/extras/agents/index.ts',
                 'inference':'src/extras/inference/index.ts',
+                'physics':'src/extras/physics/index.ts',
             },
 
             outdir: 'dist', // NEW: Outputs to dist/index.js and dist/geometry.js

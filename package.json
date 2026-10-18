@@ -75,6 +75,10 @@
     "./inference": {
       "types": "./dist/extras/inference/index.d.ts",
       "import": "./dist/inference.js"
+    },
+    "./physics": {
+      "types": "./dist/extras/physics/index.d.ts",
+      "import": "./dist/physics.js"
     }
   },
   "scripts": {
@@ -102,6 +106,7 @@
     "spike:s6": "node test/gpu/run-harness.mjs test/spikes/genome-rows/run.js __S6_RESULTS__",
     "spike:s7": "node test/gpu/run-harness.mjs test/spikes/coevo/run.js __S7_RESULTS__",
     "spike:s8": "node test/gpu/run-harness.mjs test/spikes/contacts/run.js __S8_RESULTS__",
+    "spike:s9": "node test/gpu/run-harness.mjs test/spikes/contact-solver/run.js __S9_RESULTS__",
     "spike:s1": "node test/gpu/run-harness.mjs test/spikes/ort/s1.js __ORT_SPIKE_RESULTS__",
     "spike:s2": "node test/gpu/run-harness.mjs test/spikes/ort/s2.js __ORT_SPIKE_RESULTS__",
     "spike:s4": "node test/gpu/run-harness.mjs test/spikes/ort/s4.js __ORT_SPIKE_RESULTS__",
@@ -119,6 +124,7 @@
     "test:text": "node test/text.test.mjs",
     "test:agents": "node test/agents.test.mjs && node --test test/agents-grid.test.mjs test/agents-system.test.mjs test/agents-arrows.test.mjs test/agents-instances.test.mjs test/agents-inspect.test.mjs test/agents-api-example.test.mjs test/agents-mlp.test.mjs test/agents-tools.test.mjs",
     "test:inference": "node --test test/inference-onnx.test.mjs test/inference-api-example.test.mjs test/inference-ort.test.mjs",
+    "test:physics": "node --test test/physics.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",
     "test:tod": "node test/environment-timeofday.test.mjs",
     "test:night": "node test/environment-night.test.mjs",

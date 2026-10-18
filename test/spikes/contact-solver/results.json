@@ -1,0 +1,6139 @@
+{
+ "date": "2026-10-18",
+ "timing": "GPU timestamps around each sequence, repeated from a restored snapshot until >= 8 ms, median of rounds; ratios within one run compare, absolute ms move with clocks",
+ "pairs": [
+  {
+   "host": "node",
+   "adapter": "amd gcn-5",
+   "parts": {
+    "checks": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "completeness": {
+      "dense pile, the cell rule": {
+       "cellSize": 1.45,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "dense pile, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 1,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "loose crowd, the cell rule": {
+       "cellSize": 1.7,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      },
+      "loose crowd, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 57,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      }
+     },
+     "onePair": {
+      "distance": 0.999999987984634,
+      "moved0": 0.2886264120144617,
+      "expected0": 0.28862640727994077
+     },
+     "reruns": {
+      "herd 4,096": 0,
+      "pile 256": 0,
+      "jam 4,096": 0
+     },
+     "seconds": 8.9883846
+    },
+    "confirm": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "confirm": {
+      "point": {
+       "iterations": 2,
+       "relaxation": 1.75,
+       "budget": 32,
+       "damping": 1,
+       "mass": "area",
+       "compliance": 0,
+       "maxPush": 0.25,
+       "averaging": 0.5
+      },
+      "herd 4,096": {
+       "none": {
+        "maxOver5": 64.5263671875,
+        "maxWorstPct": 99.89781038027981,
+        "final": {
+         "worstM": 0.7857834499653742,
+         "worstPct": 98.22292978203606,
+         "over5Pct": 63.720703125,
+         "over20Pct": 54.8828125,
+         "nearestM": 0.7275051568175929
+        },
+        "catches": 440
+       },
+       "contacts": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.012421881108633515,
+         "worstPct": 1.5527351154416331,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0403119671499594
+        },
+        "catches": 2
+       }
+      },
+      "herd 16,384": {
+       "none": {
+        "maxOver5": 58.709716796875,
+        "maxWorstPct": 99.95716951134057,
+        "final": {
+         "worstM": 1.0963587486345476,
+         "worstPct": 98.71058312204524,
+         "over5Pct": 57.257080078125,
+         "over20Pct": 48.126220703125,
+         "nearestM": 0.7907113109607526
+        },
+        "catches": 1745
+       },
+       "contacts": {
+        "maxOver5": 1.81884765625,
+        "maxWorstPct": 90.66697096725082,
+        "final": {
+         "worstM": 0.028486375216827287,
+         "worstPct": 3.560796849043403,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0515306604750867
+        },
+        "catches": 14
+       }
+      },
+      "64 arenas": {
+       "none": {
+        "maxOver5": 64.23483455882354,
+        "maxWorstPct": 99.96425311177308,
+        "final": {
+         "worstM": 0.8447963129551257,
+         "worstPct": 99.07506964757151,
+         "over5Pct": 62.385110294117645,
+         "over20Pct": 52.596507352941174,
+         "nearestM": 0.7272654969958742
+        },
+        "catches": 1915
+       },
+       "contacts": {
+        "maxOver5": 2.1254595588235294,
+        "maxWorstPct": 51.83188404345571,
+        "final": {
+         "worstM": 0.0320596474006799,
+         "worstPct": 4.007455865369242,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.9704864286725312
+        },
+        "catches": 13
+       }
+      },
+      "cost": [
+       {
+        "count": 4096,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 1.3200822857142858,
+        "contacts": 0.2802834285714286,
+        "both": 1.5934610285714286
+       },
+       {
+        "count": 16384,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 3.710509788617886,
+        "contacts": 1.2419871219512195,
+        "both": 4.780931121951219
+       },
+       {
+        "count": 65536,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 68.8717824,
+        "contacts": 11.8554624,
+        "both": 74.90109439999999
+       }
+      ]
+     },
+     "seconds": 110.5799352
+    },
+    "extreme": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "extreme": [
+      {
+       "count": 4096,
+       "budget": 16,
+       "contactsMs": 0.30583466666666664,
+       "skipped": 4032
+      },
+      {
+       "count": 4096,
+       "budget": 32,
+       "contactsMs": 0.4284000737327189,
+       "skipped": 3968
+      },
+      {
+       "count": 4096,
+       "budget": 64,
+       "contactsMs": 0.49076497695852533,
+       "skipped": 3840
+      },
+      {
+       "count": 16384,
+       "budget": 16,
+       "contactsMs": 0.989433756097561,
+       "skipped": 16320
+      },
+      {
+       "count": 16384,
+       "budget": 32,
+       "contactsMs": 1.2589254193548387,
+       "skipped": 16256
+      },
+      {
+       "count": 16384,
+       "budget": 64,
+       "contactsMs": 1.462891395121951,
+       "skipped": 16128
+      },
+      {
+       "count": 65536,
+       "budget": 16,
+       "contactsMs": 3.149824,
+       "skipped": 65472
+      },
+      {
+       "count": 65536,
+       "budget": 32,
+       "contactsMs": 3.707465142857143,
+       "skipped": 65408
+      },
+      {
+       "count": 65536,
+       "budget": 64,
+       "contactsMs": 4.748839384615384,
+       "skipped": 65280
+      },
+      {
+       "count": 1024,
+       "budget": "exhaustive",
+       "contactsMs": 2.614272
+      },
+      {
+       "count": 4096,
+       "budget": "exhaustive",
+       "contactsMs": 15.12718864516129
+      }
+     ],
+     "extremeExhaustive65536PredictedMs": 3872.5602931612902,
+     "opening": [
+      {
+       "step": 60,
+       "worstM": 1.1773319572852456,
+       "worstPct": 99.96163952234585,
+       "over5Pct": 99.4873046875,
+       "over20Pct": 96.630859375,
+       "nearestM": 0.2012752771730014
+      },
+      {
+       "step": 120,
+       "worstM": 0.9576937288502604,
+       "worstPct": 99.98328534500494,
+       "over5Pct": 98.779296875,
+       "over20Pct": 93.6279296875,
+       "nearestM": 0.3249268039762673
+      },
+      {
+       "step": 180,
+       "worstM": 0.7357690779991337,
+       "worstPct": 84.8731608077455,
+       "over5Pct": 97.55859375,
+       "over20Pct": 89.453125,
+       "nearestM": 0.421812311048198
+      },
+      {
+       "step": 300,
+       "worstM": 0.6018679223993422,
+       "worstPct": 75.23348917885141,
+       "over5Pct": 95.3125,
+       "over20Pct": 80.6884765625,
+       "nearestM": 0.5139087598635089
+      }
+     ],
+     "seconds": 8.1325435
+    },
+    "finish": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "finish": [
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 7.763671875,
+        "maxWorstPct": 73.08471270154784,
+        "final": {
+         "worstM": 0.20905109159486213,
+         "worstPct": 26.13138605996977,
+         "over5Pct": 5.5908203125,
+         "over20Pct": 0.2197265625,
+         "nearestM": 1.0357413731193186
+        },
+        "catches": 17
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0009589676260143287,
+         "worstPct": 0.11987095146557471,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123176125316839
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5870389378843539,
+         "worstPct": 73.37986614209903,
+         "over5Pct": 95.3369140625,
+         "over20Pct": 80.2978515625,
+         "nearestM": 0.5062777842075958
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.117431640625,
+        "steadyOver20": 91.99422200520833,
+        "worstPct": 99.90133163743994,
+        "reversalsPct": 9.978678038379531
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.0576171875,
+        "maxWorstPct": 71.02855231387895,
+        "final": {
+         "worstM": 0.17033988832067415,
+         "worstPct": 21.29248572280151,
+         "over5Pct": 5.029296875,
+         "over20Pct": 0.048828125,
+         "nearestM": 1.0479819208000456
+        },
+        "catches": 15
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.03529664019656453,
+         "worstPct": 4.412079958825451,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.808577141409885
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6043939005251788,
+         "worstPct": 67.29481641743843,
+         "over5Pct": 95.1416015625,
+         "over20Pct": 78.8330078125,
+         "nearestM": 0.5023743658598893
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.15852864583333,
+        "steadyOver20": 91.905517578125,
+        "worstPct": 99.8586067456993,
+        "reversalsPct": 8.236663256811772
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 13.8916015625,
+        "maxWorstPct": 77.91663286862665,
+        "final": {
+         "worstM": 0.2142541905025357,
+         "worstPct": 26.781773413737437,
+         "over5Pct": 13.7939453125,
+         "over20Pct": 0.830078125,
+         "nearestM": 1.0354998925264887
+        },
+        "catches": 38
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.0695732075874137,
+         "worstPct": 8.696650818836517,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.796789874941205
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8181729500732093,
+         "worstPct": 68.18107646349489,
+         "over5Pct": 97.1435546875,
+         "over20Pct": 86.865234375,
+         "nearestM": 0.45590240804014304
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.89501953125,
+        "steadyOver20": 96.03230794270833,
+        "worstPct": 99.99776149845154,
+        "reversalsPct": 23.26946950260697
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.5458984375,
+        "maxWorstPct": 39.01944523565821,
+        "final": {
+         "worstM": 0.23668912484694427,
+         "worstPct": 29.58614016500019,
+         "over5Pct": 8.30078125,
+         "over20Pct": 0.4638671875,
+         "nearestM": 1.0311620905902281
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 93,
+        "final": {
+         "worstM": 0.000986540349416587,
+         "worstPct": 0.1233175418394988,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8125805466451551
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8718337872716937,
+         "worstPct": 73.45805933954273,
+         "over5Pct": 95.4345703125,
+         "over20Pct": 81.0546875,
+         "nearestM": 0.5134432528825732
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.11702473958333,
+        "steadyOver20": 92.225341796875,
+        "worstPct": 99.78686332016315,
+        "reversalsPct": 10.032867503394376
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.47265625,
+        "maxWorstPct": 36.17142118490316,
+        "final": {
+         "worstM": 0.16757709787584252,
+         "worstPct": 20.947136922343653,
+         "over5Pct": 9.0087890625,
+         "over20Pct": 0.09765625,
+         "nearestM": 1.0320850684561558
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011179052062808559,
+         "worstPct": 1.397381487028463,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105188926225297
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.7867709344793588,
+         "worstPct": 65.56424193465766,
+         "over5Pct": 95.41015625,
+         "over20Pct": 78.564453125,
+         "nearestM": 0.5025301361216887
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.14998372395833,
+        "steadyOver20": 92.579345703125,
+        "worstPct": 99.9745532308649,
+        "reversalsPct": 9.838976736484808
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 21.3134765625,
+        "maxWorstPct": 91.57185722199759,
+        "final": {
+         "worstM": 0.3653680780411305,
+         "worstPct": 45.67100907459024,
+         "over5Pct": 19.580078125,
+         "over20Pct": 2.83203125,
+         "nearestM": 1.0174795657063058
+        },
+        "catches": 71
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.134837579692203,
+         "worstPct": 16.854697210370816,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741383699527742
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8742515003432082,
+         "worstPct": 72.85428880029802,
+         "over5Pct": 98.388671875,
+         "over20Pct": 90.9423828125,
+         "nearestM": 0.4204084119672904
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.993896484375,
+        "steadyOver20": 97.70955403645833,
+        "worstPct": 99.99610505583786,
+        "reversalsPct": 29.088802449722753
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.012421881108633515,
+         "worstPct": 1.5527351154416331,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0403119671499594
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0009589676260143287,
+         "worstPct": 0.11987095146557471,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123176125316839
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5870389378843539,
+         "worstPct": 73.37986614209903,
+         "over5Pct": 95.3369140625,
+         "over20Pct": 80.2978515625,
+         "nearestM": 0.5062777842075958
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.47843424479167,
+        "steadyOver20": 49.635823567708336,
+        "worstPct": 63.19796776477683,
+        "reversalsPct": 2.9672865256276952
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 28.09775004761679,
+        "final": {
+         "worstM": 0.02715525610852887,
+         "worstPct": 3.394406962985504,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.036718045597971
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.03529664019656453,
+         "worstPct": 4.412079958825451,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.808577141409885
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6043939005251788,
+         "worstPct": 67.29481641743843,
+         "over5Pct": 95.1416015625,
+         "over20Pct": 78.8330078125,
+         "nearestM": 0.5023743658598893
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.277587890625,
+        "steadyOver20": 28.260091145833332,
+        "worstPct": 52.537375887642945,
+        "reversalsPct": 0.012828258584587882
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 4.443359375,
+        "maxWorstPct": 36.10008687949884,
+        "final": {
+         "worstM": 0.020098734295118215,
+         "worstPct": 2.5123417494529674,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0380461458100636
+        },
+        "catches": 14
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.0695732075874137,
+         "worstPct": 8.696650818836517,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.796789874941205
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8181729500732093,
+         "worstPct": 68.18107646349489,
+         "over5Pct": 97.1435546875,
+         "over20Pct": 86.865234375,
+         "nearestM": 0.45590240804014304
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.54850260416667,
+        "steadyOver20": 45.443115234375,
+        "worstPct": 55.17210316452748,
+        "reversalsPct": 0.0024843177442394884
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.013833826386584591,
+         "worstPct": 1.7292282725555645,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0430960348676086
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 93,
+        "final": {
+         "worstM": 0.000986540349416587,
+         "worstPct": 0.1233175418394988,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8125805466451551
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8718337872716937,
+         "worstPct": 73.45805933954273,
+         "over5Pct": 95.4345703125,
+         "over20Pct": 81.0546875,
+         "nearestM": 0.5134432528825732
+        }
+       },
+       "jam": {
+        "steadyOver5": 81.75008138020833,
+        "steadyOver20": 50.517985026041664,
+        "worstPct": 59.220719018625864,
+        "reversalsPct": 3.718092618900684
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 26.533815981361858,
+        "final": {
+         "worstM": 0.017675443149449244,
+         "worstPct": 2.209430360758078,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0389671568734735
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011179052062808559,
+         "worstPct": 1.397381487028463,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105188926225297
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.7867709344793588,
+         "worstPct": 65.56424193465766,
+         "over5Pct": 95.41015625,
+         "over20Pct": 78.564453125,
+         "nearestM": 0.5025301361216887
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.82893880208333,
+        "steadyOver20": 25.528564453125,
+        "worstPct": 43.376941042151,
+        "reversalsPct": 0.003724363961399037
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 14.990234375,
+        "maxWorstPct": 66.78771577365193,
+        "final": {
+         "worstM": 0.022687099678394884,
+         "worstPct": 2.835887417541345,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0490005960982975
+        },
+        "catches": 47
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.134837579692203,
+         "worstPct": 16.854697210370816,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741383699527742
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8742515003432082,
+         "worstPct": 72.85428880029802,
+         "over5Pct": 98.388671875,
+         "over20Pct": 90.9423828125,
+         "nearestM": 0.4204084119672904
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.21427408854167,
+        "steadyOver20": 57.547607421875,
+        "worstPct": 57.99208051816127,
+        "reversalsPct": 0.00124512843499807
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      }
+     ],
+     "seconds": 91.9275672
+    },
+    "frontier": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 1
+     },
+     "frontier": [
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.5,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.09765625,
+        "maxWorstPct": 15.953806266082948,
+        "final": {
+         "worstM": 0.005344365448139987,
+         "worstPct": 0.6680456710628422,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0525439928606037
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 120,
+        "final": {
+         "worstM": 0.011164120124009247,
+         "worstPct": 1.395514994706362,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8104808540637944
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.066343933506633,
+         "worstPct": 99.03798495068938,
+         "over5Pct": 94.4091796875,
+         "over20Pct": 81.0546875,
+         "nearestM": 0.3853280588780434
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.36222330729167,
+        "steadyOver20": 32.196451822916664,
+        "worstPct": 46.033274614299295,
+        "reversalsPct": 0.004138182179332263
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 8,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0,
+        "maxWorstPct": 1.6901902029144031,
+        "final": {
+         "worstM": 0.002742101526683194,
+         "worstPct": 0.3427626857278372,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.040975498686653
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 69,
+        "final": {
+         "worstM": 0.0007757942251953587,
+         "worstPct": 0.0969742767043905,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124351342602187
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0748394910571168,
+         "worstPct": 99.25731408463369,
+         "over5Pct": 91.8212890625,
+         "over20Pct": 73.974609375,
+         "nearestM": 0.4285207199744688
+        }
+       },
+       "jam": {
+        "steadyOver5": 64.00105794270833,
+        "steadyOver20": 6.095784505208333,
+        "worstPct": 35.16613047187519,
+        "reversalsPct": 0.013243333843753492
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.012421881108633515,
+         "worstPct": 1.5527351154416331,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0403119671499594
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0009589676260143287,
+         "worstPct": 0.11987095146557471,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123176125316839
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5870389378843539,
+         "worstPct": 73.37986614209903,
+         "over5Pct": 95.3369140625,
+         "over20Pct": 80.2978515625,
+         "nearestM": 0.5062777842075958
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.47843424479167,
+        "steadyOver20": 49.635823567708336,
+        "worstPct": 63.19796776477683,
+        "reversalsPct": 2.9672865256276952
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 14.14223539231444,
+        "final": {
+         "worstM": 0.006754860923491424,
+         "worstPct": 0.8443576028545192,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0297273200105992
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 63,
+        "final": {
+         "worstM": 0.0003167304003057758,
+         "worstPct": 0.03959129944826564,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8125252172774533
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.49648593030194105,
+         "worstPct": 62.06074036296554,
+         "over5Pct": 90.7470703125,
+         "over20Pct": 65.52734375,
+         "nearestM": 0.5793962142955096
+        }
+       },
+       "jam": {
+        "steadyOver5": 59.010416666666664,
+        "steadyOver20": 2.2216796875,
+        "worstPct": 30.778685604100698,
+        "reversalsPct": 0.007864303512446295
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0
+       },
+       "herd": {
+        "maxOver5": 2.8076171875,
+        "maxWorstPct": 31.560370738616488,
+        "final": {
+         "worstM": 0.014800448099658414,
+         "worstPct": 1.8500559848893192,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0374716181649197
+        },
+        "catches": 5
+       },
+       "pile256": {
+        "clearedAt": 102,
+        "final": {
+         "worstM": 0.0120633641904061,
+         "worstPct": 1.507920501330996,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8113781898139957
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.7381247642122533,
+         "worstPct": 92.26559415166716,
+         "over5Pct": 96.728515625,
+         "over20Pct": 84.7412109375,
+         "nearestM": 0.45122336101721594
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.546142578125,
+        "steadyOver20": 53.481038411458336,
+        "worstPct": 79.41647707431487,
+        "reversalsPct": 3.522263519945697
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "frontierCost": {
+      "step": 4.284416,
+      "points": [
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.5,
+         "averaging": 1
+        },
+        "ms": 1.777664,
+        "cellSize": 2.7
+       },
+       {
+        "point": {
+         "iterations": 8,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 1
+        },
+        "ms": 3.4652160000000003,
+        "cellSize": 2.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 1.1976704,
+        "cellSize": 1.45
+       },
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 1.662976,
+        "cellSize": 1.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0
+        },
+        "ms": 1.1933013333333333,
+        "cellSize": 1.45
+       }
+      ]
+     },
+     "seconds": 54.6785964
+    },
+    "grid": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "grid": [
+      {
+       "count": 16384,
+       "stepMs": 3.8484195555555556,
+       "contacts": {
+        "G1 exhaustive": 2.3083235555555555,
+        "G1 B=64": 2.1772515555555554,
+        "G2 B=16": 1.0631395555555556,
+        "G2 B=32": 1.0631395555555556,
+        "G2 B=64": 1.0256904126984128
+       }
+      },
+      {
+       "count": 65536,
+       "stepMs": 64.25336685714286,
+       "contacts": {
+        "G1 exhaustive": 59.53477485714286,
+        "G1 B=64": 61.04210285714286,
+        "G2 B=16": 12.545462857142857,
+        "G2 B=32": 13.004214857142857,
+        "G2 B=64": 11.824566857142857
+       }
+      }
+     ],
+     "seconds": 60.5316389
+    },
+    "search": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 1
+     },
+     "search": [
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 9.033203125,
+        "maxWorstPct": 81.74307411535511,
+        "final": {
+         "worstM": 0.09040383048570089,
+         "worstPct": 11.300478642322357,
+         "over5Pct": 1.025390625,
+         "over20Pct": 0,
+         "nearestM": 1.0366587995712326
+        },
+        "catches": 63
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.4359168966311468,
+         "worstPct": 54.489611266934865,
+         "over5Pct": 86.71875,
+         "over20Pct": 58.59375,
+         "nearestM": 0.6105336442201916
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8752281878460342,
+         "worstPct": 77.40575969486294,
+         "over5Pct": 99.31640625,
+         "over20Pct": 95.7275390625,
+         "nearestM": 0.32104785306664035
+        }
+       },
+       "jam": {
+        "steadyOver5": 93.78580729166667,
+        "steadyOver20": 75.44230143229167,
+        "worstPct": 59.75761023240188,
+        "reversalsPct": 0.00296895742939183
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 8.2763671875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.0678478713313646,
+         "worstPct": 8.48098379004407,
+         "over5Pct": 0.3173828125,
+         "over20Pct": 0,
+         "nearestM": 1.0383577607704733
+        },
+        "catches": 55
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.39255859953526745,
+         "worstPct": 49.06982421071107,
+         "over5Pct": 83.203125,
+         "over20Pct": 45.703125,
+         "nearestM": 0.6508350703388811
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8620826234413808,
+         "worstPct": 76.97820129528877,
+         "over5Pct": 98.876953125,
+         "over20Pct": 94.8974609375,
+         "nearestM": 0.332908846065842
+        }
+       },
+       "jam": {
+        "steadyOver5": 92.7734375,
+        "steadyOver20": 73.34269205729167,
+        "worstPct": 60.59930362922847,
+        "reversalsPct": 0.002116160269514172
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 7.6904296875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.031061465923036935,
+         "worstPct": 3.882683182523129,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0353329123210921
+        },
+        "catches": 52
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.34880432263639854,
+         "worstPct": 43.600539679851146,
+         "over5Pct": 78.90625,
+         "over20Pct": 34.375,
+         "nearestM": 0.6852549619657495
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8484899322400318,
+         "worstPct": 76.24128200105413,
+         "over5Pct": 98.6572265625,
+         "over20Pct": 94.3603515625,
+         "nearestM": 0.34342878640862634
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.94783528645833,
+        "steadyOver20": 71.60603841145833,
+        "worstPct": 63.12163143661784,
+        "reversalsPct": 0.0013273396573693897
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 7.51953125,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.049973308894555646,
+         "worstPct": 6.2466635187369155,
+         "over5Pct": 0.1220703125,
+         "over20Pct": 0,
+         "nearestM": 1.0307528114333262
+        },
+        "catches": 49
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.27405812823450837,
+         "worstPct": 34.25726551884051,
+         "over5Pct": 69.53125,
+         "over20Pct": 25,
+         "nearestM": 0.7132193050636243
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8358491217546873,
+         "worstPct": 74.98983579299268,
+         "over5Pct": 98.5107421875,
+         "over20Pct": 93.505859375,
+         "nearestM": 0.3535131413941097
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.070556640625,
+        "steadyOver20": 69.8046875,
+        "worstPct": 60.46912830927709,
+        "reversalsPct": 0.0012850277137643601
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 4.1259765625,
+        "maxWorstPct": 31.852124680043165,
+        "final": {
+         "worstM": 0.03266585622052287,
+         "worstPct": 4.083231966720461,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0371288248140047
+        },
+        "catches": 17
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.20926815251240272,
+         "worstPct": 26.158518674258037,
+         "over5Pct": 66.40625,
+         "over20Pct": 13.28125,
+         "nearestM": 0.7344175683546585
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8431652570206685,
+         "worstPct": 81.87755704860193,
+         "over5Pct": 98.2666015625,
+         "over20Pct": 92.7978515625,
+         "nearestM": 0.3609052068768844
+        }
+       },
+       "jam": {
+        "steadyOver5": 90.474853515625,
+        "steadyOver20": 66.97021484375,
+        "worstPct": 58.977396753115876,
+        "reversalsPct": 0.0008471202148296865
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 3.02734375,
+        "maxWorstPct": 31.533143520926355,
+        "final": {
+         "worstM": 0.020856989903715206,
+         "worstPct": 2.6071236991152302,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0535769803643804
+        },
+        "catches": 9
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.16105016826508578,
+         "worstPct": 20.131270733156413,
+         "over5Pct": 53.125,
+         "over20Pct": 0.78125,
+         "nearestM": 0.7590727759974971
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8250768004008606,
+         "worstPct": 78.67711841348279,
+         "over5Pct": 97.802734375,
+         "over20Pct": 91.7236328125,
+         "nearestM": 0.3783774699355769
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.08935546875,
+        "steadyOver20": 62.43408203125,
+        "worstPct": 64.00620387470396,
+        "reversalsPct": 0.0008366625530757808
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 2.4169921875,
+        "maxWorstPct": 24.420725678158373,
+        "final": {
+         "worstM": 0.017649221181344044,
+         "worstPct": 2.20615261479377,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0483721161165143
+        },
+        "catches": 3
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.11438528188642338,
+         "worstPct": 14.298160022743737,
+         "over5Pct": 35.15625,
+         "over20Pct": 0,
+         "nearestM": 0.7771759736144902
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8126730309025865,
+         "worstPct": 74.35706519570063,
+         "over5Pct": 97.6806640625,
+         "over20Pct": 90.673828125,
+         "nearestM": 0.392715438357295
+        }
+       },
+       "jam": {
+        "steadyOver5": 87.45157877604167,
+        "steadyOver20": 58.981526692708336,
+        "worstPct": 59.35716352071473,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 24.25628742460879,
+        "final": {
+         "worstM": 0.012790415345840911,
+         "worstPct": 1.5988018944061093,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0391487679327958
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.10103615768793461,
+         "worstPct": 12.62951952279732,
+         "over5Pct": 18.75,
+         "over20Pct": 0,
+         "nearestM": 0.7894637582157732
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8015765367846224,
+         "worstPct": 72.50468538157968,
+         "over5Pct": 97.216796875,
+         "over20Pct": 89.2822265625,
+         "nearestM": 0.4057756579266609
+        }
+       },
+       "jam": {
+        "steadyOver5": 86.89982096354167,
+        "steadyOver20": 55.23193359375,
+        "worstPct": 59.10646929105992,
+        "reversalsPct": 0.0008285656286120283
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 1.26953125,
+        "maxWorstPct": 20.4036692829697,
+        "final": {
+         "worstM": 0.014429060639673974,
+         "worstPct": 1.8036325530830275,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0496080803259984
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06268549917266764,
+         "worstPct": 7.835687279822615,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.795652392550293
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8944904836047565,
+         "worstPct": 90.51677666277595,
+         "over5Pct": 96.6796875,
+         "over20Pct": 88.1103515625,
+         "nearestM": 0.3924430290705276
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.70556640625,
+        "steadyOver20": 50.397135416666664,
+        "worstPct": 59.22347738897642,
+        "reversalsPct": 0.0024867477070113853
+       },
+       "meets": {
+        "T1": true,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.732421875,
+        "maxWorstPct": 13.928181812512202,
+        "final": {
+         "worstM": 0.007807207650017189,
+         "worstPct": 0.9759009417100913,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0359195455772323
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 153,
+        "final": {
+         "worstM": 0.04369387496236499,
+         "worstPct": 5.46173428890944,
+         "over5Pct": 0.78125,
+         "over20Pct": 0,
+         "nearestM": 0.8055843098299575
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9054220440430893,
+         "worstPct": 89.70499664055362,
+         "over5Pct": 96.240234375,
+         "over20Pct": 85.595703125,
+         "nearestM": 0.41485683941822094
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.984619140625,
+        "steadyOver20": 43.760579427083336,
+        "worstPct": 54.46397369014825,
+        "reversalsPct": 0.0020694850293452977
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 10.945409004366018,
+        "final": {
+         "worstM": 0.007269229900465413,
+         "worstPct": 0.9086537240181809,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.038525805470883
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 138,
+        "final": {
+         "worstM": 0.020647082308202003,
+         "worstPct": 2.5808852500670634,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8079561143608026
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0072468980202893,
+         "worstPct": 89.40157695235037,
+         "over5Pct": 95.7275390625,
+         "over20Pct": 83.49609375,
+         "nearestM": 0.4349806087372238
+        }
+       },
+       "jam": {
+        "steadyOver5": 80.75032552083333,
+        "steadyOver20": 37.766520182291664,
+        "worstPct": 55.48870341503448,
+        "reversalsPct": 0.003724672228843862
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.29296875,
+        "maxWorstPct": 14.065547645680759,
+        "final": {
+         "worstM": 0.004615941532108869,
+         "worstPct": 0.5769926829157477,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0265276400318961
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 114,
+        "final": {
+         "worstM": 0.015616245764206838,
+         "worstPct": 1.9520306914383307,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8102796567544813
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9183558579533171,
+         "worstPct": 93.89242353152511,
+         "over5Pct": 94.7509765625,
+         "over20Pct": 81.4453125,
+         "nearestM": 0.45320474204519795
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.62630208333333,
+        "steadyOver20": 31.403401692708332,
+        "worstPct": 46.498709882846654,
+        "reversalsPct": 0.004138284929193945
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "searchCost": {
+      "step": 3.766759619047619,
+      "K=1": 0.9081417142857143,
+      "K=2": 1.0485760000000002,
+      "K=4": 1.608440685714286
+     },
+     "seconds": 97.58250939999999
+    }
+   }
+  },
+  {
+   "host": "node",
+   "adapter": "nvidia turing",
+   "parts": {
+    "checks": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "completeness": {
+      "dense pile, the cell rule": {
+       "cellSize": 1.45,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "dense pile, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 1,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "loose crowd, the cell rule": {
+       "cellSize": 1.7,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      },
+      "loose crowd, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 57,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      }
+     },
+     "onePair": {
+      "distance": 0.9999999803180496,
+      "moved0": 0.2886264043478772,
+      "expected0": 0.28862640727994077
+     },
+     "reruns": {
+      "herd 4,096": 0,
+      "pile 256": 0,
+      "jam 4,096": 0
+     },
+     "seconds": 8.033241199999999
+    },
+    "confirm": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "confirm": {
+      "point": {
+       "iterations": 2,
+       "relaxation": 1.75,
+       "budget": 32,
+       "damping": 1,
+       "mass": "area",
+       "compliance": 0,
+       "maxPush": 0.25,
+       "averaging": 0.5
+      },
+      "herd 4,096": {
+       "none": {
+        "maxOver5": 63.6474609375,
+        "maxWorstPct": 99.92577864697769,
+        "final": {
+         "worstM": 0.7866458427288574,
+         "worstPct": 98.33072887586513,
+         "over5Pct": 62.5,
+         "over20Pct": 52.978515625,
+         "nearestM": 0.7360662454886971
+        },
+        "catches": 437
+       },
+       "contacts": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.011723504805708496,
+         "worstPct": 1.465438078876833,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0445148469512116
+        },
+        "catches": 2
+       }
+      },
+      "herd 16,384": {
+       "none": {
+        "maxOver5": 59.063720703125,
+        "maxWorstPct": 99.97525007324772,
+        "final": {
+         "worstM": 1.054395234954068,
+         "worstPct": 98.68638573878859,
+         "over5Pct": 58.563232421875,
+         "over20Pct": 48.272705078125,
+         "nearestM": 0.7774033890184762
+        },
+        "catches": 1757
+       },
+       "contacts": {
+        "maxOver5": 1.81884765625,
+        "maxWorstPct": 90.66697096725082,
+        "final": {
+         "worstM": 0.029545902886613185,
+         "worstPct": 3.693237805793116,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0544480223457326
+        },
+        "catches": 14
+       }
+      },
+      "64 arenas": {
+       "none": {
+        "maxOver5": 64.10845588235294,
+        "maxWorstPct": 99.98675113317258,
+        "final": {
+         "worstM": 0.8448651585712144,
+         "worstPct": 98.17538246997981,
+         "over5Pct": 62.6321231617647,
+         "over20Pct": 52.8664981617647,
+         "nearestM": 0.7301305405581289
+        },
+        "catches": 1925
+       },
+       "contacts": {
+        "maxOver5": 2.1254595588235294,
+        "maxWorstPct": 51.83120956645123,
+        "final": {
+         "worstM": 0.025119149839940347,
+         "worstPct": 3.1398936832044817,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.964177792221084
+        },
+        "catches": 13
+       }
+      },
+      "cost": [
+       {
+        "count": 4096,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 0.5771636363636363,
+        "contacts": 0.2084408888888889,
+        "both": 0.811008
+       },
+       {
+        "count": 16384,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 1.8200283428571429,
+        "contacts": 0.43570637362637366,
+        "both": 2.298441142857143
+       },
+       {
+        "count": 65536,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 12.976128000000001,
+        "contacts": 2.359296,
+        "both": 15.40096
+       },
+       {
+        "count": 262144,
+        "warm": 60,
+        "cellSize": 1.45,
+        "step": 112.308224,
+        "contacts": 10.989568,
+        "both": 123.252736
+       },
+       {
+        "count": 1048576,
+        "warm": 60,
+        "cellSize": 5.53131103515625,
+        "step": 558.727168,
+        "contacts": 208.69939200000002,
+        "both": 767.459328
+       }
+      ]
+     },
+     "seconds": 142.6931438
+    },
+    "extreme": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "extreme": [
+      {
+       "count": 4096,
+       "budget": 16,
+       "contactsMs": 0.24029866666666666,
+       "skipped": 4032
+      },
+      {
+       "count": 4096,
+       "budget": 32,
+       "contactsMs": 0.2846446933333333,
+       "skipped": 3968
+      },
+      {
+       "count": 4096,
+       "budget": 64,
+       "contactsMs": 0.335872,
+       "skipped": 3840
+      },
+      {
+       "count": 16384,
+       "budget": 16,
+       "contactsMs": 2.034346666666667,
+       "skipped": 16320
+      },
+      {
+       "count": 16384,
+       "budget": 32,
+       "contactsMs": 1.871416888888889,
+       "skipped": 16256
+      },
+      {
+       "count": 16384,
+       "budget": 64,
+       "contactsMs": 2.72384,
+       "skipped": 16128
+      },
+      {
+       "count": 65536,
+       "budget": 16,
+       "contactsMs": 7.218322285714285,
+       "skipped": 65472
+      },
+      {
+       "count": 65536,
+       "budget": 32,
+       "contactsMs": 8.070290285714286,
+       "skipped": 65408
+      },
+      {
+       "count": 65536,
+       "budget": 64,
+       "contactsMs": 9.65251657142857,
+       "skipped": 65280
+      },
+      {
+       "count": 1024,
+       "budget": "exhaustive",
+       "contactsMs": 8.2432
+      },
+      {
+       "count": 4096,
+       "budget": "exhaustive",
+       "contactsMs": 33.993100387096774
+      }
+     ],
+     "extremeExhaustive65536PredictedMs": 8702.233699096774,
+     "opening": [
+      {
+       "step": 60,
+       "worstM": 1.1783424134480547,
+       "worstPct": 99.82918655019589,
+       "over5Pct": 99.4384765625,
+       "over20Pct": 96.630859375,
+       "nearestM": 0.20055750018701257
+      },
+      {
+       "step": 120,
+       "worstM": 0.9899051339132914,
+       "worstPct": 99.54416459440144,
+       "over5Pct": 98.828125,
+       "over20Pct": 93.1396484375,
+       "nearestM": 0.32983971398535694
+      },
+      {
+       "step": 180,
+       "worstM": 0.7566639922203344,
+       "worstPct": 81.90264849215968,
+       "over5Pct": 97.7783203125,
+       "over20Pct": 90.13671875,
+       "nearestM": 0.4284047653946037
+      },
+      {
+       "step": 300,
+       "worstM": 0.5882816104051979,
+       "worstPct": 73.53520020488986,
+       "over5Pct": 94.8974609375,
+       "over20Pct": 81.201171875,
+       "nearestM": 0.5167469910068496
+      }
+     ],
+     "seconds": 8.673001900000001
+    },
+    "finish": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "finish": [
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 7.8369140625,
+        "maxWorstPct": 41.58872054415787,
+        "final": {
+         "worstM": 0.20545489944808504,
+         "worstPct": 25.681862048321065,
+         "over5Pct": 6.787109375,
+         "over20Pct": 0.1953125,
+         "nearestM": 1.0230351986658084
+        },
+        "catches": 18
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0011467759716943249,
+         "worstPct": 0.14334699432575396,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124109936618381
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.580293004910999,
+         "worstPct": 72.53662453299495,
+         "over5Pct": 95.41015625,
+         "over20Pct": 80.46875,
+         "nearestM": 0.5049774462615088
+        }
+       },
+       "jam": {
+        "steadyOver5": 98.74715169270833,
+        "steadyOver20": 91.973876953125,
+        "worstPct": 99.80380933115607,
+        "reversalsPct": 10.007120148364022
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 8.1298828125,
+        "maxWorstPct": 63.30645778792135,
+        "final": {
+         "worstM": 0.14237533227261334,
+         "worstPct": 17.796916268881947,
+         "over5Pct": 5.224609375,
+         "over20Pct": 0,
+         "nearestM": 1.0519840039695416
+        },
+        "catches": 17
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.034463340849352764,
+         "worstPct": 4.3079175419761215,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8085573368901384
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6213283727765793,
+         "worstPct": 69.30547267556571,
+         "over5Pct": 95.166015625,
+         "over20Pct": 78.7353515625,
+         "nearestM": 0.5024797047128127
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.071044921875,
+        "steadyOver20": 91.73787434895833,
+        "worstPct": 99.90611445275592,
+        "reversalsPct": 8.267943138480904
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 14.6484375,
+        "maxWorstPct": 78.53036125086848,
+        "final": {
+         "worstM": 0.2491518875448736,
+         "worstPct": 31.143985479027652,
+         "over5Pct": 14.6240234375,
+         "over20Pct": 0.7080078125,
+         "nearestM": 1.0335781617015574
+        },
+        "catches": 40
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06958865641987289,
+         "worstPct": 8.69858192286514,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.7967903718328629
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8247986013404124,
+         "worstPct": 68.73321404715516,
+         "over5Pct": 97.216796875,
+         "over20Pct": 86.9140625,
+         "nearestM": 0.45589384503495645
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.88321940104167,
+        "steadyOver20": 96.03759765625,
+        "worstPct": 99.98905472433145,
+        "reversalsPct": 23.389693042348405
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.130859375,
+        "maxWorstPct": 44.72841878460038,
+        "final": {
+         "worstM": 0.16815744866701177,
+         "worstPct": 21.019680770158818,
+         "over5Pct": 7.5439453125,
+         "over20Pct": 0.09765625,
+         "nearestM": 1.036489169512603
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 96,
+        "final": {
+         "worstM": 0.000519822347425758,
+         "worstPct": 0.06497779245997519,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124637817486134
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8279641202500596,
+         "worstPct": 76.19556743793596,
+         "over5Pct": 95.6298828125,
+         "over20Pct": 80.8837890625,
+         "nearestM": 0.5127663498425304
+        }
+       },
+       "jam": {
+        "steadyOver5": 98.88671875,
+        "steadyOver20": 92.06868489583333,
+        "worstPct": 99.85418302200702,
+        "reversalsPct": 9.98091737346894
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 8.10546875,
+        "maxWorstPct": 33.185115306122334,
+        "final": {
+         "worstM": 0.1551387479718852,
+         "worstPct": 19.392343207517218,
+         "over5Pct": 7.1533203125,
+         "over20Pct": 0,
+         "nearestM": 1.0230567007366163
+        },
+        "catches": 3
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011174441857512152,
+         "worstPct": 1.3968052113749994,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105189435508493
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8019132827615502,
+         "worstPct": 66.82610424136504,
+         "over5Pct": 95.5322265625,
+         "over20Pct": 79.4921875,
+         "nearestM": 0.5018948716799895
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.18172200520833,
+        "steadyOver20": 92.625732421875,
+        "worstPct": 99.93022030179317,
+        "reversalsPct": 9.732161704628705
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 22.216796875,
+        "maxWorstPct": 74.42811483329129,
+        "final": {
+         "worstM": 0.32315665049582404,
+         "worstPct": 40.39458071005185,
+         "over5Pct": 18.798828125,
+         "over20Pct": 2.9296875,
+         "nearestM": 1.0201071734229685
+        },
+        "catches": 73
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.134841551531395,
+         "worstPct": 16.855193690262414,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741369872938719
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8787233823694109,
+         "worstPct": 73.22694562100686,
+         "over5Pct": 98.3642578125,
+         "over20Pct": 90.9423828125,
+         "nearestM": 0.4201062989569834
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.98942057291667,
+        "steadyOver20": 97.69287109375,
+        "worstPct": 99.99829276365459,
+        "reversalsPct": 29.395845402631796
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.011723504805708496,
+         "worstPct": 1.465438078876833,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0445148469512116
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0011467759716943249,
+         "worstPct": 0.14334699432575396,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124109936618381
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.580293004910999,
+         "worstPct": 72.53662453299495,
+         "over5Pct": 95.41015625,
+         "over20Pct": 80.46875,
+         "nearestM": 0.5049774462615088
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.30281575520833,
+        "steadyOver20": 49.906819661458336,
+        "worstPct": 62.73748975951074,
+        "reversalsPct": 2.940469878719597
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 28.09775004761679,
+        "final": {
+         "worstM": 0.013584137167395705,
+         "worstPct": 1.6980171206220362,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0221235080394266
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.034463340849352764,
+         "worstPct": 4.3079175419761215,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8085573368901384
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6213283727765793,
+         "worstPct": 69.30547267556571,
+         "over5Pct": 95.166015625,
+         "over20Pct": 78.7353515625,
+         "nearestM": 0.5024797047128127
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.34431966145833,
+        "steadyOver20": 28.050537109375,
+        "worstPct": 50.617766317734294,
+        "reversalsPct": 0.020277428325498247
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 4.443359375,
+        "maxWorstPct": 36.10008687949884,
+        "final": {
+         "worstM": 0.02946536929678878,
+         "worstPct": 3.6831711072150712,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0343161788246813
+        },
+        "catches": 14
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06958865641987289,
+         "worstPct": 8.69858192286514,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.7967903718328629
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8247986013404124,
+         "worstPct": 68.73321404715516,
+         "over5Pct": 97.216796875,
+         "over20Pct": 86.9140625,
+         "nearestM": 0.45589384503495645
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.57454427083333,
+        "steadyOver20": 45.34423828125,
+        "worstPct": 55.03843895911884,
+        "reversalsPct": 0.0028988988325720274
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.011810855433424527,
+         "worstPct": 1.4763569071786335,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0405197363737322
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 96,
+        "final": {
+         "worstM": 0.000519822347425758,
+         "worstPct": 0.06497779245997519,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124637817486134
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8279641202500596,
+         "worstPct": 76.19556743793596,
+         "over5Pct": 95.6298828125,
+         "over20Pct": 80.8837890625,
+         "nearestM": 0.5127663498425304
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.615966796875,
+        "steadyOver20": 49.750162760416664,
+        "worstPct": 59.17256038115002,
+        "reversalsPct": 3.507398386107935
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 26.533815981361858,
+        "final": {
+         "worstM": 0.015658400792984972,
+         "worstPct": 1.9573000699570777,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0314675760011964
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011174441857512152,
+         "worstPct": 1.3968052113749994,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105189435508493
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8019132827615502,
+         "worstPct": 66.82610424136504,
+         "over5Pct": 95.5322265625,
+         "over20Pct": 79.4921875,
+         "nearestM": 0.5018948716799895
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.92822265625,
+        "steadyOver20": 26.111246744791668,
+        "worstPct": 40.41470665660167,
+        "reversalsPct": 0.0024830428862890512
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 14.990234375,
+        "maxWorstPct": 66.78771577365193,
+        "final": {
+         "worstM": 0.034031197418916914,
+         "worstPct": 4.253899613976571,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0530043338876622
+        },
+        "catches": 47
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.134841551531395,
+         "worstPct": 16.855193690262414,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741369872938719
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8787233823694109,
+         "worstPct": 73.22694562100686,
+         "over5Pct": 98.3642578125,
+         "over20Pct": 90.9423828125,
+         "nearestM": 0.4201062989569834
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.25821940104167,
+        "steadyOver20": 57.362874348958336,
+        "worstPct": 59.32653882247351,
+        "reversalsPct": 0.000829737802854298
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      }
+     ],
+     "seconds": 92.0446015
+    },
+    "frontier": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25
+     },
+     "frontier": [
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.5,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.09765625,
+        "maxWorstPct": 15.953806266082948,
+        "final": {
+         "worstM": 0.006578303531308394,
+         "worstPct": 0.8222879291605043,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0366723392523813
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 117,
+        "final": {
+         "worstM": 0.011545171744340998,
+         "worstPct": 1.443146446538067,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.810474551959956
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0731453622310392,
+         "worstPct": 98.21824037521081,
+         "over5Pct": 94.53125,
+         "over20Pct": 80.859375,
+         "nearestM": 0.38533533741307757
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.38907877604167,
+        "steadyOver20": 31.109212239583332,
+        "worstPct": 44.643188476370185,
+        "reversalsPct": 0.0033109293778763697
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 8,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0,
+        "maxWorstPct": 1.6903636373635633,
+        "final": {
+         "worstM": 0.0035799074484762494,
+         "worstPct": 0.44748842439143405,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0389391507522243
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 69,
+        "final": {
+         "worstM": 0.0007754004700075701,
+         "worstPct": 0.09692505730665035,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124345998577411
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0719509860007133,
+         "worstPct": 99.71785772309516,
+         "over5Pct": 91.845703125,
+         "over20Pct": 73.193359375,
+         "nearestM": 0.425404296488193
+        }
+       },
+       "jam": {
+        "steadyOver5": 64.51416015625,
+        "steadyOver20": 6.177978515625,
+        "worstPct": 30.23948340374417,
+        "reversalsPct": 0.012831763167044721
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.011723504805708496,
+         "worstPct": 1.465438078876833,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0445148469512116
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0011467759716943249,
+         "worstPct": 0.14334699432575396,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124109936618381
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.580293004910999,
+         "worstPct": 72.53662453299495,
+         "over5Pct": 95.41015625,
+         "over20Pct": 80.46875,
+         "nearestM": 0.5049774462615088
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.30281575520833,
+        "steadyOver20": 49.906819661458336,
+        "worstPct": 62.73748975951074,
+        "reversalsPct": 2.940469878719597
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 14.14223539231444,
+        "final": {
+         "worstM": 0.005746210115237016,
+         "worstPct": 0.7182762537014767,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0450646574022557
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 63,
+        "final": {
+         "worstM": 0.00029874323057155205,
+         "worstPct": 0.035950818795178786,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8127573937660839
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.4632430676864217,
+         "worstPct": 57.90538259794528,
+         "over5Pct": 90.6005859375,
+         "over20Pct": 65.380859375,
+         "nearestM": 0.5799501287087602
+        }
+       },
+       "jam": {
+        "steadyOver5": 58.89892578125,
+        "steadyOver20": 2.3486328125,
+        "worstPct": 31.151958469263253,
+        "reversalsPct": 0.006622324684301365
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0
+       },
+       "herd": {
+        "maxOver5": 2.8076171875,
+        "maxWorstPct": 31.560370738616488,
+        "final": {
+         "worstM": 0.01866607228469086,
+         "worstPct": 2.333259000818089,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0511317214933447
+        },
+        "catches": 5
+       },
+       "pile256": {
+        "clearedAt": 96,
+        "final": {
+         "worstM": 0.013979209351590027,
+         "worstPct": 1.7474011429104472,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8112986172280369
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.7385278262571412,
+         "worstPct": 92.3159769065274,
+         "over5Pct": 96.7529296875,
+         "over20Pct": 84.3994140625,
+         "nearestM": 0.4550940913344151
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.78092447916667,
+        "steadyOver20": 53.867594401041664,
+        "worstPct": 77.42877225776074,
+        "reversalsPct": 3.6273032796384284
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "frontierCost": {
+      "step": 8.84736,
+      "points": [
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.5,
+         "averaging": 1
+        },
+        "ms": 4.2598400000000005,
+        "cellSize": 2.7
+       },
+       {
+        "point": {
+         "iterations": 8,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 1
+        },
+        "ms": 8.585216,
+        "cellSize": 2.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 1.8568533333333332,
+        "cellSize": 1.45
+       },
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 3.506176,
+        "cellSize": 1.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0
+        },
+        "ms": 1.9660799999999998,
+        "cellSize": 1.45
+       }
+      ]
+     },
+     "seconds": 49.3564409
+    },
+    "grid": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25
+     },
+     "grid": [
+      {
+       "count": 16384,
+       "stepMs": 1.8077013333333334,
+       "contacts": {
+        "G1 exhaustive": 1.1741866666666667,
+        "G1 B=64": 1.2397226666666668,
+        "G2 B=16": 0.45329066666666673,
+        "G2 B=32": 0.4552766060606061,
+        "G2 B=64": 0.45602133333333333
+       }
+      },
+      {
+       "count": 65536,
+       "stepMs": 19.504761904761907,
+       "contacts": {
+        "G1 exhaustive": 11.837049904761905,
+        "G1 B=64": 10.788473904761904,
+        "G2 B=16": 2.563705904761905,
+        "G2 B=32": 2.498169904761905,
+        "G2 B=64": 2.530937904761905
+       }
+      }
+     ],
+     "seconds": 17.5529936
+    },
+    "search": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25
+     },
+     "search": [
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 9.033203125,
+        "maxWorstPct": 81.74307411535511,
+        "final": {
+         "worstM": 0.07146649168506358,
+         "worstPct": 8.933311327516236,
+         "over5Pct": 0.439453125,
+         "nearestM": 1.0267344598826134
+        },
+        "catches": 63
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.4359114909290416,
+         "worstPct": 54.488935554181786,
+         "over5Pct": 86.71875,
+         "nearestM": 0.6105368466315266
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8752281754970408,
+         "worstPct": 77.40575714824678,
+         "over5Pct": 99.31640625,
+         "nearestM": 0.32104715816012697
+        }
+       },
+       "jam": {
+        "steadyOver5": 93.78621419270833,
+        "worstPct": 60.35567389706458,
+        "reversalsPct": 0.002956218405415792
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 8.2763671875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.03950263514402841,
+         "worstPct": 4.937829319424161,
+         "over5Pct": 0,
+         "nearestM": 1.0242729737690106
+        },
+        "catches": 55
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.3925630554111685,
+         "worstPct": 49.0703811951904,
+         "over5Pct": 83.203125,
+         "nearestM": 0.6508373567998222
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8620818825896186,
+         "worstPct": 76.97820850178734,
+         "over5Pct": 98.876953125,
+         "nearestM": 0.3329116578553162
+        }
+       },
+       "jam": {
+        "steadyOver5": 92.84138997395833,
+        "worstPct": 61.23609478284817,
+        "reversalsPct": 0.002554224048019412
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 7.6904296875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.0447930730207069,
+         "worstPct": 5.599134044154763,
+         "over5Pct": 0.048828125,
+         "nearestM": 1.028334865355863
+        },
+        "catches": 52
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.3488041769033266,
+         "worstPct": 43.600521463217426,
+         "over5Pct": 78.90625,
+         "nearestM": 0.6852547706596201
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8484896249439161,
+         "worstPct": 76.2412529770888,
+         "over5Pct": 98.6572265625,
+         "nearestM": 0.34342297180182174
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.98771158854167,
+        "worstPct": 61.153053089334485,
+        "reversalsPct": 0.0013138647770371474
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 7.51953125,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.03782353792343396,
+         "worstPct": 4.727942169977417,
+         "over5Pct": 0,
+         "nearestM": 1.0430953316920974
+        },
+        "catches": 49
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.27405466639365184,
+         "worstPct": 34.25683278873989,
+         "over5Pct": 69.53125,
+         "nearestM": 0.7132192981114749
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.835854011786058,
+         "worstPct": 74.99080787439162,
+         "over5Pct": 98.5107421875,
+         "nearestM": 0.3535293584798367
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.104736328125,
+        "worstPct": 60.84589814519992,
+        "reversalsPct": 0.0012958683397766787
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 4.1259765625,
+        "maxWorstPct": 31.852124680043165,
+        "final": {
+         "worstM": 0.044811233154747776,
+         "worstPct": 5.601404060876048,
+         "over5Pct": 0.048828125,
+         "nearestM": 1.0413491691954888
+        },
+        "catches": 17
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.20926857348062933,
+         "worstPct": 26.158571295285576,
+         "over5Pct": 66.40625,
+         "nearestM": 0.7344370652469241
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8431683761097202,
+         "worstPct": 81.81596261371259,
+         "over5Pct": 98.2666015625,
+         "nearestM": 0.3609079338888614
+        }
+       },
+       "jam": {
+        "steadyOver5": 90.68196614583333,
+        "worstPct": 61.10580556233637,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 3.02734375,
+        "maxWorstPct": 31.533136207438456,
+        "final": {
+         "worstM": 0.017856742268225978,
+         "worstPct": 2.2320927502674732,
+         "over5Pct": 0,
+         "nearestM": 1.0441822140818453
+        },
+        "catches": 9
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.16108372371716995,
+         "worstPct": 20.135465164604433,
+         "over5Pct": 52.734375,
+         "nearestM": 0.7590778764799982
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8250212154209158,
+         "worstPct": 78.66567935823798,
+         "over5Pct": 97.7783203125,
+         "nearestM": 0.3783887438783496
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.31966145833333,
+        "worstPct": 62.51644103809768,
+        "reversalsPct": 0.0008372404554588078
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 2.4169921875,
+        "maxWorstPct": 24.420725678158373,
+        "final": {
+         "worstM": 0.017489404304727563,
+         "worstPct": 2.1861755055143917,
+         "over5Pct": 0,
+         "nearestM": 1.0434347118390783
+        },
+        "catches": 3
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.11472625998828223,
+         "worstPct": 14.34078228484097,
+         "over5Pct": 35.15625,
+         "nearestM": 0.7772479347110347
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8153570885939954,
+         "worstPct": 74.45622293959379,
+         "over5Pct": 97.6318359375,
+         "nearestM": 0.39254534668369356
+        }
+       },
+       "jam": {
+        "steadyOver5": 87.37630208333333,
+        "worstPct": 58.94345823954603,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 24.25628742460879,
+        "final": {
+         "worstM": 0.02797656221231204,
+         "worstPct": 3.497070224428598,
+         "over5Pct": 0,
+         "nearestM": 1.043592775812754
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.10033621538032611,
+         "worstPct": 12.542026735650003,
+         "over5Pct": 18.75,
+         "nearestM": 0.7894637557482067
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8015625907297803,
+         "worstPct": 72.51226803052508,
+         "over5Pct": 97.216796875,
+         "nearestM": 0.40585697602963544
+        }
+       },
+       "jam": {
+        "steadyOver5": 86.83797200520833,
+        "worstPct": 58.87058541241461,
+        "reversalsPct": 0.001242580757394391
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 1.26953125,
+        "maxWorstPct": 20.4036692829697,
+        "final": {
+         "worstM": 0.01189728913504029,
+         "worstPct": 1.4871611197196088,
+         "over5Pct": 0,
+         "nearestM": 1.0546381879224984
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06269917447244366,
+         "worstPct": 7.837396692269147,
+         "over5Pct": 10.546875,
+         "nearestM": 0.7956840278328616
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9126057001849952,
+         "worstPct": 91.47850091317234,
+         "over5Pct": 96.7041015625,
+         "nearestM": 0.3910102110799209
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.73689778645833,
+        "worstPct": 58.05005471536078,
+        "reversalsPct": 0.0008285896575438946
+       },
+       "meets": {
+        "T1": true,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 0.732421875,
+        "maxWorstPct": 13.928181812512202,
+        "final": {
+         "worstM": 0.011579687920104553,
+         "worstPct": 1.4474609684442201,
+         "over5Pct": 0,
+         "nearestM": 1.0419331712963762
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 153,
+        "final": {
+         "worstM": 0.04368905935206924,
+         "worstPct": 5.461132337631441,
+         "over5Pct": 0.78125,
+         "nearestM": 0.8055837436316301
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9199578493455134,
+         "worstPct": 90.32056286583567,
+         "over5Pct": 96.240234375,
+         "nearestM": 0.4143936826498615
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.08675130208333,
+        "worstPct": 54.61415520258094,
+        "reversalsPct": 0.0028975308897489496
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 10.945409004366018,
+        "final": {
+         "worstM": 0.007059471366711145,
+         "worstPct": 0.8824339076896034,
+         "over5Pct": 0,
+         "nearestM": 1.031796406066863
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 138,
+        "final": {
+         "worstM": 0.020420537623467294,
+         "worstPct": 2.552567164897197,
+         "over5Pct": 0,
+         "nearestM": 0.8079768983990238
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0152102905297378,
+         "worstPct": 91.50960918122327,
+         "over5Pct": 95.2392578125,
+         "nearestM": 0.4352951065734629
+        }
+       },
+       "jam": {
+        "steadyOver5": 80.679931640625,
+        "worstPct": 55.593050106150024,
+        "reversalsPct": 0.002483556784456246
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25
+       },
+       "herd": {
+        "maxOver5": 0.29296875,
+        "maxWorstPct": 14.065547645680759,
+        "final": {
+         "worstM": 0.005853958008150029,
+         "worstPct": 0.7317447401149073,
+         "over5Pct": 0,
+         "nearestM": 1.0359113552528667
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 114,
+        "final": {
+         "worstM": 0.012732362958297938,
+         "worstPct": 1.5915453460713684,
+         "over5Pct": 0,
+         "nearestM": 0.8104254623273457
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9722766702372763,
+         "worstPct": 90.7331151468573,
+         "over5Pct": 95.0927734375,
+         "nearestM": 0.4536924182124583
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.604736328125,
+        "worstPct": 45.6794568567769,
+        "reversalsPct": 0.002069202405240876
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "searchCost": {
+      "step": 1.810432,
+      "K=1": 0.37956266666666666,
+      "K=2": 0.4392172307692308,
+      "K=4": 0.761856
+     },
+     "seconds": 95.3891007
+    }
+   }
+  },
+  {
+   "host": "chrome",
+   "adapter": "amd gcn-5",
+   "parts": {
+    "checks": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "completeness": {
+      "dense pile, the cell rule": {
+       "cellSize": 1.45,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "dense pile, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 1,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 74
+      },
+      "loose crowd, the cell rule": {
+       "cellSize": 1.7,
+       "missed": 0,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      },
+      "loose crowd, 2·ρmax": {
+       "cellSize": 1.2,
+       "missed": 57,
+       "extra": 0,
+       "ambiguous": 0,
+       "maxContacts": 9
+      }
+     },
+     "onePair": {
+      "distance": 0.999999987984634,
+      "moved0": 0.2886264120144617,
+      "expected0": 0.28862640727994077
+     },
+     "reruns": {
+      "herd 4,096": 0,
+      "pile 256": 0,
+      "jam 4,096": 0
+     },
+     "seconds": 6.88869999999553
+    },
+    "confirm": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "confirm": {
+      "point": {
+       "iterations": 2,
+       "relaxation": 1.75,
+       "budget": 32,
+       "damping": 1,
+       "mass": "area",
+       "compliance": 0,
+       "maxPush": 0.25,
+       "averaging": 0.5
+      },
+      "herd 4,096": {
+       "none": {
+        "maxOver5": 62.9150390625,
+        "maxWorstPct": 99.83153672393946,
+        "final": {
+         "worstM": 0.784461325014323,
+         "worstPct": 98.05766416561731,
+         "over5Pct": 62.9150390625,
+         "over20Pct": 53.0029296875,
+         "nearestM": 0.7225569617276517
+        },
+        "catches": 429
+       },
+       "contacts": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.01892372094651895,
+         "worstPct": 2.3654650830666926,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0298925227277025
+        },
+        "catches": 2
+       }
+      },
+      "herd 16,384": {
+       "none": {
+        "maxOver5": 59.246826171875,
+        "maxWorstPct": 99.9070033072555,
+        "final": {
+         "worstM": 0.9005734852875621,
+         "worstPct": 99.10748462414628,
+         "over5Pct": 58.502197265625,
+         "over20Pct": 48.699951171875,
+         "nearestM": 0.7752343654898817
+        },
+        "catches": 1740
+       },
+       "contacts": {
+        "maxOver5": 1.81884765625,
+        "maxWorstPct": 90.66697096725082,
+        "final": {
+         "worstM": 0.022519174592959712,
+         "worstPct": 2.8148967821747335,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0490089147607002
+        },
+        "catches": 14
+       }
+      },
+      "64 arenas": {
+       "none": {
+        "maxOver5": 64.0912224264706,
+        "maxWorstPct": 99.98200610925393,
+        "final": {
+         "worstM": 0.8474131788956145,
+         "worstPct": 99.55492743445393,
+         "over5Pct": 62.787224264705884,
+         "over20Pct": 52.75735294117647,
+         "nearestM": 0.7265843813679942
+        },
+        "catches": 1930
+       },
+       "contacts": {
+        "maxOver5": 2.1254595588235294,
+        "maxWorstPct": 51.83188404345571,
+        "final": {
+         "worstM": 0.019817851852537927,
+         "worstPct": 2.477231444653616,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.9698066303748308
+        },
+        "catches": 13
+       }
+      },
+      "cost": [
+       {
+        "count": 4096,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 1.1878894915254237,
+        "contacts": 0.23860949152542374,
+        "both": 1.3143694915254238
+       },
+       {
+        "count": 16384,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 3.93539625,
+        "contacts": 0.97431225,
+        "both": 5.26565625
+       },
+       {
+        "count": 65536,
+        "warm": 600,
+        "cellSize": 1.45,
+        "step": 59.12903133333333,
+        "contacts": 12.098301333333334,
+        "both": 71.01186133333333
+       }
+      ]
+     },
+     "seconds": 108.40582999999822
+    },
+    "extreme": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "extreme": [
+      {
+       "count": 4096,
+       "budget": 16,
+       "contactsMs": 0.25463562500000003,
+       "skipped": 4032
+      },
+      {
+       "count": 4096,
+       "budget": 32,
+       "contactsMs": 0.42049583333333335,
+       "skipped": 3968
+      },
+      {
+       "count": 4096,
+       "budget": 64,
+       "contactsMs": 0.4438157142857143,
+       "skipped": 3840
+      },
+      {
+       "count": 16384,
+       "budget": 16,
+       "contactsMs": 0.8901705945945946,
+       "skipped": 16320
+      },
+      {
+       "count": 16384,
+       "budget": 32,
+       "contactsMs": 1.050348367346939,
+       "skipped": 16256
+      },
+      {
+       "count": 16384,
+       "budget": 64,
+       "contactsMs": 1.4591722222222223,
+       "skipped": 16128
+      },
+      {
+       "count": 65536,
+       "budget": 16,
+       "contactsMs": 4.03639909090909,
+       "skipped": 65472
+      },
+      {
+       "count": 65536,
+       "budget": 32,
+       "contactsMs": 4.34938,
+       "skipped": 65408
+      },
+      {
+       "count": 65536,
+       "budget": 64,
+       "contactsMs": 4.69391,
+       "skipped": 65280
+      },
+      {
+       "count": 1024,
+       "budget": "exhaustive",
+       "contactsMs": 2.62699
+      },
+      {
+       "count": 4096,
+       "budget": "exhaustive",
+       "contactsMs": 15.75131625
+      }
+     ],
+     "extremeExhaustive65536PredictedMs": 4032.33696,
+     "opening": [
+      {
+       "step": 60,
+       "worstM": 1.1319844962140688,
+       "worstPct": 99.96188722277627,
+       "over5Pct": 99.4384765625,
+       "over20Pct": 96.484375,
+       "nearestM": 0.19908637868274034
+      },
+      {
+       "step": 120,
+       "worstM": 0.9748195705814278,
+       "worstPct": 99.47569216120812,
+       "over5Pct": 98.681640625,
+       "over20Pct": 93.5546875,
+       "nearestM": 0.3287716308262285
+      },
+      {
+       "step": 180,
+       "worstM": 0.7313897841916154,
+       "worstPct": 80.5073384050029,
+       "over5Pct": 97.998046875,
+       "over20Pct": 90.0390625,
+       "nearestM": 0.4263761094948659
+      },
+      {
+       "step": 300,
+       "worstM": 0.5935733095295562,
+       "worstPct": 74.1966625855781,
+       "over5Pct": 95.166015625,
+       "over20Pct": 81.201171875,
+       "nearestM": 0.5143868730624949
+      }
+     ],
+     "seconds": 3.249015000000596
+    },
+    "finish": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "finish": [
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 7.568359375,
+        "maxWorstPct": 36.629857106449066,
+        "final": {
+         "worstM": 0.19959453301786811,
+         "worstPct": 24.94931625545973,
+         "over5Pct": 7.1533203125,
+         "over20Pct": 0.244140625,
+         "nearestM": 1.041632037572269
+        },
+        "catches": 25
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0008412978124698878,
+         "worstPct": 0.1051622249916967,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123254321539459
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5774463112069615,
+         "worstPct": 72.18078782529264,
+         "over5Pct": 95.458984375,
+         "over20Pct": 80.76171875,
+         "nearestM": 0.5060961416835762
+        }
+       },
+       "jam": {
+        "steadyOver5": 98.77644856770833,
+        "steadyOver20": 91.81193033854167,
+        "worstPct": 99.96346993717495,
+        "reversalsPct": 10.015193353011554
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.1552734375,
+        "maxWorstPct": 84.03606958052298,
+        "final": {
+         "worstM": 0.14739548348353304,
+         "worstPct": 18.424435160896152,
+         "over5Pct": 6.7138671875,
+         "over20Pct": 0,
+         "nearestM": 1.0471084971646192
+        },
+        "catches": 18
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.0350829452583592,
+         "worstPct": 4.385368091947823,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.808578645234005
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6087620765071343,
+         "worstPct": 69.28913908450008,
+         "over5Pct": 95.263671875,
+         "over20Pct": 79.00390625,
+         "nearestM": 0.5029334707789511
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.18701171875,
+        "steadyOver20": 91.65445963541667,
+        "worstPct": 99.95047256670289,
+        "reversalsPct": 8.00753670000207
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 15.966796875,
+        "maxWorstPct": 69.08153473050824,
+        "final": {
+         "worstM": 0.28480517698560015,
+         "worstPct": 35.60064659270905,
+         "over5Pct": 15.8447265625,
+         "over20Pct": 1.171875,
+         "nearestM": 1.0238813816562744
+        },
+        "catches": 48
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06957031600787122,
+         "worstPct": 8.696289371399093,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.7967904111724462
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8013581013194875,
+         "worstPct": 66.77983912303156,
+         "over5Pct": 97.16796875,
+         "over20Pct": 87.01171875,
+         "nearestM": 0.45593068946935594
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.886474609375,
+        "steadyOver20": 95.970458984375,
+        "worstPct": 99.98949317235231,
+        "reversalsPct": 23.281662514793634
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 9.3505859375,
+        "maxWorstPct": 38.26559592682847,
+        "final": {
+         "worstM": 0.188934792792522,
+         "worstPct": 23.616848747146783,
+         "over5Pct": 6.640625,
+         "over20Pct": 0.2685546875,
+         "nearestM": 1.0457389232277068
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 93,
+        "final": {
+         "worstM": 0.0009137340807569005,
+         "worstPct": 0.11421675839265023,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8126192704567744
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.766163547529632,
+         "worstPct": 75.41435857263625,
+         "over5Pct": 95.4345703125,
+         "over20Pct": 81.2255859375,
+         "nearestM": 0.51034492830753
+        }
+       },
+       "jam": {
+        "steadyOver5": 98.98763020833333,
+        "steadyOver20": 92.181396484375,
+        "worstPct": 99.6942747527745,
+        "reversalsPct": 10.013618620669671
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 10.0341796875,
+        "maxWorstPct": 31.6003201691673,
+        "final": {
+         "worstM": 0.2166969155534504,
+         "worstPct": 27.087114040551846,
+         "over5Pct": 8.5205078125,
+         "over20Pct": 0.2685546875,
+         "nearestM": 1.0307049293241206
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011172853432936614,
+         "worstPct": 1.396606658306016,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105190297037977
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8065057503619801,
+         "worstPct": 67.20880985952685,
+         "over5Pct": 95.5810546875,
+         "over20Pct": 79.7607421875,
+         "nearestM": 0.5030341401520007
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.13859049479167,
+        "steadyOver20": 92.56022135416667,
+        "worstPct": 99.97034244800582,
+        "reversalsPct": 9.845715681363762
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 0,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 21.7041015625,
+        "maxWorstPct": 66.78771577365193,
+        "final": {
+         "worstM": 0.42848338137162684,
+         "worstPct": 53.56042187334088,
+         "over5Pct": 16.162109375,
+         "over20Pct": 2.685546875,
+         "nearestM": 1.017726898289171
+        },
+        "catches": 72
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.13484588625426408,
+         "worstPct": 16.85573553061298,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741379080856723
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8787289644761045,
+         "worstPct": 73.22741079654617,
+         "over5Pct": 98.388671875,
+         "over20Pct": 90.966796875,
+         "nearestM": 0.42050200187651937
+        }
+       },
+       "jam": {
+        "steadyOver5": 99.996337890625,
+        "steadyOver20": 97.67537434895833,
+        "worstPct": 99.99814345571932,
+        "reversalsPct": 28.875279318050154
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.01892372094651895,
+         "worstPct": 2.3654650830666926,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0298925227277025
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0008412978124698878,
+         "worstPct": 0.1051622249916967,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123254321539459
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5774463112069615,
+         "worstPct": 72.18078782529264,
+         "over5Pct": 95.458984375,
+         "over20Pct": 80.76171875,
+         "nearestM": 0.5060961416835762
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.77547200520833,
+        "steadyOver20": 50.071614583333336,
+        "worstPct": 63.18477563972537,
+        "reversalsPct": 2.8097681371879126
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 28.09775004761679,
+        "final": {
+         "worstM": 0.021607281940578704,
+         "worstPct": 2.7009102023256397,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0427214936207614
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 123,
+        "final": {
+         "worstM": 0.0350829452583592,
+         "worstPct": 4.385368091947823,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.808578645234005
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.6087620765071343,
+         "worstPct": 69.28913908450008,
+         "over5Pct": 95.263671875,
+         "over20Pct": 79.00390625,
+         "nearestM": 0.5029334707789511
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.39680989583333,
+        "steadyOver20": 28.227945963541668,
+        "worstPct": 46.3464692401195,
+        "reversalsPct": 0.005793574925407723
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 4.443359375,
+        "maxWorstPct": 36.10008687949884,
+        "final": {
+         "worstM": 0.013251255667875883,
+         "worstPct": 1.6564069338020988,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0506779805935365
+        },
+        "catches": 14
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06957031600787122,
+         "worstPct": 8.696289371399093,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.7967904111724462
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8013581013194875,
+         "worstPct": 66.77983912303156,
+         "over5Pct": 97.16796875,
+         "over20Pct": 87.01171875,
+         "nearestM": 0.45593068946935594
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.533447265625,
+        "steadyOver20": 45.623779296875,
+        "worstPct": 55.578445000307376,
+        "reversalsPct": 0.001656122685568547
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.013613068107172333,
+         "worstPct": 1.7016334880402266,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0424758486719472
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 93,
+        "final": {
+         "worstM": 0.0009137340807569005,
+         "worstPct": 0.11421675839265023,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8126192704567744
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.766163547529632,
+         "worstPct": 75.41435857263625,
+         "over5Pct": 95.4345703125,
+         "over20Pct": 81.2255859375,
+         "nearestM": 0.51034492830753
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.27579752604167,
+        "steadyOver20": 50.265299479166664,
+        "worstPct": 56.67010932593344,
+        "reversalsPct": 3.631836880108371
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.0001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 26.533815981361858,
+        "final": {
+         "worstM": 0.01333081145446624,
+         "worstPct": 1.666351406977709,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0259568155793846
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": 111,
+        "final": {
+         "worstM": 0.011172853432936614,
+         "worstPct": 1.396606658306016,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8105190297037977
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8065057503619801,
+         "worstPct": 67.20880985952685,
+         "over5Pct": 95.5810546875,
+         "over20Pct": 79.7607421875,
+         "nearestM": 0.5030341401520007
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.8037109375,
+        "steadyOver20": 26.316324869791668,
+        "worstPct": 42.348916431682795,
+        "reversalsPct": 0.002069245222112782
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "equal",
+        "compliance": 0.001,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 14.990234375,
+        "maxWorstPct": 66.78771577365193,
+        "final": {
+         "worstM": 0.03257101549821739,
+         "worstPct": 4.071376876608931,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0502213141168817
+        },
+        "catches": 47
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.13484588625426408,
+         "worstPct": 16.85573553061298,
+         "over5Pct": 38.671875,
+         "over20Pct": 0,
+         "nearestM": 0.7741379080856723
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8787289644761045,
+         "worstPct": 73.22741079654617,
+         "over5Pct": 98.388671875,
+         "over20Pct": 90.966796875,
+         "nearestM": 0.42050200187651937
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.25577799479167,
+        "steadyOver20": 57.637939453125,
+        "worstPct": 59.301310345627165,
+        "reversalsPct": 0.00041469341715669606
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      }
+     ],
+     "seconds": 96.99630500000715
+    },
+    "frontier": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 1
+     },
+     "frontier": [
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.5,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.09765625,
+        "maxWorstPct": 15.953806266082948,
+        "final": {
+         "worstM": 0.008946559774380969,
+         "worstPct": 1.1183199551333551,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0378103737898388
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 120,
+        "final": {
+         "worstM": 0.011164120124009247,
+         "worstPct": 1.395514994706362,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8104808540637944
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.066343933506633,
+         "worstPct": 99.03798495068938,
+         "over5Pct": 94.4091796875,
+         "over20Pct": 81.0546875,
+         "nearestM": 0.3853280588780434
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.19376627604167,
+        "steadyOver20": 32.349446614583336,
+        "worstPct": 45.26883832035184,
+        "reversalsPct": 0.00331090197246985
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 8,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0,
+        "maxWorstPct": 1.6901902029144031,
+        "final": {
+         "worstM": 0.0025744045493754086,
+         "worstPct": 0.321800563876724,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0396245844168865
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 69,
+        "final": {
+         "worstM": 0.0007757942251953587,
+         "worstPct": 0.0969742767043905,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8124351342602187
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0748394910571168,
+         "worstPct": 99.25731408463369,
+         "over5Pct": 91.8212890625,
+         "over20Pct": 73.974609375,
+         "nearestM": 0.4285207199744688
+        }
+       },
+       "jam": {
+        "steadyOver5": 64.36808268229167,
+        "steadyOver20": 6.410725911458333,
+        "worstPct": 36.313744368253225,
+        "reversalsPct": 0.002897171119342756
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 1.806640625,
+        "maxWorstPct": 29.891108589284656,
+        "final": {
+         "worstM": 0.01892372094651895,
+         "worstPct": 2.3654650830666926,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0298925227277025
+        },
+        "catches": 2
+       },
+       "pile256": {
+        "clearedAt": 99,
+        "final": {
+         "worstM": 0.0008412978124698878,
+         "worstPct": 0.1051622249916967,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8123254321539459
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.5774463112069615,
+         "worstPct": 72.18078782529264,
+         "over5Pct": 95.458984375,
+         "over20Pct": 80.76171875,
+         "nearestM": 0.5060961416835762
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.77547200520833,
+        "steadyOver20": 50.071614583333336,
+        "worstPct": 63.18477563972537,
+        "reversalsPct": 2.8097681371879126
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0.5
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 14.14223539231444,
+        "final": {
+         "worstM": 0.005497649544836669,
+         "worstPct": 0.6872061828644136,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.033243193035961
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 63,
+        "final": {
+         "worstM": 0.00030395507173508474,
+         "worstPct": 0.03799438340072516,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8125260170037953
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.4861262403333532,
+         "worstPct": 60.76577913618848,
+         "over5Pct": 90.7958984375,
+         "over20Pct": 64.7216796875,
+         "nearestM": 0.5796470272658585
+        }
+       },
+       "jam": {
+        "steadyOver5": 59.119466145833336,
+        "steadyOver20": 1.9108072916666667,
+        "worstPct": 28.347083679890606,
+        "reversalsPct": 0.004552339488648121
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 0
+       },
+       "herd": {
+        "maxOver5": 2.8076171875,
+        "maxWorstPct": 31.560370738616488,
+        "final": {
+         "worstM": 0.020459055573898488,
+         "worstPct": 2.5573819086293508,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0457891971203699
+        },
+        "catches": 5
+       },
+       "pile256": {
+        "clearedAt": 102,
+        "final": {
+         "worstM": 0.0120633641904061,
+         "worstPct": 1.507920501330996,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8113781898139957
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.7381247642122533,
+         "worstPct": 92.26559415166716,
+         "over5Pct": 96.728515625,
+         "over20Pct": 84.7412109375,
+         "nearestM": 0.45122336101721594
+        }
+       },
+       "jam": {
+        "steadyOver5": 83.51318359375,
+        "steadyOver20": 54.193115234375,
+        "worstPct": 77.56427651395946,
+        "reversalsPct": 3.59330761461662
+       },
+       "meets": {
+        "T1": false,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "frontierCost": {
+      "step": 3.9034361904761905,
+      "points": [
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.5,
+         "averaging": 1
+        },
+        "ms": 1.5976921904761903,
+        "cellSize": 2.7
+       },
+       {
+        "point": {
+         "iterations": 8,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 1
+        },
+        "ms": 3.3760561904761905,
+        "cellSize": 2.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1.75,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 1.0571781904761903,
+        "cellSize": 1.45
+       },
+       {
+        "point": {
+         "iterations": 4,
+         "relaxation": 1.5,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0.5
+        },
+        "ms": 1.5454961904761904,
+        "cellSize": 1.95
+       },
+       {
+        "point": {
+         "iterations": 2,
+         "relaxation": 1,
+         "budget": 32,
+         "damping": 1,
+         "mass": "area",
+         "compliance": 0,
+         "maxPush": 0.25,
+         "averaging": 0
+        },
+        "ms": 1.231172857142857,
+        "cellSize": 1.45
+       }
+      ]
+     },
+     "seconds": 52.538535000003876
+    },
+    "grid": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1.75,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 0.5
+     },
+     "grid": [
+      {
+       "count": 16384,
+       "stepMs": 3.6476166666666665,
+       "contacts": {
+        "G1 exhaustive": 1.89438,
+        "G1 B=64": 1.6480899999999998,
+        "G2 B=16": 1.0280228571428571,
+        "G2 B=32": 1.0495414285714284,
+        "G2 B=64": 0.9809142857142857
+       }
+      },
+      {
+       "count": 65536,
+       "stepMs": 59.58122,
+       "contacts": {
+        "G1 exhaustive": 56.578920000000004,
+        "G1 B=64": 52.70668,
+        "G2 B=16": 11.86672,
+        "G2 B=32": 12.47741,
+        "G2 B=64": 11.7494
+       }
+      }
+     ],
+     "seconds": 52.44961500000208
+    },
+    "search": {
+     "point": {
+      "iterations": 2,
+      "relaxation": 1,
+      "budget": 32,
+      "damping": 1,
+      "mass": "area",
+      "compliance": 0,
+      "maxPush": 0.25,
+      "averaging": 1
+     },
+     "search": [
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 9.033203125,
+        "maxWorstPct": 81.74307411535511,
+        "final": {
+         "worstM": 0.07468371974203436,
+         "worstPct": 9.33546482864503,
+         "over5Pct": 0.341796875,
+         "over20Pct": 0,
+         "nearestM": 1.04320987005098
+        },
+        "catches": 63
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.4359168966311468,
+         "worstPct": 54.489611266934865,
+         "over5Pct": 86.71875,
+         "over20Pct": 58.59375,
+         "nearestM": 0.6105336442201916
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8752281878460342,
+         "worstPct": 77.40575969486294,
+         "over5Pct": 99.31640625,
+         "over20Pct": 95.7275390625,
+         "nearestM": 0.32104785306664035
+        }
+       },
+       "jam": {
+        "steadyOver5": 93.736572265625,
+        "steadyOver20": 75.3076171875,
+        "worstPct": 60.22722533456173,
+        "reversalsPct": 0.0025338693874793067
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 8.2763671875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.04020916107198491,
+         "worstPct": 5.026145059102716,
+         "over5Pct": 0.048828125,
+         "over20Pct": 0,
+         "nearestM": 1.0292923104917204
+        },
+        "catches": 55
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.39255859953526745,
+         "worstPct": 49.06982421071107,
+         "over5Pct": 83.203125,
+         "over20Pct": 45.703125,
+         "nearestM": 0.6508350703388811
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8620826234413808,
+         "worstPct": 76.97820129528877,
+         "over5Pct": 98.876953125,
+         "over20Pct": 94.8974609375,
+         "nearestM": 0.332908846065842
+        }
+       },
+       "jam": {
+        "steadyOver5": 92.71931966145833,
+        "steadyOver20": 73.50870768229167,
+        "worstPct": 60.10747772947778,
+        "reversalsPct": 0.0029930646416446464
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 7.6904296875,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.05259170564851934,
+         "worstPct": 6.573963108105234,
+         "over5Pct": 0.0732421875,
+         "over20Pct": 0,
+         "nearestM": 1.0425558060927378
+        },
+        "catches": 52
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.34880432263639854,
+         "worstPct": 43.600539679851146,
+         "over5Pct": 78.90625,
+         "over20Pct": 34.375,
+         "nearestM": 0.6852549619657495
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8484899322400318,
+         "worstPct": 76.24128200105413,
+         "over5Pct": 98.6572265625,
+         "over20Pct": 94.3603515625,
+         "nearestM": 0.34342878640862634
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.88680013020833,
+        "steadyOver20": 71.70654296875,
+        "worstPct": 61.92086708882215,
+        "reversalsPct": 0.0013052899048878756
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 1,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 7.51953125,
+        "maxWorstPct": 81.69502798494712,
+        "final": {
+         "worstM": 0.03575081116733725,
+         "worstPct": 4.468851329326082,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0297811726347954
+        },
+        "catches": 49
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.27405812823450837,
+         "worstPct": 34.25726551884051,
+         "over5Pct": 69.53125,
+         "over20Pct": 25,
+         "nearestM": 0.7132193050636243
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8358491217546873,
+         "worstPct": 74.98983579299268,
+         "over5Pct": 98.5107421875,
+         "over20Pct": 93.505859375,
+         "nearestM": 0.3535131413941097
+        }
+       },
+       "jam": {
+        "steadyOver5": 91.1328125,
+        "steadyOver20": 69.77823893229167,
+        "worstPct": 60.57723146063583,
+        "reversalsPct": 0.0017179769103903243
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 4.1259765625,
+        "maxWorstPct": 31.852124680043165,
+        "final": {
+         "worstM": 0.026885392262391394,
+         "worstPct": 3.3606739827209795,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0387342239534851
+        },
+        "catches": 17
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.20926815251240272,
+         "worstPct": 26.158518674258037,
+         "over5Pct": 66.40625,
+         "over20Pct": 13.28125,
+         "nearestM": 0.7344175683546585
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8431652570206685,
+         "worstPct": 81.87755704860193,
+         "over5Pct": 98.2666015625,
+         "over20Pct": 92.7978515625,
+         "nearestM": 0.3609052068768844
+        }
+       },
+       "jam": {
+        "steadyOver5": 90.557861328125,
+        "steadyOver20": 66.88191731770833,
+        "worstPct": 61.759523343404155,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 3.02734375,
+        "maxWorstPct": 31.533143520926355,
+        "final": {
+         "worstM": 0.016931644874743412,
+         "worstPct": 2.1164555778052807,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0405129213218747
+        },
+        "catches": 9
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.16105016826508578,
+         "worstPct": 20.131270733156413,
+         "over5Pct": 53.125,
+         "over20Pct": 0.78125,
+         "nearestM": 0.7590727759974971
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8250768004008606,
+         "worstPct": 78.67711841348279,
+         "over5Pct": 97.802734375,
+         "over20Pct": 91.7236328125,
+         "nearestM": 0.3783774699355769
+        }
+       },
+       "jam": {
+        "steadyOver5": 89.2333984375,
+        "steadyOver20": 62.541910807291664,
+        "worstPct": 61.330918186182224,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 2.4169921875,
+        "maxWorstPct": 24.420725678158373,
+        "final": {
+         "worstM": 0.015208415777719475,
+         "worstPct": 1.901051943887053,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0403674195024235
+        },
+        "catches": 3
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.11438528188642338,
+         "worstPct": 14.298160022743737,
+         "over5Pct": 35.15625,
+         "over20Pct": 0,
+         "nearestM": 0.7771759736144902
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8126730309025865,
+         "worstPct": 74.35706519570063,
+         "over5Pct": 97.6806640625,
+         "over20Pct": 90.673828125,
+         "nearestM": 0.392715438357295
+        }
+       },
+       "jam": {
+        "steadyOver5": 87.41780598958333,
+        "steadyOver20": 59.05029296875,
+        "worstPct": 59.711990626274336,
+        "reversalsPct": 0.0008320125134682026
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 2,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 2.0263671875,
+        "maxWorstPct": 24.25628742460879,
+        "final": {
+         "worstM": 0.021055382009831036,
+         "worstPct": 2.6319227120101747,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.042552002860677
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.10103615768793461,
+         "worstPct": 12.62951952279732,
+         "over5Pct": 18.75,
+         "over20Pct": 0,
+         "nearestM": 0.7894637582157732
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8015765367846224,
+         "worstPct": 72.50468538157968,
+         "over5Pct": 97.216796875,
+         "over20Pct": 89.2822265625,
+         "nearestM": 0.4057756579266609
+        }
+       },
+       "jam": {
+        "steadyOver5": 86.94295247395833,
+        "steadyOver20": 55.020751953125,
+        "worstPct": 59.040728501128584,
+        "reversalsPct": 0.0008290739658338618
+       },
+       "meets": {
+        "T1": false,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 1.26953125,
+        "maxWorstPct": 20.4036692829697,
+        "final": {
+         "worstM": 0.017995548657088856,
+         "worstPct": 2.249443548616786,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0471873623390366
+        },
+        "catches": 1
+       },
+       "pile256": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.06268549917266764,
+         "worstPct": 7.835687279822615,
+         "over5Pct": 11.328125,
+         "over20Pct": 0,
+         "nearestM": 0.795652392550293
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.8944904836047565,
+         "worstPct": 90.51677666277595,
+         "over5Pct": 96.6796875,
+         "over20Pct": 88.1103515625,
+         "nearestM": 0.3924430290705276
+        }
+       },
+       "jam": {
+        "steadyOver5": 85.80810546875,
+        "steadyOver20": 50.760904947916664,
+        "worstPct": 59.176168413730544,
+        "reversalsPct": 0
+       },
+       "meets": {
+        "T1": true,
+        "T2": false,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.25,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.732421875,
+        "maxWorstPct": 13.928181812512202,
+        "final": {
+         "worstM": 0.00886078458527395,
+         "worstPct": 1.1075980566547465,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0269112801657578
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 153,
+        "final": {
+         "worstM": 0.04369387496236499,
+         "worstPct": 5.46173428890944,
+         "over5Pct": 0.78125,
+         "over20Pct": 0,
+         "nearestM": 0.8055843098299575
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9054220440430893,
+         "worstPct": 89.70499664055362,
+         "over5Pct": 96.240234375,
+         "over20Pct": 85.595703125,
+         "nearestM": 0.41485683941822094
+        }
+       },
+       "jam": {
+        "steadyOver5": 82.97770182291667,
+        "steadyOver20": 43.482666015625,
+        "worstPct": 55.04543394736281,
+        "reversalsPct": 0.0008277700289305625
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.5,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.341796875,
+        "maxWorstPct": 10.945409004366018,
+        "final": {
+         "worstM": 0.00818414999488748,
+         "worstPct": 1.0230187341167678,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0487892022247713
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 138,
+        "final": {
+         "worstM": 0.020647082308202003,
+         "worstPct": 2.5808852500670634,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8079561143608026
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 1.0072468980202893,
+         "worstPct": 89.40157695235037,
+         "over5Pct": 95.7275390625,
+         "over20Pct": 83.49609375,
+         "nearestM": 0.4349806087372238
+        }
+       },
+       "jam": {
+        "steadyOver5": 80.74055989583333,
+        "steadyOver20": 37.1923828125,
+        "worstPct": 55.55208244431499,
+        "reversalsPct": 0.003724934296297829
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      },
+      {
+       "point": {
+        "iterations": 4,
+        "relaxation": 1.75,
+        "budget": 32,
+        "damping": 1,
+        "mass": "area",
+        "compliance": 0,
+        "maxPush": 0.25,
+        "averaging": 1
+       },
+       "herd": {
+        "maxOver5": 0.29296875,
+        "maxWorstPct": 14.065547645680759,
+        "final": {
+         "worstM": 0.0058297610294683055,
+         "worstPct": 0.7287201178247622,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 1.0314309904643753
+        },
+        "catches": 0
+       },
+       "pile256": {
+        "clearedAt": 114,
+        "final": {
+         "worstM": 0.015616245764206838,
+         "worstPct": 1.9520306914383307,
+         "over5Pct": 0,
+         "over20Pct": 0,
+         "nearestM": 0.8102796567544813
+        }
+       },
+       "pile4096": {
+        "clearedAt": null,
+        "final": {
+         "worstM": 0.9183558579533171,
+         "worstPct": 93.89242353152511,
+         "over5Pct": 94.7509765625,
+         "over20Pct": 81.4453125,
+         "nearestM": 0.45320474204519795
+        }
+       },
+       "jam": {
+        "steadyOver5": 78.4619140625,
+        "steadyOver20": 32.184244791666664,
+        "worstPct": 45.437514475081144,
+        "reversalsPct": 0.005379792671067061
+       },
+       "meets": {
+        "T1": true,
+        "T2": true,
+        "T3": false
+       }
+      }
+     ],
+     "searchCost": {
+      "step": 3.5096659649122803,
+      "K=1": 0.8937606315789475,
+      "K=2": 1.1605086315789472,
+      "K=4": 1.5696606315789474
+     },
+     "seconds": 102.85373500000685
+    }
+   }
+  }
+ ]
+}
