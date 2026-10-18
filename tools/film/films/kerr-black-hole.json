@@ -1,0 +1,15 @@
+{
+  "name": "kerr-black-hole",
+  "scene": "kerr-black-hole",
+  "settings": { "count": 1048576 },
+  "film": { "seconds": 60, "fps": 60, "width": 1920, "height": 1080 },
+  "segmentSeconds": 1,
+  "camera": [
+    { "t": 0,  "target": [0, 0, 0], "distance": 18.0, "azimuth": 0.0,    "polar": 1.35 },
+    { "t": 15, "target": [0, 0, 0], "distance": 18.0, "azimuth": 1.571,  "polar": 1.35 },
+    { "t": 30, "target": [0, 0, 0], "distance": 18.0, "azimuth": 3.142,  "polar": 1.35 },
+    { "t": 45, "target": [0, 0, 0], "distance": 18.0, "azimuth": 4.712,  "polar": 1.35 },
+    { "t": 60, "target": [0, 0, 0], "distance": 18.0, "azimuth": 6.283,  "polar": 1.35 }
+  ],
+  "encode": { "crf": 16, "preset": "medium" }
+}

@@ -91,6 +91,93 @@ npm run film -- <film.json> [--frames ffmpeg|png|none] [--out <dir>] [--seconds 
 - **Refused by name:** odd sizes, a frame rate that is not a whole number of steps, keyframes out of
   order, and the like.
 
+## CLI reference
+
+Pass flags after npm's `--`. Supply exactly one film JSON file, including for replay, resume and
+status. Value flags use a separate argument (`--seconds 5`, not `--seconds=5`). Unknown flags are
+rejected; there is currently no `--help` flag. CLI overrides do not edit the film JSON.
+
+| Argument / flag | Default | Usage |
+| --- | --- | --- |
+| `<film.json>` | Required | Film manifest: scene, settings, duration, frame rate, dimensions, camera and encoding settings. |
+| `--frames ffmpeg\|png\|none` | `ffmpeg` | `ffmpeg` encodes segment MP4s and joins them into `film.mp4` on completion. `png` writes `frames/000000.png`, etc. `none` skips drawing/readback and records simulation tracks/checkpoints only; it does not save preview images. PNG/none do not require ffmpeg. This flag selects an output mode, **not a frame count**. |
+| `--out <dir>` | `tools/film/out/<manifest name>/` | Recording destination. With `--replay`, this instead selects the existing recording to read. Relative paths resolve from the working directory. Existing films are not implicitly overwritten. |
+| `--seconds <n>` | Manifest `film.seconds` | Override recording duration with a positive number of seconds. Duration times fps must be a whole number of frames. Replay uses the saved recording duration divided by `--speed`, so this does not trim replay. |
+| `--size <W>x<H>` | Manifest dimensions; otherwise `1920x1080` | Override output dimensions, for example `--size 640x360`. Use lowercase `x` and positive, even integer dimensions (also required for PNG/none). Usable during replay. |
+| `--track-every <n>` | `6` | Positive integer sampling interval in simulation steps, supplied to the scene. Smaller intervals save more samples and use more storage; scenes choose their track layouts. Resume inherits the saved interval when omitted; replay uses the recording's interval. |
+| `--replay` | Off | Draw saved tracks without rerunning simulation. Scene and settings must match the recording. Default output is `<recording>/replay/`. |
+| `--replay-out <dir>` | `<recording>/replay/` | Replay-only output destination, which must differ from the recording directory. Choose a new directory for each alternate render, or resume compatible output. |
+| `--speed <n>` | `1` | Replay only; positive playback multiplier. `0.5` plays at half speed (twice the duration), `2` at double speed (half the duration). Output duration rounds up to a whole frame. |
+| `--camera <file.json>` | Recorded camera | Replay only; replace the camera with a JSON **array of keyframes**, not a whole film manifest. Keyframes use `t`, `target`, `distance`, `azimuth` and `polar`, as described above. |
+| `--resume` | Off | Continue compatible committed output; rewrite any incomplete segment. Keep the original manifest overrides and sink. Changed inputs are refused. Combine with `--replay` to resume replay output. |
+| `--stop-after <n>` | No deliberate stop | Pause after a positive integer number of **total committed segments**, not additional segments or frames. Useful for testing resume. A paused successful run exits zero; it is not necessarily a finished film. |
+| `--detach` | Off | Launch an independent Node process, append output to `film.log`, and save PID/start metadata in `job.json`. The launcher returning does not prove rendering finished. |
+| `--status` | Off | Print JSON with output directory, process status, committed/total frames, ETA and segments, then exit without GPU initialization. Keep the original destination/replay flags. Manifest/build checks and sink discovery still run; for a PNG/none job, keep its `--frames` mode too. |
+
+There are no CLI flags for fps, warm-up, segment duration, render scale, encoder quality or scene
+settings: configure `film.fps`, `warmupSeconds`, `segmentSeconds`, `film.scale`, `encode` and
+`settings` in the manifest. A frame must contain a whole positive number of simulation steps;
+warm-up and segment durations must also align with the simulation/frame schedule.
+
+### Environment variables and copy checking
+
+These are environment variables, not film flags. In PowerShell set them before running npm:
+
+| Variable | Usage |
+| --- | --- |
+| `NG_DAWN_FLAGS` | Select/configure Dawn, for example `$env:NG_DAWN_FLAGS = 'adapter=NVIDIA'` (or `adapter=AMD`). |
+| `NG_FFMPEG` | Optional ffmpeg executable path; otherwise ffmpeg is searched for on PATH. Example: `$env:NG_FFMPEG = 'C:/ffmpeg/bin/ffmpeg.exe'`. |
+| `NG_SITE` | Source test-site checkout for Herd & Wolves assets and scene-copy drift checks. Not required to author a standalone particle scene. |
+
+`npm run film:check` compares bundled scene copies with the site. Its `--update` switch
+(`npm run film:check -- --update`) **modifies those copies** to match available site sources;
+review the site's changes first. It is a separate command, not a flag for `npm run film`.
+
+### Single-frame PNG preview (PowerShell)
+
+This renders one small GPU frame without encoding a video. At the Magnetic Star preset's 60 fps,
+one frame is `1 / 60` seconds. Use a fresh output directory, or explicitly remove old output before
+rerunning; the runner will not overwrite an existing film.
+
+```powershell
+Set-Location 'D:/orion-realms/null-graph'
+$env:NG_DAWN_FLAGS = 'adapter=NVIDIA'
+npm run build:lib
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --frames png --seconds 0.016666666666666666 --size 640x360 --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-single-preview'
+```
+
+Open `D:/orion-realms/null-graph/tools/film/out/magnetic-star-single-preview/frames/000000.png`.
+This is the first rendered frame after warm-up and that frame's simulation steps, not an arbitrary
+timestamp screenshot. Use `--seconds 0.1` for six PNG frames at 60 fps, or `--seconds 5` for 300.
+PNG mode writes numbered frames; it does not automatically create `poster.png`.
+
+### Common flag combinations (PowerShell)
+
+After the setup above, these examples use independent destinations:
+
+```powershell
+# Five-second video, leaving the preset unchanged.
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --seconds 5 --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-video-example'
+
+# Compute only, saving a sample every six simulation steps, in the background.
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --seconds 5 --frames none --track-every 6 --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-compute-example' --detach
+
+# Check committed progress. Wait for all frames before starting replay.
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --seconds 5 --frames none --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-compute-example' --status
+
+# Render the completed recording at half speed and a different size.
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-compute-example' --replay --speed 0.5 --size 1280x720 --replay-out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-slow-example'
+
+# Pause after one committed segment, then continue with identical recording options.
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --seconds 5 --frames none --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-resume-example' --stop-after 1
+npm run film -- 'D:/orion-realms/null-graph/tools/film/films/magnetic-star.json' --seconds 5 --frames none --out 'D:/orion-realms/null-graph/tools/film/out/magnetic-star-resume-example' --resume
+```
+
+Exit codes: `0` means successful completion **or a clean pause**; `1` means a runtime failure
+(GPU error, encoding failure or step-time stop); `2` means invalid input or a pre-render refusal.
+Check committed frame totals and the final `report.json` (`failure: null`, `gpuErrors: []`) rather
+than treating a detached launch or zero exit code alone as proof of a completed film.
+
 ## The Herd & Wolves scene
 
 - **Simulation:** the scenario of `tools/agents/scenario/herd-wolves.mjs` (the demo's rules), with

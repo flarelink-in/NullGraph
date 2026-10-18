@@ -1,0 +1,18 @@
+{
+  "name": "celestial-torii",
+  "scene": "celestial-torii",
+  "settings": { "count": 65536 },
+  "warmupSeconds": 0,
+  "film": { "seconds": 60, "fps": 60, "width": 1920, "height": 1080, "scale": 1 },
+  "camera": [
+    { "t": 0,   "target": [0.0, 1.05, -0.3], "distance": 10.6, "azimuth": -0.26, "polar": 1.46 },
+    { "t": 2.5, "target": [0.0, 1.15, -0.4], "distance": 9.4,  "azimuth": 0.04,  "polar": 1.43 },
+    { "t": 5,   "target": [0.0, 1.25, -0.5], "distance": 8.6,  "azimuth": 0.32,  "polar": 1.39 },
+    { "t": 15,  "target": [0.0, 1.35, -0.6], "distance": 9.8,  "azimuth": 0.85,  "polar": 1.34 },
+    { "t": 30,  "target": [0.0, 1.20, -0.4], "distance": 11.8, "azimuth": 0.12,  "polar": 1.30 },
+    { "t": 45,  "target": [0.0, 1.00, -0.2], "distance": 9.2,  "azimuth": -0.58, "polar": 1.45 },
+    { "t": 60,  "target": [0.0, 1.10, -0.3], "distance": 10.4, "azimuth": -0.10, "polar": 1.42 }
+  ],
+  "segmentSeconds": 10,
+  "encode": { "codec": "libx264", "crf": 16, "preset": "medium", "tune": "animation" }
+}
