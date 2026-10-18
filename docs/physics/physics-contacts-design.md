@@ -5,7 +5,7 @@ and §9 (decision 2, Q4: contacts get a new `null-graph/physics` entry); [`READM
 (the physics series); [`../agents-queries-design.md`](../agents-queries-design.md) §14 (spike S8's
 findings and what it left to this step).
 **Status:** accepted with recommended answers by the user on 2026-10-18 (§15). Spike S9 (phase
-13.0) measured and accepted; Q5–Q7 accepted with recommended options, Q8 deferred to scenarios. Phase 13.1 reviewed and complete; phase 13.2 next.
+13.0) measured and accepted; Q5–Q7 accepted with recommended options, Q8 deferred to scenarios. Phase 13.1 reviewed and committed (`8d0d1df`); phase 13.2 built and validated. Phase 13.3 next.
 **Package:** a new entry, `null-graph/physics` 🔌.
 **Builds on:**
 - `PointGrid` ([`../api/agent-grid.md`](../api/agent-grid.md), `src/extras/spatial/`), the stable
@@ -233,6 +233,7 @@ agents.addStepStage({ name: 'contacts', stages: contacts.getComputeStages() });
 - **`getComputeStages()`** returns the same array every time: the grid's stages, then gather and
   apply for each pass, then the step counter.
 - **`setParams({ relaxation?, compliance?, maxPush?, damping? })`** uploads 16 bytes; no recompile.
+  Increasing `maxPush` is refused if it would violate the existing cell's completeness bound.
   `iterations`, `maxScanPerCell` and the cell size change the stages, so they are fixed at
   construction.
 - **Switching off:** `contacts.enabled = false` disables its stages (fact 8); no chain changes.
@@ -454,8 +455,8 @@ IDs continue from step 12 (U45, A36).
 | Phase | Delivers | Exit |
 |---|---|---|
 | **13.0** ✅ | Spike S9 (§16), scripts only: the solver's options and both grids, measured with GPU timestamps on the three pairs | Complete 2026-10-18: results after §16; G2 chosen; no configuration met T1–T6 on every pair, so the trade-offs went to the user (Q5–Q8) |
-| **13.1** | The entry and the CPU mirror (`contactMath.ts`): the declaration, its refusals, `resolveDiscContacts`; U46–U48; the physics size line | Headless green, each new test watched failing |
-| **13.2** | `DiscContacts` on the GPU (own grid, gather, apply, params, counters); the `physics` GPU suite, A37–A40 | Green on Node/NVIDIA, Node/AMD and Chrome/AMD, zero WebGPU errors, watched failing |
+| **13.1** ✅ | The entry and the CPU mirror (`contactMath.ts`): the declaration, its refusals, `resolveDiscContacts`; U46–U48; the physics size line | Reviewed and committed `8d0d1df`; U48 strengthened to 64 random layouts and actual window differences |
+| **13.2** ✅ | `DiscContacts` on the GPU (own grid, gather, apply, params, counters); the `physics` GPU suite, A37–A40 | Green on Node/NVIDIA, Node/AMD and Chrome/AMD, zero WebGPU errors; undersized-grid and racing-gather negative controls, zero-correction mutation caught |
 | **13.3** | The agents seam S-A; U49's seam checks; A41; the agents size line at Q3's ceiling | Green on the three pairs |
 | **13.4** | `docs/api/physics.md` with a checked example; a cross-link from the agents guide; the physics README's line | The example runs and is watched failing |
 

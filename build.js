@@ -40,7 +40,7 @@ async function build() {
             external: ['gl-matrix'],
         });
 
-        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment): ${isProd ? 'Production' : 'Development'} build complete.`);
+        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment + Picking + Text + Agents + Inference + Physics): ${isProd ? 'Production' : 'Development'} build complete.`);
     } catch (error) {
         console.error(' Build failed:', error);
         process.exit(1);
