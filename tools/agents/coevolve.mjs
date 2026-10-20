@@ -11,7 +11,7 @@ import { noise, centeredRanks, gradient, createAdamState, adamAscent, masterPara
 import { shapeOf, initNetwork, networkOf } from './mlp-train.mjs';
 import { networkFromModel } from './model.mjs';
 import { managedRun, watchDevice, buildCompiled } from './coevolve-runtime.mjs';
-import { calibrateArenaSteps, guardIdentity, createSubmissionGuard } from './coevolve-guard.mjs';
+import { calibrateArenaSteps, guardIdentity, createSubmissionGuard, workloadFixture, timeSingles, runGuarded } from './coevolve-guard.mjs';
 import { validateConfig, parseCliArgs, experimentOf } from './coevolve-config.mjs';
 import {
     buildSeedManifest, permutationForGeneration, opponentForPair, policyRows, initSeed,
@@ -205,52 +205,20 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
             cacheFile: join(root, 'tools/agents/out/coevo-costs.json'), log,
             record: sample => appendLog(config.targetDir, { event: 'calibration-sample', ...sample }),
             async measure(probe, workload) {
-                const built = await buildCompiled(device, () => buildLane(engine, probe, { ...laneOptions,
-                    fixture(init, { lo, slot }) {
-                        if (workload === 'ordinary') return;
-                        const shift = workload === 'coincident' ? 0 : (slot % 8) * 0.02;
-                        init.position = [lo[0] + (workload === 'wall' ? 0.61 : probe.L / 2) + shift,
-                            0.08, lo[1] + probe.L / 2 + shift];
-                        if (workload === 'frozen') { init.frozen = true; init.age = 1; }
-                    },
-                }));
+                const built = await buildCompiled(device, () => buildLane(engine, probe,
+                    { ...laneOptions, fixture: workloadFixture(workload, probe.L) }));
                 const lane = built.value;
                 try {
                     await health.check();
-                    const single = createSubmissionGuard(1);
-                    let ms = 0;
-                    // Singles at advancing cadence; compilation is complete before the first step.
-                    for (let step = 0; step < Math.max(8, 2 * config.thinkEvery); step++) {
-                        const start = performance.now(); engine.render(lane.chain);
-                        await health.check();
-                        const took = performance.now() - start;
-                        single.observe(1, took); ms = Math.max(ms, took);
-                        if (took > 1000) fail('calibration single exceeds admission limit');
-                    }
+                    // Compilation is complete before the first step.
+                    const ms = await timeSingles(engine, lane, health, Math.max(8, 2 * config.thinkEvery));
                     return { ms, setupCompileMs: built.setupCompileMs, contactGrid: lane.solver?.options ?? null };
                 } finally { lane.destroy(); }
             },
         });
         appendLog(config.targetDir, { event: 'calibration', ...guard });
         const submissions = createSubmissionGuard(guard.stepMs);
-        // Exactly T one-step chains in guarded batches; each batch is waited for and checked.
-        const runLane = async lane => {
-            const observed = { ms: 0, batches: 0, maxBatchMs: 0, maxStepMs: 0 }, start = performance.now();
-            for (let remaining = config.T; remaining > 0;) {
-                const count = submissions.next(remaining), seq = [];
-                for (let s = 0; s < count; s++) seq.push(...lane.chain);
-                const submitted = performance.now();
-                engine.render(seq);
-                await health.check();
-                const ms = performance.now() - submitted;
-                submissions.observe(count, ms);
-                Object.assign(observed, { batches: observed.batches + 1, maxBatchMs: Math.max(observed.maxBatchMs, ms),
-                    maxStepMs: Math.max(observed.maxStepMs, ms / count) });
-                remaining -= count;
-            }
-            observed.ms = performance.now() - start;
-            return observed;
-        };
+        const runLane = lane => runGuarded(engine, lane, config.T, submissions, health);
 
         const B = config.arenasPerLane;
 

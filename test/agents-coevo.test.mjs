@@ -619,4 +619,125 @@ test('U54 held-out manifests: own stream per purpose, numerically distinct from 
     assert.deepEqual(regenerated.seeds.filter((_, e) => e !== 3), validation.seeds.filter((_, e) => e !== 3));
     for (const bad of [{ purpose: 'test' }, { episodes: 0 }, { exclude: [{}] }, { exclude: 'training' }, { masterSeed: -1 }])
         assert.throws(() => buildHeldOutManifest({ masterSeed: 1, domain: 1, purpose: 'validation', episodes: 2, ...bad }), /^Error: coevolve:/);
+});
+
+// Evaluation fixtures: network drivers need only an id and a layer list until the GPU plays them.
+const net = id => ({ kind: 'network', id, network: [] });
+const pairOf = id => ({ id, prey: net(id), wolf: net(id) });
+
+test('U54 evaluation layout: the experiment\'s tile once per held-out episode, aligned, at least 20', async () => {
+    const { evaluationGeometry, MIN_EPISODES } = await import('../tools/agents/coevolve-evaluate.mjs');
+    const { validateConfig } = await import('../tools/agents/coevolve-config.mjs');
+    const experiment = validateConfig(coevoProfile({ name: 'u54-layout', outDir: 'tools/agents/out/coevo/u54-never-created' }));
+    assert.equal(MIN_EPISODES, 20);
+    assert.deepEqual(evaluationGeometry(experiment, 20),
+        { arenas: 20, wolves: 16, prey: 192, L: 24, gap: 10, cols: 5, contacts: null });
+    assert.equal(evaluationGeometry(experiment, 36).cols, 6);
+    assert.throws(() => evaluationGeometry(experiment, 16), /at least 20/);
+    assert.throws(() => evaluationGeometry(experiment, 22), /multiple of 4/);
+    const contacts = validateConfig(coevoProfile({ name: 'u54-contacts', outDir: 'tools/agents/out/coevo/u54-never-created',
+        contacts: true, contactOptions: { iterations: 2, maxPush: 0.25, relaxation: 1, compliance: 0, damping: 0.05,
+            mass: 'equal', maxScanPerCell: 64, cellSize: 2 } }));
+    assert.equal(evaluationGeometry(contacts, 20).contacts.maxPush, 0.25);
+});
+
+test('U54 evaluation plans: baselines both ways with their own pairings, cross-play every cell', async () => {
+    const { RULE_PAIR, LABEL_PAIR, matchup, baselineMatchups, baselineComparisons, crossplayMatchups } =
+        await import('../tools/agents/coevolve-evaluate.mjs');
+    const subject = pairOf('gen-0010'), clone = pairOf('clone'), baselines = [RULE_PAIR, LABEL_PAIR, clone];
+    const plan = baselineMatchups(subject, baselines);
+    assert.deepEqual(plan.map(m => m.id), ['gen-0010/gen-0010', 'gen-0010/rule', 'rule/gen-0010', 'rule/rule',
+        'gen-0010/label', 'label/gen-0010', 'label/label', 'gen-0010/clone', 'clone/gen-0010', 'clone/clone']);
+    assert.equal(plan[1].prey, subject.prey); assert.equal(plan[1].wolf.kind, 'rule');
+    const comparisons = baselineComparisons(subject, baselines);
+    assert.equal(comparisons.length, 6);
+    assert.deepEqual(comparisons.slice(0, 2), [
+        { species: 'prey', better: 'lower', subject: 'gen-0010', baseline: 'rule', minuend: 'gen-0010/rule', subtrahend: 'rule/rule' },
+        { species: 'wolf', better: 'higher', subject: 'gen-0010', baseline: 'rule', minuend: 'rule/gen-0010', subtrahend: 'rule/rule' }]);
+    const ids = new Set(plan.map(m => m.id));
+    for (const c of comparisons) assert.ok(ids.has(c.minuend) && ids.has(c.subtrahend), `${c.minuend} - ${c.subtrahend} is planned`);
+    const cross = crossplayMatchups([pairOf('gen-0000'), pairOf('gen-0010'), pairOf('gen-0020')]);
+    assert.equal(cross.length, 9);
+    assert.equal(cross[5].id, 'gen-0010/gen-0020');
+    assert.equal(cross[5].prey.id, 'gen-0010'); assert.equal(cross[5].wolf.id, 'gen-0020');
+    for (const bad of [[{ kind: 'network', id: '', network: [] }, RULE_PAIR.wolf], [{ kind: 'teacher', id: 't' }, RULE_PAIR.wolf], [RULE_PAIR.prey, null]])
+        assert.throws(() => matchup(...bad), /^Error: coevolve:/);
+});
+
+test('U54 evaluation summaries: paired by episode, the right direction per species, anchors frozen', async () => {
+    const { RULE_PAIR, baselineMatchups, baselineComparisons, summarize, crossplayMatchups, crossplaySummary } =
+        await import('../tools/agents/coevolve-evaluate.mjs');
+    const subject = pairOf('gen-0010'), plan = baselineMatchups(subject, [RULE_PAIR]);
+    // Episode-to-episode spread shared by every matchup; the subject's prey suffer one catch fewer
+    // against rule wolves on every episode, its wolves gain nothing.
+    const spread = Array.from({ length: 20 }, (_, e) => (e * 7) % 13);
+    const catches = plan.map(m => (m.id === 'gen-0010/rule' ? spread.map(x => x + 4) : spread.map(x => x + 5)));
+    const options = { seed: 11, resamples: 2000 };
+    const { matchups, comparisons } = summarize(plan, catches, baselineComparisons(subject, [RULE_PAIR]), options);
+    assert.deepEqual(matchups.map(m => [m.id, m.prey, m.wolf]), plan.map(m => [m.id, m.prey.id, m.wolf.id]));
+    assert.deepEqual(matchups[1].catches, catches[1]);
+    const [prey, wolf] = comparisons;
+    assert.deepEqual([prey.difference.low, prey.difference.high, prey.superior], [-1, -1, true]);
+    assert.deepEqual([wolf.difference.low, wolf.difference.high, wolf.superior], [0, 0, false]);
+    // The marginals of the same data overlap: only the pairing shows the improvement.
+    assert.ok(matchups[1].interval.high > matchups[3].interval.low);
+    assert.ok(!('noninferior' in prey), 'no margin, no noninferiority verdict');
+    const margined = summarize(plan, catches, baselineComparisons(subject, [RULE_PAIR]), { ...options, margin: 0.5 }).comparisons;
+    assert.deepEqual(margined.map(c => c.noninferior), [true, true]);
+    const shortfall = plan.map(m => (m.id === 'rule/gen-0010' ? spread.map(x => x + 4) : spread.map(x => x + 5)));
+    assert.equal(summarize(plan, shortfall, baselineComparisons(subject, [RULE_PAIR]), { ...options, margin: 0.5 }).comparisons[1].noninferior,
+        false, 'wolves one catch short of the baseline are not within a half-catch margin');
+    assert.throws(() => summarize(plan, catches.slice(1), [], options), /one catch list per matchup/);
+    assert.throws(() => summarize(plan, catches, [{ minuend: 'x/y', subtrahend: 'rule/rule', better: 'lower' }], options), /not played/);
+
+    const generations = [pairOf('gen-0000'), pairOf('gen-0010')], cross = crossplayMatchups(generations);
+    // Prey generation i, wolf generation j: catches 10 + 2j - i on every episode.
+    const cells = cross.map(m => Array(20).fill(10 + 2 * Number(m.wolf.id.slice(-2) === '10') - Number(m.prey.id.slice(-2) === '10')));
+    const summary = crossplaySummary(generations, cross, cells, ['gen-0000'], options);
+    assert.deepEqual(summary.mean, [[10, 12], [9, 11]]);
+    assert.deepEqual(summary.anchorScores.prey.map(s => s.mean), [-10, -9], 'prey score minus catches against anchor wolves');
+    assert.deepEqual(summary.anchorScores.wolf.map(s => s.mean), [10, 12], 'wolves score catches against anchor prey');
+    const both = crossplaySummary(generations, cross, cells, ['gen-0000', 'gen-0010'], options);
+    assert.deepEqual(both.anchorScores.prey.map(s => s.mean), [-11, -10]);
+    assert.throws(() => crossplaySummary(generations, cross, cells, ['gen-0020'], options), /anchors/);
+    assert.throws(() => crossplaySummary(generations, cross, cells, [], options), /anchors/);
+});
+
+test('U54 raw-data replay: an evaluation file\'s statistics recompute from its raw catches alone', async () => {
+    const { RULE_PAIR, LABEL_PAIR, baselineMatchups, baselineComparisons, summarize, crossplayMatchups, crossplaySummary, replay } =
+        await import('../tools/agents/coevolve-evaluate.mjs');
+    const subject = pairOf('gen-0010'), baselines = [RULE_PAIR, LABEL_PAIR], plan = baselineMatchups(subject, baselines);
+    const catches = plan.map((m, k) => Array.from({ length: 20 }, (_, e) => (e * (k + 3)) % 11));
+    const bootstrap = { seed: 5, resamples: 1000, level: 0.95 }, comparisons = baselineComparisons(subject, baselines);
+    // As evaluation.json stores it, through JSON.
+    const file = JSON.parse(JSON.stringify({ mode: 'baselines', plan: plan.map(m => ({ id: m.id, prey: m.prey.id, wolf: m.wolf.id })),
+        comparisons, bootstrap, margin: 0.5, results: summarize(plan, catches, comparisons, { ...bootstrap, margin: 0.5 }) }));
+    assert.deepEqual(replay(file), { results: file.results, crossplay: null });
+    const altered = JSON.parse(JSON.stringify(file));
+    altered.results.matchups[2].catches[7] += 1;
+    assert.notDeepEqual(replay(altered).results, file.results, 'an altered raw catch changes the replay');
+
+    const generations = [pairOf('gen-0000'), pairOf('gen-0010')], cross = crossplayMatchups(generations);
+    const cells = cross.map((m, k) => Array.from({ length: 20 }, (_, e) => (e + 2 * k) % 7));
+    const stored = JSON.parse(JSON.stringify({ mode: 'crossplay', plan: cross.map(m => ({ id: m.id, prey: m.prey.id, wolf: m.wolf.id })),
+        comparisons: [], bootstrap, margin: null, results: summarize(cross, cells, [], bootstrap),
+        crossplay: crossplaySummary(generations, cross, cells, ['gen-0000'], bootstrap) }));
+    assert.deepEqual(replay(stored), { results: stored.results, crossplay: stored.crossplay });
+    delete stored.results.matchups[1].catches;
+    assert.throws(() => replay({ ...stored, results: { matchups: stored.results.matchups.slice(1) } }), /no raw catches/);
+});
+
+test('U54 evaluation command line: strict flags, whole numbers, one mode', async () => {
+    const { parseEvalArgs } = await import('../tools/agents/coevolve-eval.mjs');
+    assert.deepEqual(parseEvalArgs(['crossplay', '--run', 'r', '--generations', '0,10', '--anchors', '0', '--purpose', 'validation',
+        '--seed', '7', '--domain', '3', '--analysis-seed', '99', '--episodes', '24']),
+        { mode: 'crossplay', run: 'r', purpose: 'validation', name: undefined, outDir: undefined, generations: [0, 10], anchors: [0],
+            seed: 7, domain: 3, analysisSeed: 99, episodes: 24, T: undefined, margin: undefined, clones: true });
+    assert.equal(parseEvalArgs(['baselines', '--no-clones']).clones, false);
+    assert.equal(parseEvalArgs(['baselines', '--margin', '0.75']).margin, 0.75);
+    for (const argv of [['evaluate'], [], ['baselines', '--seed'], ['baselines', '--seed', '-1'], ['baselines', '--seed', '1.5'],
+        ['baselines', '--margin', 'half'], ['baselines', '--margin', '-1'],
+        ['baselines', '--episodes', '20', '--episodes', '24'], ['baselines', '--generation', '10'], ['baselines', 'stray'],
+        ['baselines', '--generations', '10,x'], ['baselines', '--run', '--seed', '1']])
+        assert.throws(() => parseEvalArgs(argv), /^Error: coevolve:/, JSON.stringify(argv));
 });

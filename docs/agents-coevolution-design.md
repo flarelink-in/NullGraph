@@ -4,8 +4,9 @@
 **Revision 2 — 2026-10-18:** complete revision after steps 12–13 and code review.
 **Status (2026-10-20):** replacement 14.0 browser correctness verified (77/77); full-run safety and
 both-species quality gates remain unaccepted. 14.1 infrastructure validated on all three pairs;
-14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 started**
-(statistics and held-out manifests). Trainer runs so far are infrastructure smoke, not research or
+14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 in progress**
+(statistics, held-out manifests, arena evaluation and cross-play; §10 measures how little catches
+depend on policy in the test environment). Trainer runs so far are infrastructure smoke, not research or
 safety acceptance. Repairs and regression evidence are tracked in the work log. No training settings accepted. At the user's request, **all original
 phase 14.0 / S7 results are discarded**: invariant acceptance, timing/noise tables, learning and
 exploit conclusions, derived defaults and browser feasibility. **14.0 is reopened, not complete.**
@@ -386,10 +387,53 @@ checks each numerically against the evaluated runs' training seeds, recording re
 tests against an independent oracle; five watched-failing mutations (rank tolerance, unpaired
 difference, non-strict superiority, domain-only seeds, shared purpose stream).
 
+**14.4 runner, 2026-10-20:** `tools/agents/coevolve-evaluate.mjs` (no node: imports) and its
+command line `coevolve-eval.mjs`: `npm run agents:arena-eval` and `npm run agents:crossplay`. A
+matchup plays every held-out episode at once in one fresh lane of the checkpoint manifest's
+experiment: episode e in tile e from tick zero, as many tiles as episodes (at least 20, aligned to
+64-agent blocks), so all matchups of an evaluation pair by episode. A species is driven by the rule,
+the label (no wander or coin flips) or a network on a one-row `MlpBrain.byGenome` table, the
+trainer's kernel. arena-eval plays each listed checkpoint against the rule, label and clone
+baselines both ways beside each baseline's own pairing and compares per species and baseline (prey
+better with fewer catches, wolves with more), with an optional preregistered noninferiority
+margin; crossplay plays every listed prey generation against every listed wolf generation, with
+scores against anchors fixed on the command line. Models must match their manifest's hashes and
+the manifest the run's experiment; held-out seeds exclude the run's training seeds. `plan.json` is
+written before the GPU is requested, each matchup's raw catches are journaled as it finishes, and
+`evaluation.json` holds raw catches, intervals and comparisons; `replay()` recomputes them from the
+raw catches alone. The guard calibrates on the heaviest drivers with the trainer's workloads, and
+each lane compiles before its first step. Not built: exploit diagnostics (wall share over time,
+overlap, speeds, rest fraction, catch locations) and a browser run of the evaluator.
+
+**Measured with the runner's layout, 2026-10-20** (`test/spikes/coevo-eval/spawn-share.mjs`,
+Node/NVIDIA; P = 192, W = 16, contact-v2, contacts on, rest 5 s; 20 held-out tiles; mean catches
+per tile; "still" is a species standing still, the others run the rule). Spawn separation re-draws
+initial prey spawns closer than 2 m to a wolf, in the measurement only; respawns are unchanged.
+
+| Environment | first step | rule/rule, 5 s | rule/rule, 20 s | still prey, 20 s | still wolves, 20 s |
+|---|---|---|---|---|---|
+| L = 24 m (test profile), uniform spawn | 20.05 | 24.55 | 73.35 | 73.45 | 27.65 |
+| L = 24 m, separated spawn | 0 | 16.05 | 64.65 | 63.15 | 8.35 |
+| L = 36 m (§16 reference density), uniform | 9.45 | 18.35 | 55.45 | 65.75 | 14.75 |
+| L = 36 m, separated spawn | 0 | 15.95 | 51.90 | 62.15 | 4.20 |
+
+At L = 24 m **the prey's policy does not affect catches**: prey standing still are caught as often
+as rule prey, because the 5 s rest, not search, limits the wolves (16 wolves, at most about four
+catches each in 20 s), and about 20 prey per tile start inside a wolf's reach and are caught on the
+first step under any policy (82% of a 5 s episode). Prey evolution would have no fitness signal.
+At the reference density fleeing saves 16% of catches; separation removes the free first-step
+catches, which are otherwise half of a 5 s episode's at 36 m. Rule, label and clone pairings, all
+near-copies of one policy, differ by at most 3.9% everywhere. The wolves' policy registers in
+every row. Density is a profile setting; spawn separation would be a versioned environment
+change. Both await the user's decision before 14.0's settings and 14.5's freeze.
+
 ## 11. Invariants, test allocation and negative controls
 
 Existing steps own U43–U49 and A35–A41. Reserve **U50–U55, A42–A47** here; recheck concurrent
-allocations before implementation. E/I labels name properties, not global test numbers.
+allocations before implementation. E/I labels name properties, not global test numbers. 14.4 adds
+**A48–A51** (unused elsewhere on 2026-10-20) in `validate-coevolve.mjs --only evaluate`: rule
+drivers per species against the combined rule, one-row tables against the trainer's rows,
+baselines on a clone run, and cross-play replaying baseline cells.
 
 | Property | Required evidence |
 |---|---|
@@ -436,7 +480,7 @@ and cleanup all resources; do not overwrite unrelated or previously completed ou
 | **14.1 ✅** | Production lane/arena factory, legacy/contact modes, lifecycle | I1/I2/I3/E5/C1/R1, three pairs (Node NVIDIA/AMD, Chrome/AMD 40/40), watched failing; Q8 semantics settled |
 | **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
 | **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | Review findings closed with regressions (below); infrastructure evidence is not research acceptance |
-| **14.4 started** | Arena evaluation, clone opponents, crossplay, intervals, README | U54 statistics and held-out manifests done; arena-matched runner, crossplay and README next |
+| **14.4 in progress** | Arena evaluation, clone opponents, crossplay, intervals, README | U54 statistics and held-out manifests; `agents:arena-eval` and `agents:crossplay` with raw-data replay, A48–A51; exploit diagnostics next |
 | **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
 
 **14.3 closure, 2026-10-20.** The re-review found two defects the repairs had not reached, both

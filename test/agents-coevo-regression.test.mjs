@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, readdirSync, cpSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -246,4 +246,60 @@ test('lifecycle: completion follows cleanup, while cleanup errors retain incompl
         own({ destroy() { throw new Error('injected cleanup failure'); } });
     }), /injected cleanup failure/);
     assert.equal(JSON.parse(readFileSync(join(dir, 'status.json'))).state, 'incomplete');
+}));
+
+test('U54 evaluation orchestration: checkpoints verified, held-out seeds, durable incomplete on adapter failure', async () => temporary(async dir => {
+    const { planEvaluation, runEvaluation, loadRun, loadCheckpoint, loadClones } = await import('../tools/agents/coevolve-eval.mjs');
+    // A real run directory: the clone start writes run.json and gen-0000 before it asks for a GPU.
+    const runDir = join(dir, 'run');
+    await withoutAdapter(() => assert.rejects(runCoevolution(coevoProfile({ outDir: runDir, start: 'clones', hidden: [64, 64, 64] }),
+        { log() {} }), /injected adapter failure/));
+    const raw = { mode: 'baselines', run: runDir, generations: [0], purpose: 'validation', seed: 7, domain: 3,
+        analysisSeed: 99, clones: true, outDir: join(dir, 'eval') };
+    const plan = planEvaluation(raw);
+    assert.equal(plan.plan.length, 10); assert.equal(plan.comparisons.length, 6);
+    assert.deepEqual(plan.geometry, { arenas: 20, wolves: 16, prey: 192, L: 24, gap: 10, cols: 5, contacts: null });
+    assert.equal(plan.T, 300);
+    const training = new Set(loadRun(runDir).run.seedManifest.seedsByGeneration.flat());
+    assert.equal(plan.heldOut.seeds.length, 20);
+    assert.equal(plan.heldOut.excluded, training.size, 'every training seed of the run is excluded');
+    assert.ok(plan.heldOut.seeds.every(seed => !training.has(seed)), 'held-out seeds are not training seeds');
+    // The clone start's generation 0 is the committed clones, read back under the demo's names.
+    const start = loadCheckpoint(loadRun(runDir), 0), clones = loadClones();
+    for (const species of ['prey', 'wolf']) start[species].network.forEach((layer, j) =>
+        assert.deepEqual(layer.weights, clones[species].network[j].weights));
+
+    // A tampered model, manifest or config is refused before any GPU work.
+    const tampered = join(dir, 'tampered');
+    cpSync(runDir, tampered, { recursive: true });
+    const model = join(tampered, 'gen-0000', 'prey.mlp.json');
+    writeFileSync(model, readFileSync(model, 'utf8').replace('"weights": [', '"weights": [ '));
+    assert.throws(() => loadCheckpoint(loadRun(tampered), 0), /does not match its manifest/);
+    cpSync(join(runDir, 'gen-0000', 'prey.mlp.json'), model);
+    const manifestPath = join(tampered, 'gen-0000', 'manifest.json'), manifest = JSON.parse(readFileSync(manifestPath));
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, experiment: { ...manifest.experiment, T: 301 } }));
+    assert.throws(() => loadCheckpoint(loadRun(tampered), 0), /does not belong/);
+    const runPath = join(tampered, 'run.json'), runJson = JSON.parse(readFileSync(runPath));
+    writeFileSync(runPath, JSON.stringify({ ...runJson, config: { ...runJson.config, dt: 0.1 } }));
+    assert.throws(() => loadRun(tampered), /does not hash its config/);
+    assert.throws(() => loadCheckpoint(loadRun(runDir), 10), /no checkpoint gen-0010/);
+
+    for (const [change, message] of [[{ purpose: undefined }, /purpose/], [{ seed: undefined }, /--seed/],
+        [{ analysisSeed: 2 ** 32 }, /--analysis-seed/], [{ generations: [0, 0] }, /repeats/], [{ generations: [] }, /at least one/],
+        [{ episodes: 16 }, /at least 20/], [{ T: 2 ** 31 }, /u32/], [{ anchors: [0] }, /crossplay/],
+        [{ mode: 'crossplay', clones: false }, /baselines/], [{ mode: 'crossplay', anchors: [10] }, /anchor gen-0010/],
+        [{ margin: 0 }, /--margin/], [{ mode: 'crossplay', margin: 1 }, /--margin/],
+        [{ run: join(dir, 'missing') }, /no run.json/]])
+        assert.throws(() => planEvaluation({ ...raw, ...change }), message, JSON.stringify(change));
+    assert.equal(planEvaluation({ ...raw, mode: 'crossplay', clones: true }).plan.length, 1);
+
+    // The GPU is asked for only after plan.json is durable; a failure leaves the directory incomplete.
+    await withoutAdapter(() => assert.rejects(runEvaluation(raw, { log() {} }), /injected adapter failure/));
+    assert.equal(JSON.parse(readFileSync(join(dir, 'eval', 'status.json'))).state, 'incomplete');
+    const written = JSON.parse(readFileSync(join(dir, 'eval', 'plan.json')));
+    assert.equal(written.drivers['clone:prey'].hash, clones.prey.hash);
+    assert.deepEqual(written.heldOut.seeds, plan.heldOut.seeds);
+    assert.equal(written.plan.length, 10);
+    assert.ok(!existsSync(join(dir, 'eval', 'evaluation.json')));
+    assert.throws(() => planEvaluation(raw), /already exists/);
 }));

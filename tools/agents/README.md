@@ -28,7 +28,42 @@ CPU-only optimizer foundation, not a training CLI. Design: `docs/agents-coevolut
 
 No accepted training presets or optimizer hyperparameter defaults. Browser correctness and short
 rollout smoke are not score-quality or learning acceptance. Schedule/archive/trainer/guard and
-checkpoints are phase 14.3; evaluation and research remain subsequent phases.
+checkpoints are phase 14.3; evaluation (14.4) is below; research (14.5) remains.
+
+### Evaluating a run (14.4)
+
+```powershell
+npm run agents:arena-eval -- --run tools/agents/out/coevo/<run> --generations 0,20 `
+    --purpose validation --seed 7 --domain 14 --analysis-seed 99
+npm run agents:crossplay -- --run tools/agents/out/coevo/<run> --generations 0,10,20 --anchors 0 `
+    --purpose validation --seed 7 --domain 14 --analysis-seed 99
+```
+
+Both play a run's checkpoints in the environment they were trained in, read from the checkpoint's
+manifest. Each matchup plays every held-out episode at once, episode *e* in tile *e* of one fresh
+lane from tick zero, so all matchups of an evaluation pair by episode. `--episodes` defaults to 20,
+the least the design allows; `--T` defaults to the run's episode length.
+
+- **arena-eval** plays each listed checkpoint's prey against the rule's, the label's (the rule
+  without wander) and the clones' wolves, those baselines' prey against its wolves, each baseline
+  against itself, and the checkpoint against itself (`--no-clones` leaves the clones out). It
+  compares, per species and baseline, the checkpoint's pairing with the baseline's own over the
+  same episodes: prey are better with fewer catches, wolves with more. `--margin <catches>` adds a
+  noninferiority verdict (H2) against a margin fixed before the results are read.
+- **crossplay** plays every listed prey generation against every listed wolf generation and
+  scores each generation against the `--anchors` (default: the first listed), fixed before the
+  results are read.
+
+Held-out seeds come from their own stream per `--purpose` (validation guides settings; final-test
+only judges) and are checked against the run's training seeds. `--seed`, `--domain` and
+`--analysis-seed` (the bootstrap's) are required, so a preregistration can name them. Checkpoint
+models must match their manifest's hashes and the manifest the run's experiment. Output goes to a
+fresh `tools/agents/out/coevo-eval/<name>/`: `plan.json` (drivers with model hashes, seeds, plan)
+before the GPU is touched, `log.jsonl` with each matchup's raw catches as it finishes, and
+`evaluation.json` with raw catches, 95% intervals (10,000 paired resamples) and, for crossplay,
+the matrices and anchor scores. `status.json` says `complete` only after cleanup. `--name` or
+`--out-dir` choose the directory; `replay()` in `coevolve-evaluate.mjs` recomputes every interval
+and comparison from an `evaluation.json`'s raw catches.
 
 Tests: `node --test test/agents-coevo.test.mjs test/coevo-arena.test.mjs` (also in `npm run test:agents`).
 
@@ -159,7 +194,8 @@ rest 5 s, flocking and fleeing on.
 | `scenario/arena-layout.mjs`, `scenario/herd-wolves-arenas.mjs` | Step 14's tiles: geometry, the contact-v2 catch rule, mirrored lane systems, the demo's model names |
 | `es.mjs` | Step 14's evolution-strategies math: noise, ranks, the mirrored gradient, Adam |
 | `coevolve.mjs` and `coevolve-*.mjs` | The co-evolution trainer: config, schedule and archive, guard, lifecycle, checkpoints, statistics |
-| `validate-coevolve.mjs` | The trainer's GPU infrastructure regressions |
+| `coevolve-evaluate.mjs`, `coevolve-eval.mjs` | Arena-matched evaluation and cross-play (no Node imports), and their command line |
+| `validate-coevolve.mjs` | The trainer's and the evaluator's GPU infrastructure regressions |
 
 `scenario/`, `label-pass.mjs`, `dataset.mjs`'s row helpers, `recorder.mjs`, `evaluator.mjs`,
 `model.mjs` and `onnx.mjs` import nothing from Node, so the GPU suites also run them in Chrome.
@@ -230,6 +266,12 @@ Known limits of the trainer:
   timers are not clamped.
 - **Calibration's cache key includes seeds and weights,** so evidence carries over only to a rerun
   of the same experiment. It never waives fresh probes either way.
+- **In the test profile's environment (24 m tiles) the prey's policy does not affect catches.**
+  Prey standing still are caught as often as rule prey over 20 s, because the 5 s rest caps the
+  wolves, and about 20 catches per tile happen on the first step from prey spawned inside a wolf's
+  reach. At the design's reference density (36 m) fleeing saves 16%; separating the spawns
+  removes the free catches (design §10, `test/spikes/coevo-eval/spawn-share.mjs`). Density and
+  spawn await a decision before research settings are chosen.
 
 - **One scenario.** The tools take a scenario module, but only Herd & Wolves exists.
 - **The label pass finds its place by a stage's name,** `AgentSystem act`. If a library change

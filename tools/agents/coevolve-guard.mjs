@@ -69,6 +69,51 @@ export async function calibrateArenaSteps({ geometry, measure, cacheFile, key = 
     return { stepMs: worst, evidence, targetMs: 500, stopMs: 1500 };
 }
 
+/** A calibration workload's spawn: ordinary keeps the seed's, the others pack each tile. */
+export function workloadFixture(workload, L) {
+    if (!WORKLOADS.includes(workload)) fail(`unknown workload "${workload}"`);
+    if (workload === 'ordinary') return undefined;
+    return (init, { lo, slot }) => {
+        const shift = workload === 'coincident' ? 0 : (slot % 8) * 0.02;
+        init.position = [lo[0] + (workload === 'wall' ? 0.61 : L / 2) + shift, 0.08, lo[1] + L / 2 + shift];
+        if (workload === 'frozen') { init.frozen = true; init.age = 1; }
+    };
+}
+
+/** Singles at advancing cadence on a compiled lane: the slowest step, never a mean. */
+export async function timeSingles(engine, lane, health, steps) {
+    const single = createSubmissionGuard(1);
+    let ms = 0;
+    for (let step = 0; step < steps; step++) {
+        const start = performance.now();
+        engine.render(lane.chain);
+        await health.check();
+        const took = performance.now() - start;
+        single.observe(1, took); ms = Math.max(ms, took);
+        if (took > 1000) fail('calibration single exceeds admission limit');
+    }
+    return ms;
+}
+
+/** Exactly `steps` one-step chains in guarded batches; each batch is waited for and checked. */
+export async function runGuarded(engine, lane, steps, submissions, health) {
+    const observed = { ms: 0, batches: 0, maxBatchMs: 0, maxStepMs: 0 }, start = performance.now();
+    for (let remaining = steps; remaining > 0;) {
+        const count = submissions.next(remaining), seq = [];
+        for (let s = 0; s < count; s++) seq.push(...lane.chain);
+        const submitted = performance.now();
+        engine.render(seq);
+        await health.check();
+        const ms = performance.now() - submitted;
+        submissions.observe(count, ms);
+        Object.assign(observed, { batches: observed.batches + 1, maxBatchMs: Math.max(observed.maxBatchMs, ms),
+            maxStepMs: Math.max(observed.maxStepMs, ms / count) });
+        remaining -= count;
+    }
+    observed.ms = performance.now() - start;
+    return observed;
+}
+
 export function createSubmissionGuard(stepMs) {
     if (!Number.isFinite(stepMs) || stepMs <= 0 || stepMs > 1000) fail('unsafe step prediction');
     let worst = stepMs, cap = Infinity;

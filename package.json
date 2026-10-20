@@ -102,6 +102,8 @@
     "agents:evaluate": "node tools/agents/evaluate.mjs",
     "agents:export": "node tools/agents/export.mjs",
     "agents:coevolve": "node tools/agents/coevolve.mjs",
+    "agents:arena-eval": "node tools/agents/coevolve-eval.mjs baselines",
+    "agents:crossplay": "node tools/agents/coevolve-eval.mjs crossplay",
     "spike:s3": "node test/gpu/run-harness.mjs test/spikes/s3-think-kernel/run.js __S3_RESULTS__",
     "spike:mlp-think": "node test/gpu/run-harness.mjs test/spikes/mlp-think-cost/run.js __MLP_THINK_RESULTS__",
     "spike:s6": "node test/gpu/run-harness.mjs test/spikes/genome-rows/run.js __S6_RESULTS__",

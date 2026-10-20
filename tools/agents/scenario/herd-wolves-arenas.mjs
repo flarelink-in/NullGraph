@@ -3,7 +3,7 @@
 import * as A from '../../../dist/agents.js';
 import { DiscContacts } from '../../../dist/physics.js';
 import { arenaLayout, exhaustiveCatchWGSL } from './arena-layout.mjs';
-import { DRIVER, HERD_CATCHES, HERD_DEFAULTS, SETTINGS, herdDefinition, herdRule } from './herd-wolves.mjs';
+import { DRIVER, HERD_CATCHES, HERD_DEFAULTS, LABEL_DRIVING, SETTINGS, herdDefinition, herdRule } from './herd-wolves.mjs';
 const f32 = v => Number.isInteger(v) ? v.toFixed(1) : String(v);
 const arenaWGSL = lay => `
 const ARENA_ORIGIN_X: f32 = ${f32(lay.origin[0])};
@@ -154,9 +154,16 @@ fn step(i: u32, tick: u32) {
     agents[i].posRadius.x = p.x; agents[i].posRadius.z = p.y;
 }`;
 
+// A species `brains` names by string runs the scenario's rule instead of a policy table: the demo's
+// teacher, or the rule without wander and coin flips (the label's decisions, plan-2's baseline).
+export const RULE_DRIVERS = Object.freeze({ rule: DRIVER, label: LABEL_DRIVING });
+
 export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
     seedOf, rowOf, brains, fixture, catchMargin, contactOptions = {}, dt = 1 / 60, monitorFinite = false } = {}) {
     if (!['legacy-v1', 'contact-v2'].includes(environment)) throw new Error(`coevolve: unknown environment ${environment}`);
+    if (brains) for (const name of ['prey', 'wolf']) if (typeof brains[name] === 'string' ? !RULE_DRIVERS[brains[name]] : !brains[name])
+        throw new Error(`coevolve: ${name} driver must be a brain, "rule" or "label"`);
+    const table = name => brains && typeof brains[name] !== 'string';
     if (typeof contacts !== 'boolean') throw new Error('coevolve: contacts must be explicit');
     if (environment === 'legacy-v1' && contacts) throw new Error('coevolve: legacy-v1 requires contacts off');
     if (!Number.isInteger(thinkEvery) || thinkEvery < 1) throw new Error('coevolve: invalid thinkEvery');
@@ -175,7 +182,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         const seed = seedOf(a), rows = Object.fromEntries(['prey', 'wolf'].map(name => [name, rowOf(a, name)]));
         if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new Error(`coevolve: seed ${seed} outside u32`);
         for (const name of ['prey', 'wolf']) if (!Number.isInteger(rows[name]) || rows[name] < 0 ||
-            rows[name] > 0xffffffff || (brains && (!Number.isInteger(brains[name]?.rowCount) || rows[name] >= brains[name].rowCount)))
+            rows[name] > 0xffffffff || (table(name) && (!Number.isInteger(brains[name].rowCount) || rows[name] >= brains[name].rowCount)))
             throw new Error(`coevolve: ${name} row ${rows[name]} outside policy table`);
         return { seed, rows };
     });
@@ -188,8 +195,11 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
     try {
         const settings = alloc(16, new Float32Array([1, 1, 5, 0])), stats = alloc(16);
         const counters = alloc(Math.max(16, lay.arenas * 4));
-        if (brains) for (const name of ['prey', 'wolf']) sys.setBrain(brains[name], { species: name });
-        else sys.setBrain({ kind: 'stage', wgsl: `const ACT_TURN = 0u;\nconst ACT_THROTTLE = 1u;\n${herdRule(DRIVER)}`, buffers: [settings] });
+        const rule = seams => ({ kind: 'stage', wgsl: `const ACT_TURN = 0u;\nconst ACT_THROTTLE = 1u;\n${herdRule(seams)}`, buffers: [settings] });
+        const rules = {};   // one brain per rule kind, shared by the species it drives
+        if (brains) for (const name of ['prey', 'wolf']) sys.setBrain(table(name) ? brains[name]
+            : (rules[brains[name]] ??= rule(RULE_DRIVERS[brains[name]])), { species: name });
+        else sys.setBrain(rule(DRIVER));
         if (environment === 'contact-v2') {
             const snapshot = alloc(bytes);
             const stage = engine.createComputeStage({ name: 'coevolve catch snapshot', dispatchCount: [Math.ceil(lay.count / 64), 1, 1],
