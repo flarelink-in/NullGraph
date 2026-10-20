@@ -1,0 +1,10 @@
+{
+  "K": 32, "E": 1, "P": 192, "W": 16, "L": 36, "cols": 8, "gap": 10,
+  "T": 1200, "dt": 0.016666666666666666, "thinkEvery": 3,
+  "environment": "contact-v3", "spawnSeparation": 2, "contacts": true,
+  "contactOptions": { "iterations": 2, "relaxation": 1.75, "maxPush": 0.25, "maxScanPerCell": 32, "damping": 1, "mass": "area", "compliance": 0, "cellSize": 1.45 },
+  "catchMargin": 0.05, "generations": 200, "start": "clones", "hidden": [64, 64, 64],
+  "optimizer": { "sigma": 0.1, "rate": 0.01, "decay": 0.005 },
+  "archive": { "every": 5, "cap": 32, "share": 0.5 },
+  "seeds": { "master": 15001, "domain": 150 }
+}

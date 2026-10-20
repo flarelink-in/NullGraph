@@ -103,6 +103,23 @@ against the counters. Run with
 
 Tests: `node --test test/agents-coevo.test.mjs test/coevo-arena.test.mjs` (also in `npm run test:agents`).
 
+### Watching checkpoints (step 15, first slice)
+
+The film scene `coevo-arena` (`tools/film/scenes/coevo-arena.mjs`) plays a run's checkpoints in the
+arenas they trained in, one matchup a tile, every tile from the same episode seed, in Herd & Wolves'
+look with a fence per tile ([`docs/agents-coevo-films-design.md`](../../docs/agents-coevo-films-design.md)).
+A film file names the run and one driver per tile, a generation, `"clone"` or (species-wide) `"rule"`:
+
+```text
+npm run film -- tools/film/films/coevo-x150-random-pairs.json --out tools/film/out/coevo-x150-random-pairs
+node tools/agents/coevolve-film-labels.mjs tools/film/out/coevo-x150-random-pairs --title "Random start"
+```
+
+The second line burns tile labels into `film-labelled.mp4`. The four `coevo-x150-*` films need the
+exploratory runs first: `npm run agents:coevolve -- --config tools/agents/explore/x150-random.json
+--name x150-random-15002` (and `x150-clones.json` as `x150-clones-15001`). Films are exploratory,
+never evidence for H1–H3.
+
 ## What you need
 
 - Node, and a GPU that Dawn can use: recording and evaluating run the simulation headless.

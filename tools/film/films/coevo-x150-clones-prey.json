@@ -1,0 +1,8 @@
+{
+  "name": "coevo-x150-clones-prey",
+  "scene": "coevo-arena",
+  "settings": { "run": "tools/agents/out/coevo/x150-clones-15001", "prey": [0, 50, 100, 200], "wolf": ["rule", "rule", "rule", "rule"] },
+  "film": { "seconds": 20, "fps": 60, "width": 1920, "height": 1080, "scale": 1 },
+  "segmentSeconds": 10,
+  "encode": { "codec": "libx264", "crf": 18, "preset": "medium", "tune": "animation" }
+}
