@@ -574,7 +574,7 @@ and cleanup all resources; do not overwrite unrelated or previously completed ou
 | **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
 | **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | Review findings closed with regressions (below); infrastructure evidence is not research acceptance |
 | **14.4 ✅ infrastructure** | Arena evaluation, clone opponents, crossplay, intervals, diagnostics, `contact-v3`, README | U54 statistics/manifests/replay/forgetting; A48–A51 runner; A52 contact-v3; A53–A54 diagnostics/evaluator 44/44 on all three pairs |
-| **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
+| **14.5 draft** | Preregistered H1/H2/H3 ([draft 1](./agents-coevolution-prereg.md), decisions 1–8 accepted, not frozen), contacts ablation if scheduled | Freeze after 14.0's gates in `contact-v3`; results, uncertainty and verdicts recorded even on failure |
 
 **14.3 closure, 2026-10-20.** The re-review found two defects the repairs had not reached, both
 now fixed with regressions watched failing: the archive appended only the species that had just
@@ -622,7 +622,11 @@ acceptance/defaults/conclusions withdrawn; S8/S9 remain independent evidence.
 (separated spawns, 2 m measured) at §16's reference density (36 m tiles). Asked whether fewer prey
 would help, the measurement answered no for the signal (§10); the prey count stays a throughput
 choice for 14.0. Episode length is open for 14.0, with §10's evidence that prey behaviour registers
-only in long episodes (16.5% at 20 s, 2.7% at 10 s, none at 5 s).
+only in long episodes (16.5% at 20 s, 2.7% at 10 s, none at 5 s). Later that day the user accepted
+the 14.5 preregistration's decisions 1–8 as proposed ([prereg](./agents-coevolution-prereg.md)
+§10): H1–H3 with three conditions × three seeds, T = 1200, the 5% H2 margin, 200 final-test
+episodes, post-spawn randomness reported rather than changed, runs kept under about 600
+generations, and the direction screen then 14.0's gates in `contact-v3` next. The H3 test is open.
 
 Before 14.1: replacement S7 validates lane/reset architecture, proposes population/T/E and tuning
 ranges, and tests proposed contact-v1 Q8 margin/order. Final settings and any trade-off requiring
