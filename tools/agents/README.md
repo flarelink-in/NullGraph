@@ -158,7 +158,7 @@ rest 5 s, flocking and fleeing on.
 | `cli.mjs` | What the command lines share |
 | `scenario/arena-layout.mjs`, `scenario/herd-wolves-arenas.mjs` | Step 14's tiles: geometry, the contact-v2 catch rule, mirrored lane systems, the demo's model names |
 | `es.mjs` | Step 14's evolution-strategies math: noise, ranks, the mirrored gradient, Adam |
-| `coevolve.mjs` and `coevolve-*.mjs` | The co-evolution trainer: config, schedule and archive, guard, lifecycle, checkpoints |
+| `coevolve.mjs` and `coevolve-*.mjs` | The co-evolution trainer: config, schedule and archive, guard, lifecycle, checkpoints, statistics |
 | `validate-coevolve.mjs` | The trainer's GPU infrastructure regressions |
 
 `scenario/`, `label-pass.mjs`, `dataset.mjs`'s row helpers, `recorder.mjs`, `evaluator.mjs`,
@@ -166,7 +166,7 @@ rest 5 s, flocking and fleeing on.
 
 ## Limits
 
-### Co-evolution (step 14) — 14.3 closed 2026-10-20
+### Co-evolution (step 14) — 14.3 closed 2026-10-20, 14.4 started
 
 Trainer runs so far are infrastructure smoke only; no contact-v2 research settings or cross-GPU
 equality are accepted, and 14.0's safety and quality gates are still open.
@@ -210,6 +210,12 @@ a clone start with two replicas and an archive small enough to evict, and counts
 the trainer's device (none while calibrating, exactly one per generation: I6). `--only clones` runs
 that part alone. This does not establish research acceptance; its report identifies the
 intentionally injected error.
+
+`coevolve-stats.mjs` (14.4) holds the evaluation statistics: a percentile bootstrap of means and of
+paired differences over the same held-out episodes (10,000 resamples, nearest-rank 95% bounds, an
+explicit analysis seed), strict superiority and margin-based noninferiority. It imports nothing from
+Node. `buildHeldOutManifest` in `coevolve-schedule.mjs` makes validation or final-test seeds,
+checked against the evaluated runs' training seeds.
 
 Known limits of the trainer:
 

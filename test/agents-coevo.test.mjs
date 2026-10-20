@@ -508,4 +508,115 @@ test('U55 guard submission calibration, batch size and 1500 ms safety threshold'
     assert.equal(calcBatch(20), 25);    // 25 * 20 = 500 ms
     assert.equal(calcBatch(400), 1);    // 1 * 400 = 400 ms
     assert.equal(calcBatch(600), 1);    // 1 * 600 = 600 ms (single step <= 1000)
+});
+
+// Independent oracle for the bootstrap: plain arrays, integer tail ranks for the levels used here.
+function bootstrapOracle(values, seed, resamples, tail) {
+    const n = values.length, means = [];
+    for (let r = 0; r < resamples; r++) {
+        let sum = 0;
+        for (let j = 0; j < n; j++) sum += values[Math.floor(tupleHash(0x45530601, seed, n, r, j) * n / 2 ** 32)];
+        means.push(sum / n);
+    }
+    means.sort((x, y) => x - y);
+    return { low: means[tail - 1], high: means[resamples - tail] };
+}
+
+test('U54 bootstrap: deterministic shared draws, nearest-rank bounds, constants and goldens', async () => {
+    const { BOOTSTRAP, BOOTSTRAP_VERSION, resampleIndices, meanInterval } = await import('../tools/agents/coevolve-stats.mjs');
+    assert.deepEqual(BOOTSTRAP, { resamples: 10000, level: 0.95 });
+    assert.deepEqual([...resampleIndices({ seed: 7, n: 5, resamples: 3 })], [2, 2, 2, 4, 4, 3, 1, 0, 3, 4, 4, 0, 4, 0, 3]);
+    assert.deepEqual(resampleIndices({ seed: 7, n: 5, resamples: 50 }), resampleIndices({ seed: 7, n: 5, resamples: 50 }));
+    assert.notDeepEqual(resampleIndices({ seed: 7, n: 5, resamples: 50 }), resampleIndices({ seed: 8, n: 5, resamples: 50 }));
+    const draws = resampleIndices({ seed: 3, n: 4, resamples: 10000 }), counts = [0, 0, 0, 0];
+    for (const index of draws) counts[index]++;
+    for (const count of counts) assert.ok(Math.abs(count / draws.length - 0.25) < 0.01, `draw shares ${counts}`);
+    assert.ok(resampleIndices({ seed: 1, n: 1, resamples: 20 }).every(index => index === 0));
+
+    // Golden (exact: integer hashing and fixed-order sums are the same in every engine).
+    assert.deepEqual(meanInterval([1, 2, 3, 4, 5], { seed: 1, resamples: 1000 }),
+        { n: 5, mean: 3, low: 1.8, high: 4.2, level: 0.95, resamples: 1000, seed: 1, version: BOOTSTRAP_VERSION });
+    // Integer catches tie often; square roots make neighbouring ranks differ, so the rank is pinned.
+    const integers = [12, 0, 7, 7, 3, 19, 4, 8, 1, 30, 2, 2, 6, 9, 11, 5, 0, 14, 3, 7];
+    const distinct = Array.from({ length: 20 }, (_, j) => Math.sqrt(j + 2));
+    for (const values of [integers, distinct]) for (const [resamples, level, tail] of [[1000, 0.95, 25], [10000, 0.95, 250], [400, 0.9, 20], [4, 0.5, 1]]) {
+        const got = meanInterval(values, { seed: 99, resamples, level }), want = bootstrapOracle(values, 99, resamples, tail);
+        assert.equal(got.low, want.low); assert.equal(got.high, want.high);
+        assert.ok(got.low <= got.mean && got.mean <= got.high);
+    }
+    const next = bootstrapOracle(distinct, 99, 10000, 251);
+    assert.notEqual(meanInterval(distinct, { seed: 99 }).low, next.low, 'the 250th and 251st means differ');
+    // Constant samples and a single episode give a zero-width interval at the value.
+    for (const constant of [[4, 4, 4, 4], [2.5]]) {
+        const c = meanInterval(constant, { seed: 5 });
+        assert.equal(c.low, constant[0]); assert.equal(c.high, constant[0]); assert.equal(c.mean, constant[0]);
+    }
+    for (const bad of [[[], { seed: 1 }], [[1, NaN], { seed: 1 }], [[1, Infinity], { seed: 1 }], [['1'], { seed: 1 }],
+        [[1], {}], [[1], { seed: -1 }], [[1], { seed: 0.5 }], [[1], { seed: 1, resamples: 0 }],
+        [[1], { seed: 1, level: 1 }], [[1], { seed: 1, level: 0 }], [null, { seed: 1 }]])
+        assert.throws(() => meanInterval(...bad), /^Error: coevolve:/);
+    assert.throws(() => resampleIndices({ seed: 1, n: 7000, resamples: 10000 }), /draws/);
+});
+
+test('U54 paired intervals: known shifts are exact, shared noise cancels, and decisions need the interval', async () => {
+    const { pairedBootstrap, meanInterval, superior, noninferior } = await import('../tools/agents/coevolve-stats.mjs');
+    const a = [3, 1, 4, 1, 5, 9, 2, 6], options = { seed: 42, resamples: 2000 };
+    const shifted = pairedBootstrap(a, a.map(x => x + 3), options);
+    assert.equal(shifted.difference.low, -3); assert.equal(shifted.difference.high, -3); assert.equal(shifted.difference.mean, -3);
+    // The marginals use the same draws as the difference, and equal the one-arm interval.
+    assert.deepEqual(shifted.a, meanInterval(a, options));
+    assert.ok(Math.abs(shifted.b.low - (shifted.a.low + 3)) < 1e-12 && Math.abs(shifted.b.high - (shifted.a.high + 3)) < 1e-12);
+    assert.equal(superior(shifted.difference, { better: 'lower' }), true);
+    assert.equal(superior(shifted.difference, { better: 'higher' }), false);
+    // Episode-to-episode spread shared by both arms overlaps the marginals; the paired interval is exact.
+    const shared = [0, 40, 3, 25, 9, 31, 17, 2, 36, 12], paired = pairedBootstrap(shared.map(z => z + 2), shared, options);
+    assert.ok(paired.a.low < paired.b.high, 'marginal intervals overlap');
+    assert.deepEqual([paired.difference.low, paired.difference.high], [2, 2]);
+    assert.equal(superior(paired.difference, { better: 'higher' }), true);
+    // Strictly favorable: a bound at exactly zero is not superiority.
+    const touching = pairedBootstrap([1, 0, 0, 0, 0, 0, 0, 0, 0, 0], new Array(10).fill(0), options);
+    assert.equal(touching.difference.low, 0);
+    assert.equal(superior(touching.difference, { better: 'higher' }), false);
+    // Golden mixed case: an interval spanning zero decides nothing either way.
+    const mixed = pairedBootstrap(a, [2, 7, 1, 8, 2, 8, 1, 8], options);
+    assert.deepEqual([mixed.difference.mean, mixed.difference.low, mixed.difference.high], [-0.75, -3.25, 1.625]);
+    assert.equal(superior(mixed.difference, { better: 'higher' }), false);
+    assert.equal(superior(mixed.difference, { better: 'lower' }), false);
+    // Noninferiority needs a preregistered margin; no significance is not equivalence.
+    assert.equal(noninferior(mixed.difference, { better: 'higher', margin: 4 }), true);
+    assert.equal(noninferior(mixed.difference, { better: 'higher', margin: 3 }), false);
+    assert.equal(noninferior(mixed.difference, { better: 'lower', margin: 2 }), true);
+    for (const bad of [{ better: 'higher' }, { better: 'higher', margin: 0 }, { better: 'up', margin: 1 }])
+        assert.throws(() => noninferior(mixed.difference, bad), /^Error: coevolve:/);
+    assert.throws(() => superior(mixed.difference, {}), /^Error: coevolve:/);
+    assert.throws(() => pairedBootstrap([1, 2], [1], options), /differ in length/);
+    assert.throws(() => pairedBootstrap([1, 2], [1, NaN], options), /^Error: coevolve:/);
+    const source = readFileSync(new URL('../tools/agents/coevolve-stats.mjs', import.meta.url), 'utf8');
+    assert.deepEqual([...source.matchAll(/^import .* from '([^']+)';/gm)].map(m => m[1]), ['./es.mjs'], 'browser-loadable');
+});
+
+test('U54 held-out manifests: own stream per purpose, numerically distinct from training, recorded retries', async () => {
+    const { buildSeedManifest, buildHeldOutManifest, manifestSeeds, STREAM_HELD_OUT } = await import('../tools/agents/coevolve-schedule.mjs');
+    const training = buildSeedManifest({ masterSeed: 18001, domain: 1, generations: 3, K: 4, E: 2 });
+    const validation = buildHeldOutManifest({ masterSeed: 18001, domain: 2, purpose: 'validation', episodes: 20, exclude: [training] });
+    assert.equal(validation.seeds.length, 20);
+    assert.equal(validation.seeds[0], tupleHash(18001, 2, STREAM_HELD_OUT.validation, 0, 0));
+    assert.equal(validation.excluded, 24);
+    const finalTest = buildHeldOutManifest({ masterSeed: 18001, domain: 2, purpose: 'final-test', episodes: 20,
+        exclude: [training, validation] });
+    const all = [...manifestSeeds(training), ...validation.seeds, ...finalTest.seeds];
+    assert.equal(new Set(all).size, all.length, 'no seed is shared by training, validation and final test');
+    // Separate streams, not the collision check, keep the purposes apart: no retries were needed.
+    assert.deepEqual([validation.retries, finalTest.retries], [[], []]);
+    assert.equal(finalTest.seeds[0], tupleHash(18001, 2, 8, 0, 0));
+    assert.notEqual(validation.manifestHash, finalTest.manifestHash);
+    assert.deepEqual(buildHeldOutManifest({ masterSeed: 18001, domain: 2, purpose: 'validation', episodes: 20, exclude: [training] }), validation);
+    // A training seed equal to a held-out candidate is regenerated, deterministically, and recorded.
+    const clash = { seeds: [validation.seeds[3]] };
+    const regenerated = buildHeldOutManifest({ masterSeed: 18001, domain: 2, purpose: 'validation', episodes: 20, exclude: [clash] });
+    assert.deepEqual(regenerated.retries, [{ e: 3, retry: 1, seed: tupleHash(18001, 2, STREAM_HELD_OUT.validation, 3, 1) }]);
+    assert.ok(!regenerated.seeds.includes(validation.seeds[3]));
+    assert.deepEqual(regenerated.seeds.filter((_, e) => e !== 3), validation.seeds.filter((_, e) => e !== 3));
+    for (const bad of [{ purpose: 'test' }, { episodes: 0 }, { exclude: [{}] }, { exclude: 'training' }, { masterSeed: -1 }])
+        assert.throws(() => buildHeldOutManifest({ masterSeed: 1, domain: 1, purpose: 'validation', episodes: 2, ...bad }), /^Error: coevolve:/);
 });

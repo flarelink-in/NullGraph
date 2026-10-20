@@ -9,6 +9,8 @@ export const STREAM_SPAWN = 2;
 export const STREAM_OPPONENT = 3;
 export const STREAM_PERMUTATION = 4;
 export const STREAM_INIT = 5;
+// Held-out episodes (design §8, §10): validation guides settings, final-test only judges.
+export const STREAM_HELD_OUT = Object.freeze({ validation: 7, 'final-test': 8 });
 
 export function evolvingSpecies(t) {
     if (!Number.isInteger(t) || t < 0) fail('generation t must be a non-negative integer');
@@ -103,6 +105,41 @@ export function buildSeedManifest({ masterSeed, domain, generations, K, E }) {
         totalEpisodes: generations * B,
         manifestHash,
     };
+}
+
+/** Every episode seed a manifest holds: a training manifest's generations, or a held-out list. */
+export function manifestSeeds(manifest) {
+    if (Array.isArray(manifest?.seedsByGeneration)) return manifest.seedsByGeneration.flat();
+    if (Array.isArray(manifest?.seeds)) return manifest.seeds;
+    fail('not a seed manifest: needs seedsByGeneration or seeds');
+}
+
+/**
+ * Held-out episode seeds for `purpose`, one per evaluated episode and shared by every matchup.
+ * Domains alone do not prove numbers differ: each seed is checked against every seed of `exclude`
+ * (the evaluated runs' training manifests and the other purpose) and regenerated on collision,
+ * with the retries recorded.
+ */
+export function buildHeldOutManifest({ masterSeed, domain, purpose, episodes, exclude = [] }) {
+    if (!Number.isInteger(masterSeed) || masterSeed < 0 || masterSeed > 0xffffffff) fail('masterSeed must be u32');
+    if (!Number.isInteger(domain) || domain < 0 || domain > 0xffffffff) fail('domain must be u32');
+    const stream = STREAM_HELD_OUT[purpose];
+    if (!stream) fail(`held-out purpose must be ${Object.keys(STREAM_HELD_OUT).join(' or ')}, not "${purpose}"`);
+    if (!Number.isSafeInteger(episodes) || episodes < 1 || episodes > 0xffffffff) fail('episodes must be a positive u32');
+    if (!Array.isArray(exclude)) fail('exclude must be an array of seed manifests');
+    const used = new Set(exclude.flatMap(manifestSeeds)), excluded = used.size, seeds = [], retries = [];
+    for (let e = 0; e < episodes; e++) {
+        for (let retry = 0; ; retry++) {
+            if (retry > 10000) fail('excessive held-out seed collisions');
+            const seed = tupleHash(masterSeed, domain, stream, e, retry);
+            if (used.has(seed)) continue;
+            used.add(seed); seeds.push(seed);
+            if (retry > 0) retries.push({ e, retry, seed });
+            break;
+        }
+    }
+    const manifestHash = createHash('sha256').update(JSON.stringify({ masterSeed, domain, purpose, episodes, seeds, retries })).digest('hex');
+    return { masterSeed, domain, purpose, episodes, seeds, retries, excluded, manifestHash };
 }
 
 /** Fisher-Yates seeded permutation of B arenas for generation t. */

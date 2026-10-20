@@ -4,8 +4,9 @@
 **Revision 2 — 2026-10-18:** complete revision after steps 12–13 and code review.
 **Status (2026-10-20):** replacement 14.0 browser correctness verified (77/77); full-run safety and
 both-species quality gates remain unaccepted. 14.1 infrastructure validated on all three pairs;
-14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 next.**
-Trainer runs so far are infrastructure smoke, not research or safety acceptance. Repairs and regression evidence are tracked in the work log. No training settings accepted. At the user's request, **all original
+14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 started**
+(statistics and held-out manifests). Trainer runs so far are infrastructure smoke, not research or
+safety acceptance. Repairs and regression evidence are tracked in the work log. No training settings accepted. At the user's request, **all original
 phase 14.0 / S7 results are discarded**: invariant acceptance, timing/noise tables, learning and
 exploit conclusions, derived defaults and browser feasibility. **14.0 is reopened, not complete.**
 The old spike source remains historical code, not a reference implementation. No new results are
@@ -375,6 +376,16 @@ Freeze anchor selection before reading final results.
   rest fraction and catch locations. A final-frame distance alone does not prove an episode-wide
   strategy or causal exploit mechanism.
 
+**14.4 first slice, 2026-10-20:** `tools/agents/coevolve-stats.mjs` (pure, browser-loadable):
+`resampleIndices`, `meanInterval`, `pairedBootstrap`, `superior`, `noninferior`. Version
+`coevo-bootstrap-v1`; draws are `floor(tupleHash(0x45530601, seed, n, r, j) · n / 2^32)`, shared
+by an analysis's marginals and paired difference; bounds are the nearest-rank 250th smallest and
+largest of 10,000 means. Superiority is strict; noninferiority needs an explicit margin.
+`buildHeldOutManifest` (schedule) gives validation and final-test seeds their own streams and
+checks each numerically against the evaluated runs' training seeds, recording retries. U54: three
+tests against an independent oracle; five watched-failing mutations (rank tolerance, unpaired
+difference, non-strict superiority, domain-only seeds, shared purpose stream).
+
 ## 11. Invariants, test allocation and negative controls
 
 Existing steps own U43–U49 and A35–A41. Reserve **U50–U55, A42–A47** here; recheck concurrent
@@ -425,7 +436,7 @@ and cleanup all resources; do not overwrite unrelated or previously completed ou
 | **14.1 ✅** | Production lane/arena factory, legacy/contact modes, lifecycle | I1/I2/I3/E5/C1/R1, three pairs (Node NVIDIA/AMD, Chrome/AMD 40/40), watched failing; Q8 semantics settled |
 | **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
 | **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | Review findings closed with regressions (below); infrastructure evidence is not research acceptance |
-| **14.4** | Arena evaluation, clone opponents, crossplay, intervals, README | At least 20 held-out episodes per validation pairing; raw-data replay |
+| **14.4 started** | Arena evaluation, clone opponents, crossplay, intervals, README | U54 statistics and held-out manifests done; arena-matched runner, crossplay and README next |
 | **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
 
 **14.3 closure, 2026-10-20.** The re-review found two defects the repairs had not reached, both
