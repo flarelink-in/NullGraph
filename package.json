@@ -125,7 +125,7 @@
     "test:shadows": "node test/shadows-csm.test.mjs",
     "test:picking": "node test/picking.test.mjs",
     "test:text": "node test/text.test.mjs",
-    "test:agents": "node test/agents.test.mjs && node --test test/agents-grid.test.mjs test/agents-system.test.mjs test/agents-arrows.test.mjs test/agents-instances.test.mjs test/agents-inspect.test.mjs test/agents-api-example.test.mjs test/agents-mlp.test.mjs test/agents-tools.test.mjs test/coevo-arena.test.mjs test/agents-coevo.test.mjs test/agents-coevo-regression.test.mjs",
+    "test:agents": "node test/agents.test.mjs && node --test test/agents-grid.test.mjs test/agents-system.test.mjs test/agents-arrows.test.mjs test/agents-instances.test.mjs test/agents-inspect.test.mjs test/agents-api-example.test.mjs test/agents-mlp.test.mjs test/agents-tools.test.mjs test/coevo-arena.test.mjs test/agents-coevo.test.mjs test/agents-coevo-regression.test.mjs test/coevo-report.test.mjs",
     "test:inference": "node --test test/inference-onnx.test.mjs test/inference-api-example.test.mjs test/inference-ort.test.mjs",
     "test:physics": "node --test test/physics.test.mjs test/physics-api-example.test.mjs",
     "test:sky": "node test/environment-sky.test.mjs",

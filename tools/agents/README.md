@@ -118,7 +118,9 @@ node tools/agents/coevolve-film-labels.mjs tools/film/out/coevo-x150-random-pair
 The second line burns tile labels into `film-labelled.mp4`. The four `coevo-x150-*` films need the
 exploratory runs first: `npm run agents:coevolve -- --config tools/agents/explore/x150-random.json
 --name x150-random-15002` (and `x150-clones.json` as `x150-clones-15001`). Films are exploratory,
-never evidence for H1–H3.
+never evidence for H1–H3. `node tools/agents/coevolve-report.mjs training <run>` prints a run's
+learning curve and `… evaluation <evaluation>` an evaluation's results. Every step, from a new run to
+a labelled film: [`docs/agents-coevo-runbook.md`](../../docs/agents-coevo-runbook.md).
 
 ## What you need
 

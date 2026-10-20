@@ -8,8 +8,9 @@ some results"): a scene that films checkpoints in their training arenas, tile la
 exploratory runs and four films of them, with their numbers on validation seeds (§5). **Exploratory: films are not evidence for H1–H3**, which only the frozen
 14.5 protocol can give ([prereg](./agents-coevolution-prereg.md)).
 
-**Target:** a scene in `tools/film/scenes/`, a label script and run configs in `tools/agents/`, tests
-and docs. No library change and no film-runner change.
+**Target:** a scene in `tools/film/scenes/`, a label script, a report script and run configs in
+`tools/agents/`, tests and docs. No library change and no film-runner change. The user's
+step-by-step guide to runs, scores and films is [`agents-coevo-runbook.md`](./agents-coevo-runbook.md).
 
 ## 1. What a film shows
 
@@ -71,8 +72,10 @@ On Node/AMD, 2 s of a four-tile film of a clone-start run (generations 0 and 3, 
 
 Headless: U56 (`test/coevo-film.test.mjs`, in `npm run test:film`) checks the settings' refusals and
 the tile plan against a real run directory (rows per distinct entry, the rule species-wide, model
-checks, one shape a table); three injected faults (every tile on row 0, no shape check, a mixable
-rule) each fail it.
+checks, one shape a table), the label geometry and ffmpeg escaping; five injected faults (every tile
+on row 0, no shape check, a mixable rule, one escaping level, right-column labels inside) each fail
+it. `test/coevo-report.test.mjs` (in `npm run test:agents`) checks `coevolve-report.mjs`'s training,
+comparison, diagnostics and cross-play lines.
 
 ## 5. The exploratory runs
 
@@ -118,6 +121,13 @@ went from worse than the rule to better. Against the clones at generation 200, p
 drifting (0.44 at 19 s); evolved prey go there sooner, then, against co-evolving wolves, less.
 Films: `tools/film/out/coevo-x150-{clones-prey,clones-wolves,random-pairs,random-prey}/film-labelled.mp4`
 (the clone start's on Node/AMD, the random start's on Node/NVIDIA).
+
+**Replication (`x150-clones-15003`)**, the clone start with master seed 15003, trained, scored and
+filmed by following the runbook's commands as written (Node/NVIDIA training and films, Node/AMD
+scores). Fence-hugging evolved again: prey caught 40.3, 36.9 and 41.6 times by rule wolves at
+generations 50, 100 and 200 (−14.7, −18.2, −13.5, intervals within ±1.5), with 47%, 71% and 36% of
+them within 1 m of a wall at 19 s; wolves gained 1.2–2.2 catches. Seed 15001 gave 39.6, 37.3 and
+40.7 with 44%, 53% and 24%: the same peak at generation 100 and the same partial retreat by 200.
 
 ## 6. Limits and next slices
 
