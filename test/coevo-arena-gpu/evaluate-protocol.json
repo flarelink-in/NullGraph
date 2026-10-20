@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "protocol": "phase14.4-evaluation-diagnostics-v1",
+  "purpose": "Short correctness fixtures, not research settings, throughput, learning or safety acceptance",
+  "harness": "test/coevo-arena-gpu/evaluate.js",
+  "browser": "test/coevo-arena-gpu/evaluate.html",
+  "resultKey": "__COEVO_EVALUATE_RESULTS__",
+  "checks": ["A53 GPU diagnostic CPU geometry oracles", "A53 dead-first-body/live denominators", "A53 pre-respawn catch histogram accounting", "A53 contacts-on record and score invariance", "A53 one final mapping", "A53 eight-step windows: catches and samples at their ticks, waking wolves, containment before sampling", "A54 arena evaluation and cross-play raw-data replay"],
+  "requiredPairs": ["Node/NVIDIA", "Node/AMD", "Chrome/AMD"],
+  "evidence20261020": {
+    "nodeNvidia": "tools/agents/out/review144-final-nvidia.json",
+    "nodeAmd": "tools/agents/out/review144-final-amd.json",
+    "chromeAmd": "tools/agents/out/review144-final-chrome/",
+    "result": "44/44 each; zero WebGPU errors",
+    "cli": "tools/agents/out/coevo-eval/phase144-diagnostic-cli-check/",
+    "fullLength": "tools/agents/out/coevo-eval/review144-v3-T1200-{plain,diag}/"
+  }
+}

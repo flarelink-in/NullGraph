@@ -621,6 +621,22 @@ test('U54 held-out manifests: own stream per purpose, numerically distinct from 
         assert.throws(() => buildHeldOutManifest({ masterSeed: 1, domain: 1, purpose: 'validation', episodes: 2, ...bad }), /^Error: coevolve:/);
 });
 
+test('U54 forgetting: maximum chronological loss, joint episode resampling, no loss on monotone curves', async () => {
+    const { forgettingInterval } = await import('../tools/agents/coevolve-stats.mjs');
+    const spread = [2, 9, 1, 8], options = { seed: 72, resamples: 1000 };
+    const shifted = offsets => offsets.map(offset => spread.map(value => value + offset));
+    const lost = forgettingInterval(shifted([0, 5, 2]), options);
+    assert.deepEqual([lost.value, lost.low, lost.high], [3, 3, 3]);
+    assert.deepEqual(forgettingInterval(shifted([0, 5, 2]), options), lost);
+    for (const offsets of [[0], [0, 1, 2], [0, 0, 0]]) {
+        const result = forgettingInterval(shifted(offsets), options);
+        assert.deepEqual([result.value, result.low, result.high], [0, 0, 0]);
+    }
+    assert.equal(forgettingInterval(shifted([3, 0, 7, 2]), options).value, 5);
+    assert.throws(() => forgettingInterval([], options), /ordered/);
+    assert.throws(() => forgettingInterval([[1], [1, 2]], options), /share episodes/);
+});
+
 // Evaluation fixtures: network drivers need only an id and a layer list until the GPU plays them.
 const net = id => ({ kind: 'network', id, network: [] });
 const pairOf = id => ({ id, prey: net(id), wolf: net(id) });
@@ -697,6 +713,10 @@ test('U54 evaluation summaries: paired by episode, the right direction per speci
     assert.deepEqual(summary.mean, [[10, 12], [9, 11]]);
     assert.deepEqual(summary.anchorScores.prey.map(s => s.mean), [-10, -9], 'prey score minus catches against anchor wolves');
     assert.deepEqual(summary.anchorScores.wolf.map(s => s.mean), [10, 12], 'wolves score catches against anchor prey');
+    assert.deepEqual(summary.forgetting.order, ['gen-0000', 'gen-0010']);
+    assert.equal(summary.forgetting.prey.value, 0); assert.equal(summary.forgetting.wolf.value, 0);
+    const reversed = crossplaySummary([...generations].reverse(), cross, cells, ['gen-0000'], options);
+    assert.deepEqual(reversed.forgetting, summary.forgetting, 'forgetting order is chronological, not argument order');
     const both = crossplaySummary(generations, cross, cells, ['gen-0000', 'gen-0010'], options);
     assert.deepEqual(both.anchorScores.prey.map(s => s.mean), [-11, -10]);
     assert.throws(() => crossplaySummary(generations, cross, cells, ['gen-0020'], options), /anchors/);
@@ -735,6 +755,7 @@ test('U54 evaluation command line: strict flags, whole numbers, one mode', async
             seed: 7, domain: 3, analysisSeed: 99, episodes: 24, T: undefined, margin: undefined, clones: true });
     assert.equal(parseEvalArgs(['baselines', '--no-clones']).clones, false);
     assert.equal(parseEvalArgs(['baselines', '--margin', '0.75']).margin, 0.75);
+    assert.equal(parseEvalArgs(['baselines', '--diagnostics-stride', '60']).diagnosticsStride, 60);
     for (const argv of [['evaluate'], [], ['baselines', '--seed'], ['baselines', '--seed', '-1'], ['baselines', '--seed', '1.5'],
         ['baselines', '--margin', 'half'], ['baselines', '--margin', '-1'],
         ['baselines', '--episodes', '20', '--episodes', '24'], ['baselines', '--generation', '10'], ['baselines', 'stray'],

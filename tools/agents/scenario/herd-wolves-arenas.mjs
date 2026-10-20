@@ -4,6 +4,7 @@ import * as A from '../../../dist/agents.js';
 import { DiscContacts } from '../../../dist/physics.js';
 import { arenaLayout, exhaustiveCatchWGSL } from './arena-layout.mjs';
 import { DRIVER, HERD_CATCHES, HERD_DEFAULTS, LABEL_DRIVING, SETTINGS, herdDefinition, herdRule } from './herd-wolves.mjs';
+import { diagnosticLayout, diagnosticCatchWGSL, diagnosticStateWGSL } from '../coevolve-diagnostics.mjs';
 const f32 = v => Number.isInteger(v) ? v.toFixed(1) : String(v);
 const arenaWGSL = lay => `
 const ARENA_ORIGIN_X: f32 = ${f32(lay.origin[0])};
@@ -186,7 +187,7 @@ export function tileSpawns(lay, lo, seed, separation = 0) {
 }
 
 export function buildLane(engine, geometry, { environment, contacts, thinkEvery, seedOf, rowOf, brains, fixture,
-    catchMargin, spawnSeparation, contactOptions = {}, dt = 1 / 60, monitorFinite = false } = {}) {
+    catchMargin, spawnSeparation, contactOptions = {}, dt = 1 / 60, monitorFinite = false, diagnostics } = {}) {
     if (!ENVIRONMENTS.includes(environment)) throw new Error(`coevolve: unknown environment ${environment}`);
     if (environment === 'contact-v3' ? !(Number.isFinite(spawnSeparation) && spawnSeparation > 0 && spawnSeparation < geometry.L / 2)
         : spawnSeparation !== undefined)
@@ -202,6 +203,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
     const allowed = ['iterations', 'maxPush', 'relaxation', 'compliance', 'damping', 'mass', 'maxScanPerCell', 'cellSize'];
     for (const key of Object.keys(contactOptions)) if (!allowed.includes(key)) throw new Error(`coevolve: forbidden contact override ${key}`);
     const lay = arenaLayout({ ...geometry, contacts: contacts ? contactOptions : null });
+    const diagnostic = diagnostics ? diagnosticLayout(lay, diagnostics) : null;
     const device = engine.device, owned = [], external = [], def = arenaDefinition(lay, { dt });
     const bytes = lay.count * A.AGENT_FLOATS * 4;
     const largest = Math.max(bytes, def.grid.cellTotal * 4 + 4);
@@ -223,6 +225,9 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         owned.push(b); if (data) device.queue.writeBuffer(b, 0, data); return b;
     };
     try {
+        if (diagnostic && diagnostic.words * 4 > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize))
+            throw new Error('coevolve: diagnostics exceed device buffer limits');
+        const diagnosticBuffers = diagnostic ? { samples: alloc(diagnostic.words * 4), catches: alloc(diagnostic.words * 4) } : null;
         const settings = alloc(16, new Float32Array([1, 1, 5, 0])), stats = alloc(16);
         const counters = alloc(Math.max(16, lay.arenas * 4));
         const rule = seams => ({ kind: 'stage', wgsl: `const ACT_TURN = 0u;\nconst ACT_THROTTLE = 1u;\n${herdRule(seams)}`, buffers: [settings] });
@@ -244,6 +249,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
             sys.addStepStage({ name: 'catch snapshot', stages: [stage] });
             sys.addStepStage({ name: 'catches', wgsl: exhaustiveCatchWGSL(lay, catchMargin), buffers: [snapshot] });
         } else sys.addStepStage({ name: 'catches', wgsl: HERD_CATCHES });
+        if (diagnostic) sys.addStepStage({ name: 'catch locations', wgsl: diagnosticCatchWGSL(lay, diagnostic), buffers: [diagnosticBuffers.catches] });
         sys.addStepStage({ name: 'respawn', wgsl: respawnWGSL(lay), buffers: [settings, stats, counters] });
         if (contacts) {
             solver = new DiscContacts(engine, sys.buffer, { capacity: lay.count, stride: A.AGENT_FLOATS,
@@ -256,6 +262,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         }
         if (environment !== 'legacy-v1')
             sys.addStepStage({ name: 'containment', wgsl: containmentWGSL(lay) });
+        if (diagnostic) sys.addStepStage({ name: 'diagnostics', wgsl: diagnosticStateWGSL(lay, diagnostic), buffers: [diagnosticBuffers.samples] });
         // Sticky flag shares the score readback; no per-step CPU readbacks are introduced.
         if (monitorFinite) sys.addStepStage({ name: 'finite state', buffers: [stats], wgsl: `
 @group(1) @binding(0) var<storage, read_write> finiteStats: array<atomic<u32>, 4>;
@@ -281,7 +288,7 @@ fn step(i: u32, tick: u32) {
         sys.upload();
         if (sys.advance(def.dt) !== 1) throw new Error('coevolve: invalid one-step chain');
         let destroyed = false;
-        return { sys, lay, stats, counters, settings, solver, environment,
+        return { sys, lay, stats, counters, settings, solver, environment, diagnostic, diagnosticBuffers,
             get chain() { if (destroyed) throw new Error('coevolve: lane destroyed'); return sys.getComputeStages(); },
             destroy() { if (destroyed) return; destroyed = true; sys.destroy(); solver?.destroy(); for (const s of external) s.enabled = false; for (const b of owned) b.destroy(); } };
     } catch (e) { sys.destroy(); solver?.destroy(); for (const s of external) s.enabled = false; for (const b of owned) b.destroy(); throw e; }

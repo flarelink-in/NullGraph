@@ -21,6 +21,8 @@ import { buildLane } from './scenario/herd-wolves-arenas.mjs';
 import { networkFromModel } from './model.mjs';
 import { configHash } from './coevolve-config.mjs';
 import { buildHeldOutManifest } from './coevolve-schedule.mjs';
+import { diagnosticLayout } from './coevolve-diagnostics.mjs';
+import { arenaLayout } from './scenario/arena-layout.mjs';
 import { BOOTSTRAP, BOOTSTRAP_VERSION } from './coevolve-stats.mjs';
 import { appendLog, atomicWriteFile, getRepoMetadata, writeStatus } from './coevolve-checkpoint.mjs';
 import { managedRun, watchDevice, buildCompiled } from './coevolve-runtime.mjs';
@@ -28,11 +30,11 @@ import { calibrateArenaSteps, guardIdentity, createSubmissionGuard, workloadFixt
 import { LABEL_PAIR, RULE_PAIR, baselineComparisons, baselineMatchups, crossplayMatchups, crossplaySummary,
     evaluationGeometry, playMatchup, summarize } from './coevolve-evaluate.mjs';
 
-export const EVALUATION_VERSION = 'coevo-eval-v1';
+export const EVALUATION_VERSION = 'coevo-eval-v3';
 const fail = message => { throw new Error(`coevolve: ${message}`); };
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const sha256 = text => createHash('sha256').update(text).digest('hex');
-const SOURCES = ['./coevolve-eval.mjs', './coevolve-evaluate.mjs', './coevolve-stats.mjs', './coevolve-schedule.mjs',
+const SOURCES = ['./coevolve-eval.mjs', './coevolve-evaluate.mjs', './coevolve-diagnostics.mjs', './coevolve-stats.mjs', './coevolve-schedule.mjs',
     './coevolve-guard.mjs', './coevolve-runtime.mjs', './model.mjs', './scenario/arena-layout.mjs',
     './scenario/herd-wolves-arenas.mjs', './scenario/herd-wolves.mjs', '../film/guard.mjs',
     '../../dist/index.js', '../../dist/agents.js', '../../dist/physics.js'];
@@ -47,7 +49,7 @@ export function parseEvalArgs(argv) {
     const [mode, ...args] = argv;
     if (mode !== 'baselines' && mode !== 'crossplay') fail(`mode must be baselines or crossplay, not "${mode}"`);
     const values = new Set(['run', 'generations', 'anchors', 'purpose', 'seed', 'domain', 'analysis-seed',
-        'episodes', 'T', 'margin', 'name', 'out-dir']), flags = new Set(['no-clones']), raw = { mode };
+        'episodes', 'T', 'margin', 'name', 'out-dir', 'diagnostics-stride']), flags = new Set(['no-clones']), raw = { mode };
     for (let i = 0; i < args.length; i++) {
         const key = args[i].startsWith('--') ? args[i].slice(2) : '';
         if (!values.has(key) && !flags.has(key)) fail(`unknown argument ${args[i]}`);
@@ -71,6 +73,7 @@ export function parseEvalArgs(argv) {
         margin: raw.margin === undefined ? undefined
             : (/^\d+(\.\d+)?$/.test(raw.margin) ? Number(raw.margin) : fail(`--margin "${raw.margin}" is not a number`)),
         clones: !raw['no-clones'],
+        ...(raw['diagnostics-stride'] === undefined ? {} : { diagnosticsStride: whole(raw['diagnostics-stride']) }),
     };
 }
 
@@ -135,6 +138,8 @@ export function planEvaluation(raw) {
     if (!Number.isSafeInteger(T) || T < 1 || experiment.P * T >= 2 ** 32 || episodes * experiment.P * T >= 2 ** 32)
         fail(`T ${T} must be positive and keep catch counters within u32`);
     const geometry = evaluationGeometry(experiment, episodes), demo = herdDefinition();
+    const diagnostics = raw.diagnosticsStride === undefined ? undefined : { steps: T, stride: raw.diagnosticsStride, wallDistance: 1 };
+    if (diagnostics) diagnosticLayout(arenaLayout(geometry), diagnostics);
     const subjects = raw.generations.map(n => loadCheckpoint(loaded, n, demo));
     let plan, comparisons = [], anchors = null;
     if (raw.mode === 'baselines') {
@@ -142,17 +147,26 @@ export function planEvaluation(raw) {
         plan = [...new Map(subjects.flatMap(s => baselineMatchups(s, baselines)).map(m => [m.id, m])).values()];
         comparisons = subjects.flatMap(s => baselineComparisons(s, baselines));
     } else {
-        anchors = (raw.anchors ?? [raw.generations[0]]).map(gen);
+        const selected = raw.anchors ?? [0];
+        if (!selected.length || new Set(selected).size !== selected.length)
+            fail('--anchors needs distinct evaluated generations');
+        anchors = selected.map(gen);
         for (const id of anchors) if (!subjects.some(s => s.id === id)) fail(`anchor ${id} is not among --generations`);
         plan = crossplayMatchups(subjects);
     }
-    const heldOut = buildHeldOutManifest({ masterSeed: raw.seed, domain: raw.domain, purpose: raw.purpose,
+    // Reserve both purposes in a fixed order, whichever one is being evaluated. Separate streams
+    // alone cannot rule out numerical collisions. Persist both lists before any GPU request.
+    const validation = buildHeldOutManifest({ masterSeed: raw.seed, domain: raw.domain, purpose: 'validation',
         episodes, exclude: [loaded.run.seedManifest] });
+    const finalTest = buildHeldOutManifest({ masterSeed: raw.seed, domain: raw.domain, purpose: 'final-test',
+        episodes, exclude: [loaded.run.seedManifest, validation] });
+    const heldOutManifests = { validation, 'final-test': finalTest }, heldOut = heldOutManifests[raw.purpose];
     const name = raw.name ?? `${loaded.run.config.name}-${raw.mode}-${raw.purpose}-${Date.now()}`;
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) fail(`invalid evaluation name "${name}"`);
     const targetDir = resolve(raw.outDir ?? join(root, 'tools/agents/out/coevo-eval', name));
     if (existsSync(targetDir)) fail(`evaluation directory already exists: "${targetDir}" (nothing is reused)`);
-    return { ...raw, name, targetDir, loaded, experiment, episodes, T, geometry, subjects, plan, comparisons, anchors, heldOut };
+    return { ...raw, name, targetDir, loaded, experiment, episodes, T, geometry, subjects, plan, comparisons, anchors, heldOut,
+        heldOutManifests, diagnostics };
 }
 
 const laneOptions = experiment => ({ environment: experiment.environment, contacts: experiment.contacts,
@@ -171,8 +185,10 @@ export async function runEvaluation(raw, { log = console.log } = {}) {
                 configHash: p.loaded.run.configHash, status: p.loaded.status?.state ?? 'unknown' },
             experiment: p.experiment, evaluation: { episodes: p.episodes, T: p.T, seconds: p.T * p.experiment.dt,
                 geometry: p.geometry, layout: 'episode e in tile e of one fresh lane per matchup, tick zero' },
-            heldOut: p.heldOut, bootstrap: { ...BOOTSTRAP, seed: p.analysisSeed, version: BOOTSTRAP_VERSION },
+            heldOut: p.heldOut, heldOutManifests: p.heldOutManifests,
+            bootstrap: { ...BOOTSTRAP, seed: p.analysisSeed, version: BOOTSTRAP_VERSION },
             margin: p.margin ?? null,
+            diagnostics: p.diagnostics ?? null,
             drivers: Object.fromEntries([...new Map(p.plan.flatMap(game => ['prey', 'wolf'].map(species =>
                 [`${game[species].id}:${species}`, { species, id: game[species].id, ...identity(game[species]) }]))).entries()]),
             plan: p.plan.map(game => ({ id: game.id, prey: game.prey.id, wolf: game.wolf.id })),
@@ -211,13 +227,13 @@ export async function runEvaluation(raw, { log = console.log } = {}) {
             return [species, driver ? tables.get(driver.id)[species] : 'rule'];
         }));
         const guard = await calibrateArenaSteps({ geometry: p.geometry,
-            key: guardIdentity({ ...p.experiment, evaluation: { episodes: p.episodes, cols: p.geometry.cols } }, adapter.info,
+            key: guardIdentity({ ...p.experiment, evaluation: { episodes: p.episodes, cols: p.geometry.cols, diagnostics: p.diagnostics ?? null } }, adapter.info,
                 Object.fromEntries(['prey', 'wolf'].map(species => [species, heaviest(species)?.network ?? 'rule']))),
             cacheFile: join(root, 'tools/agents/out/coevo-costs.json'), log,
             record: sample => appendLog(p.targetDir, { event: 'calibration-sample', ...sample }),
             async measure(probe, workload) {
                 const built = await buildCompiled(device, () => buildLane(engine, probe, { ...laneOptions(p.experiment),
-                    brains: heavy, seedOf: () => 18001, rowOf: () => 0, fixture: workloadFixture(workload, probe.L) }));
+                    diagnostics: p.diagnostics, brains: heavy, seedOf: () => 18001, rowOf: () => 0, fixture: workloadFixture(workload, probe.L) }));
                 const lane = built.value;
                 try {
                     await health.check();
@@ -229,13 +245,18 @@ export async function runEvaluation(raw, { log = console.log } = {}) {
         appendLog(p.targetDir, { event: 'calibration', ...guard });
         const submissions = createSubmissionGuard(guard.stepMs);
 
-        const catches = [], timing = [];
+        const catches = [], timing = [], diagnostics = [];
         for (const [j, game] of p.plan.entries()) {
             const start = performance.now();
             const result = await playMatchup(engine, { experiment: p.experiment, geometry: p.geometry,
-                seeds: p.heldOut.seeds, game, tables, T: p.T, compile: make => buildCompiled(device, make),
+                seeds: p.heldOut.seeds, game, tables, T: p.T, diagnostics: p.diagnostics, compile: make => buildCompiled(device, make),
                 run: lane => runGuarded(engine, lane, p.T, submissions, health) });
             catches.push(result.catches);
+            if (result.diagnostics) {
+                const diagnostic = { id: game.id, ...result.diagnostics };
+                diagnostics.push(diagnostic);
+                atomicWriteFile(join(p.targetDir, `diagnostics-${String(j).padStart(4, '0')}.json`), JSON.stringify(diagnostic) + '\n');
+            }
             timing.push({ id: game.id, wallMs: performance.now() - start, ...result.observed });
             appendLog(p.targetDir, { event: 'matchup', id: game.id, catches: result.catches, observed: result.observed });
             log(`coevolve: ${String(j + 1).padStart(3)}/${p.plan.length} ${game.id}: mean catches ` +
@@ -249,7 +270,7 @@ export async function runEvaluation(raw, { log = console.log } = {}) {
         }
         const options = { seed: p.analysisSeed, resamples: BOOTSTRAP.resamples, level: BOOTSTRAP.level };
         const results = summarize(p.plan, catches, p.comparisons, { ...options, margin: p.margin });
-        const evaluation = { ...description, results,
+        const evaluation = { ...description, results, diagnosticResults: diagnostics,
             crossplay: p.mode === 'crossplay' ? crossplaySummary(p.subjects, p.plan, catches, p.anchors, options) : null,
             device: { adapter: Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(key => [key, adapter.info[key] ?? 'unknown'])),
                 dawnFlags: process.env.NG_DAWN_FLAGS ?? '' },

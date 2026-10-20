@@ -310,10 +310,18 @@ test('U54 evaluation orchestration: checkpoints verified, held-out seeds, durabl
     assert.equal(plan.plan.length, 10); assert.equal(plan.comparisons.length, 6);
     assert.deepEqual(plan.geometry, { arenas: 20, wolves: 16, prey: 192, L: 24, gap: 10, cols: 5, contacts: null });
     assert.equal(plan.T, 300);
+    assert.deepEqual(planEvaluation({ ...raw, diagnosticsStride: 60 }).diagnostics,
+        { steps: 300, stride: 60, wallDistance: 1 });
+    assert.throws(() => planEvaluation({ ...raw, diagnosticsStride: 0 }), /diagnostics:/);
     const training = new Set(loadRun(runDir).run.seedManifest.seedsByGeneration.flat());
     assert.equal(plan.heldOut.seeds.length, 20);
     assert.equal(plan.heldOut.excluded, training.size, 'every training seed of the run is excluded');
     assert.ok(plan.heldOut.seeds.every(seed => !training.has(seed)), 'held-out seeds are not training seeds');
+    const finalPlan = planEvaluation({ ...raw, purpose: 'final-test' });
+    assert.deepEqual(finalPlan.heldOutManifests, plan.heldOutManifests, 'both purposes reserve the same pair before outcomes');
+    assert.equal(finalPlan.heldOut.excluded, training.size + 20, 'final test excludes numerical validation seeds too');
+    const reserved = [...training, ...plan.heldOut.seeds, ...finalPlan.heldOut.seeds];
+    assert.equal(new Set(reserved).size, reserved.length);
     // The clone start's generation 0 is the committed clones, read back under the demo's names.
     const start = loadCheckpoint(loadRun(runDir), 0), clones = loadClones();
     for (const species of ['prey', 'wolf']) start[species].network.forEach((layer, j) =>
@@ -342,6 +350,15 @@ test('U54 evaluation orchestration: checkpoints verified, held-out seeds, durabl
         [{ run: join(dir, 'missing') }, /no run.json/]])
         assert.throws(() => planEvaluation({ ...raw, ...change }), message, JSON.stringify(change));
     assert.equal(planEvaluation({ ...raw, mode: 'crossplay', clones: true }).plan.length, 1);
+    // Default anchors are generation zero, never the first checkpoint in argument order.
+    cpSync(join(runDir, 'gen-0000'), join(runDir, 'gen-0010'), { recursive: true });
+    const laterPath = join(runDir, 'gen-0010', 'manifest.json');
+    writeFileSync(laterPath, JSON.stringify({ ...JSON.parse(readFileSync(laterPath)), generation: 10 }));
+    assert.deepEqual(planEvaluation({ ...raw, mode: 'crossplay', generations: [10, 0] }).anchors, ['gen-0000']);
+    assert.throws(() => planEvaluation({ ...raw, mode: 'crossplay', generations: [10] }), /anchor gen-0000/);
+    assert.deepEqual(planEvaluation({ ...raw, mode: 'crossplay', generations: [10], anchors: [10] }).anchors, ['gen-0010']);
+    for (const anchors of [[], [0, 0]])
+        assert.throws(() => planEvaluation({ ...raw, mode: 'crossplay', anchors }), /distinct evaluated generations/);
 
     // The GPU is asked for only after plan.json is durable; a failure leaves the directory incomplete.
     await withoutAdapter(() => assert.rejects(runEvaluation(raw, { log() {} }), /injected adapter failure/));
@@ -349,6 +366,7 @@ test('U54 evaluation orchestration: checkpoints verified, held-out seeds, durabl
     const written = JSON.parse(readFileSync(join(dir, 'eval', 'plan.json')));
     assert.equal(written.drivers['clone:prey'].hash, clones.prey.hash);
     assert.deepEqual(written.heldOut.seeds, plan.heldOut.seeds);
+    assert.deepEqual(written.heldOutManifests, plan.heldOutManifests);
     assert.equal(written.plan.length, 10);
     assert.ok(!existsSync(join(dir, 'eval', 'evaluation.json')));
     assert.throws(() => planEvaluation(raw), /already exists/);

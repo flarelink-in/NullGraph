@@ -5,6 +5,27 @@ import { WgslReflect } from '../node_modules/wgsl_reflect/wgsl_reflect.module.js
 import { buildAgentStepWGSL } from '../dist/agents.js';
 import { containmentWGSL, respawnWGSL, arenaDefinition } from '../tools/agents/scenario/herd-wolves-arenas.mjs';
 const geometry = { arenas: 2, wolves: 32, prey: 64, cols: 2, L: 24, gap: 10 };
+test('U54 diagnostics: bounded allocation, shader composition, time/episode indexing and denominators', async () => {
+    const { diagnosticLayout, diagnosticStateWGSL, diagnosticCatchWGSL, decodeDiagnostics } = await import('../tools/agents/coevolve-diagnostics.mjs');
+    const lay = arenaLayout(geometry), d = diagnosticLayout(lay, { steps: 5, stride: 2 });
+    assert.equal(d.samples, 3); assert.equal(d.words, 96);
+    for (const shader of [diagnosticStateWGSL(lay, d), diagnosticCatchWGSL(lay, d)])
+        assert.doesNotThrow(() => new WgslReflect(buildAgentStepWGSL(arenaDefinition(lay), 'diagnostic', shader)));
+    const samples = new Float32Array(d.words), catches = new Uint32Array(d.words);
+    samples.set([4, 2, 1, 2, 12, 4, 1, 6, 2, 2, 0.5, 0.4, 15], 16 * 3);
+    catches[16 * 3 + 7] = 3;
+    const result = decodeDiagnostics(lay, d, new Uint32Array(samples.buffer), catches);
+    const h = result.episodes[1].history[1];
+    assert.equal(h.tick, 2); assert.equal(h.preyWallShare, 0.25); assert.equal(h.wolfRestFraction, 0.5);
+    assert.equal(h.preyMeanSpeed, 3); assert.equal(h.nearestPreyMean, 3); assert.equal(h.meanPenetration, 0.25);
+    assert.equal(result.episodes[1].catches, 3); assert.equal(result.episodes[0].catches, 0);
+    assert.equal(result.episodes[0].history[0].preyMeanSpeed, null);
+    for (const change of [{ stride: 0 }, { steps: 0 }, { steps: 2 ** 32 }, { wallDistance: 20 }, { steps: 10000000, stride: 1 }])
+        assert.throws(() => diagnosticLayout(lay, { steps: 5, stride: 2, ...change }), /diagnostics:/);
+    assert.throws(() => decodeDiagnostics(lay, d, new Uint32Array(1), catches), /incomplete/);
+    samples[0] = NaN;
+    assert.throws(() => decodeDiagnostics(lay, d, new Uint32Array(samples.buffer), catches), /nonfinite/);
+});
 test('U50 layout refuses unsafe geometry/alignment/products before allocation', () => {
     const lay = arenaLayout(geometry);
     assert.equal(lay.count, 192); assert.equal(lay.wolfTotal, 64);

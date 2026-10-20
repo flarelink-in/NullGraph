@@ -35,7 +35,7 @@ export function guardIdentity(config, adapter, networks) {
         flags: process.env.NG_DAWN_FLAGS ?? '', workloads: WORKLOADS,
         sensorGrid: { cellSize: 8, maxScanPerCell: 64 } }));
     for (const path of ['../../dist/index.js', '../../dist/agents.js', '../../dist/physics.js',
-        './coevolve.mjs', './coevolve-guard.mjs', './coevolve-runtime.mjs', './es.mjs',
+        './coevolve.mjs', './coevolve-guard.mjs', './coevolve-runtime.mjs', './coevolve-diagnostics.mjs', './es.mjs',
         './scenario/herd-wolves.mjs', './scenario/herd-wolves-arenas.mjs', './scenario/arena-layout.mjs', '../film/guard.mjs'])
         hash.update(readFileSync(new URL(path, import.meta.url)));
     return hash.digest('hex');

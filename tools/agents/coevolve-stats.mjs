@@ -67,6 +67,31 @@ export function meanInterval(values, options) {
     return interval(samples(values, 'values'), options);
 }
 
+/** Maximum drop from an earlier checkpoint's mean signed anchor score to a later one's.
+ * Checkpoint order and anchors must be frozen before final testing. Resample whole episodes
+ * jointly across the curve and recompute the maximum, not an interval of a selected cell.
+ */
+export function forgettingInterval(curve, options) {
+    if (!Array.isArray(curve) || !curve.length) fail('forgetting needs an ordered checkpoint curve');
+    curve.forEach(row => samples(row, 'checkpoint scores'));
+    const n = curve[0].length;
+    if (curve.some(row => row.length !== n)) fail('forgetting checkpoints must share episodes');
+    const { seed, resamples, level } = settings(options), indices = resampleIndices({ seed, n, resamples });
+    const drop = means => {
+        let peak = means[0], worst = 0;
+        for (const value of means) { worst = Math.max(worst, peak - value); peak = Math.max(peak, value); }
+        return worst;
+    };
+    const draws = new Float64Array(resamples);
+    for (let r = 0; r < resamples; r++) draws[r] = drop(curve.map(row => {
+        let total = 0;
+        for (let j = 0; j < n; j++) total += row[indices[r * n + j]];
+        return total / n;
+    }));
+    return { value: drop(curve.map(mean)), ...bounds(draws, level), n, seed, resamples, level,
+        version: 'coevo-forgetting-max-drawdown-v1' };
+}
+
 /**
  * Paired comparison over the same episodes (same held-out seeds and tiles, fresh state): the
  * interval of mean(a − b) resamples whole episodes, and both marginals use the same draws.

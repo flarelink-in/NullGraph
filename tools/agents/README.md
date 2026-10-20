@@ -51,11 +51,18 @@ the least the design allows; `--T` defaults to the run's episode length.
   same episodes: prey are better with fewer catches, wolves with more. `--margin <catches>` adds a
   noninferiority verdict (H2) against a margin fixed before the results are read.
 - **crossplay** plays every listed prey generation against every listed wolf generation and
-  scores each generation against the `--anchors` (default: the first listed), fixed before the
-  results are read.
+  scores each generation against the `--anchors` (default: generation 0, which must be listed),
+  fixed before the results are read. Empty or repeated anchors are refused.
+  It also exports `forgetting`: maximum earlier-to-later decline in the mean signed anchor score,
+  sorted by numeric generation (prey minus catches, wolves plus catches; lower means less forgetting).
+  Bootstrap draws resample episodes jointly across the whole curve and recompute the maximum.
+  Freeze checkpoint selection and anchors before final testing; this alone is not an H3 verdict.
 
 Held-out seeds come from their own stream per `--purpose` (validation guides settings; final-test
-only judges) and are checked against the run's training seeds. `--seed`, `--domain` and
+only judges). Both manifests are reserved in a fixed order: validation excludes training seeds;
+final-test excludes training and validation seeds numerically. Both lists are saved in `plan.json`.
+Use the same seed, domain and episode count for the paired purpose manifests; this is not a global
+registry across independently configured evaluations or different training runs. `--seed`, `--domain` and
 `--analysis-seed` (the bootstrap's) are required, so a preregistration can name them. Checkpoint
 models must match their manifest's hashes and the manifest the run's experiment. Output goes to a
 fresh `tools/agents/out/coevo-eval/<name>/`: `plan.json` (drivers with model hashes, seeds, plan)
@@ -64,6 +71,35 @@ before the GPU is touched, `log.jsonl` with each matchup's raw catches as it fin
 the matrices and anchor scores. `status.json` says `complete` only after cleanup. `--name` or
 `--out-dir` choose the directory; `replay()` in `coevolve-evaluate.mjs` recomputes every interval
 and comparison from an `evaluation.json`'s raw catches.
+
+**Optional exploit diagnostics:** add `--diagnostics-stride 60` to either command. Evaluation v3
+samples post-containment state at zero-based ticks 0, 60, 120, … and exports per-episode histories:
+wall share (body surface within 1 m of an edge), live-body mean planar speeds, resting wolf share,
+nearest live prey centre distance per wolf, overlapping unordered body-pair share, summed/mean/max
+penetration. Every caught prey is binned **before respawn** into a tile-local 4×4 location histogram,
+grouped into stride-length time windows (including the partial last window). All live same-tile
+body pairs are inspected; this is not a bounded neighbour-query estimate. Samples include frozen
+bodies and exclude dead ones. Empty denominators are `null`. Raw field sums and histograms remain
+available for reanalysis; no causal exploit verdict is inferred from them.
+
+Collection stays GPU-side until the single final mapping with catches. The guard calibrates with
+instrumentation enabled and keeps a separate workload identity. Each completed matchup writes
+`diagnostics-NNNN.json` immediately, and `evaluation.json` contains `diagnosticResults`. Histograms
+must sum to each episode's catch counter or evaluation fails. Buffers are limited to 64 MiB total
+and device binding limits. Instrumented runs cost extra time and are **not** uninstrumented timing
+evidence: each sample is one thread per tile looping over the tile's body pairs, so at stride 60
+with 208 bodies per tile a 1,200-step evaluation took twice the GPU time on NVIDIA (the guard's
+calibrated worst step rose from 77 to 127 ms, halving its batches). Sparse samples estimate state
+over time, not exact every-step occupancy; choose and freeze the stride for research.
+
+14.4 infrastructure was completed on 2026-10-20: headless 142/142; the browser-loadable
+`test/coevo-arena-gpu/evaluate.js` passes 44/44 on Node/NVIDIA, Node/AMD and Chrome/AMD with zero
+WebGPU errors. It checks CPU geometric oracles, dead-first-body reduction, pre-respawn locations,
+contacts-on record/catch invariance, single final readback and evaluator replay, and over eight
+steps every sampled tick against the records read back after it and every window's catches
+against the counters. Run with
+`node test/gpu/run-harness.mjs test/coevo-arena-gpu/evaluate.js __COEVO_EVALUATE_RESULTS__` or serve
+`test/coevo-arena-gpu/evaluate.html`. These are short correctness fixtures, not research acceptance.
 
 Tests: `node --test test/agents-coevo.test.mjs test/coevo-arena.test.mjs` (also in `npm run test:agents`).
 
@@ -202,7 +238,7 @@ rest 5 s, flocking and fleeing on.
 
 ## Limits
 
-### Co-evolution (step 14) — 14.3 closed 2026-10-20, 14.4 started
+### Co-evolution (step 14) — 14.3 and 14.4 infrastructure complete 2026-10-20
 
 Trainer runs so far are infrastructure smoke only; no contact-v2 research settings or cross-GPU
 equality are accepted, and 14.0's safety and quality gates are still open.
@@ -270,10 +306,11 @@ Known limits of the trainer:
   timers are not clamped.
 - **Calibration's cache key includes seeds and weights,** so evidence carries over only to a rerun
   of the same experiment. It never waives fresh probes either way.
-- **In the test profile's environment (24 m tiles) the prey's policy does not affect catches.**
-  Prey standing still are caught as often as rule prey over 20 s, because the 5 s rest caps the
-  wolves, and about 20 catches per tile happen on the first step from prey spawned inside a wolf's
-  reach. The user chose `contact-v3` (separated spawns) at the reference density (36 m tiles) for
+- **The tested prey drivers have nearly equal mean catches in the 24 m test profile.**
+  Standing-still and rule prey differ by only 0.10 catches over 20 s, suggesting weak signal in
+  this fixture, not proof that all policies have no effect. Rest is not a hard catch-count cap:
+  one wolf may catch multiple prey in a step. About 20 catches per tile happen on the first step.
+  The user chose `contact-v3` (separated spawns) at the reference density (36 m tiles) for
   research: fleeing then saves 16.5% over 20 s, but nothing over 5 s, and fewer prey per tile do
   not change that (design §10, `test/spikes/coevo-eval/spawn-share.mjs`). The test profile keeps
   24 m and contact-v2 so its infrastructure checks stay comparable.

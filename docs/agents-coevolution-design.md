@@ -4,10 +4,11 @@
 **Revision 2 — 2026-10-18:** complete revision after steps 12–13 and code review.
 **Status (2026-10-20):** replacement 14.0 browser correctness verified (77/77); full-run safety and
 both-species quality gates remain unaccepted. 14.1 infrastructure validated on all three pairs;
-14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 in progress**
-(statistics, held-out manifests, arena evaluation and cross-play; §10 measures how little catches
-depend on policy in the test environment). Trainer runs so far are infrastructure smoke, not research or
-safety acceptance. Repairs and regression evidence are tracked in the work log. No training settings accepted. At the user's request, **all original
+14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 infrastructure
+complete after two reviews** (statistics, held-out manifests, arena evaluation, cross-play, exploit
+diagnostics and the `contact-v3` research environment; §5, §10). Trainer runs so far are
+infrastructure smoke, not research or safety acceptance. Repairs and regression evidence are tracked
+in the work log. No training settings accepted. At the user's request, **all original
 phase 14.0 / S7 results are discarded**: invariant acceptance, timing/noise tables, learning and
 exploit conclusions, derived defaults and browser feasibility. **14.0 is reopened, not complete.**
 The old spike source remains historical code, not a reference implementation. No new results are
@@ -415,8 +416,57 @@ the manifest the run's experiment; held-out seeds exclude the run's training see
 written before the GPU is requested, each matchup's raw catches are journaled as it finishes, and
 `evaluation.json` holds raw catches, intervals and comparisons; `replay()` recomputes them from the
 raw catches alone. The guard calibrates on the heaviest drivers with the trainer's workloads, and
-each lane compiles before its first step. Not built: exploit diagnostics (wall share over time,
-overlap, speeds, rest fraction, catch locations) and a browser run of the evaluator.
+each lane compiles before its first step. Exploit diagnostics and browser evaluation were added
+in the completion slice below.
+
+**14.4 review, 2026-10-20:** headless agents pass 140/140. Two CLI gaps repaired with
+regressions: `coevo-eval-v2` reserves validation then final-test manifests before GPU work, checking
+the latter numerically against both training and validation (both manifests persisted); cross-play
+defaults to generation 0 regardless of argument order and refuses missing/empty/repeated anchors.
+The manifest reservation is scoped to identical seed/domain/episode-count settings and this run;
+multi-run preregistration must still exclude all participating training manifests and freeze the
+held-out lists globally. At review time diagnostics/browser verification were unfinished; the
+completion slice below supplies them. Passing infrastructure checks never accepts 14.0 settings.
+
+**14.4 completion slice, 2026-10-20:** evaluation v3 adds opt-in `--diagnostics-stride N`.
+`coevolve-diagnostics.mjs` is browser-loadable and instruments only evaluation lanes: pre-respawn
+4×4 catch-location histograms on every step, and post-containment state at ticks divisible by N.
+Per-tile/time histories retain raw sums and live-body denominators for wall share (surface <=1 m
+from an edge), planar speed, wolf rest, nearest live prey centre distance, unordered overlap share
+and penetration sum/mean/max. Frozen bodies count; dead bodies do not; empty denominators are null.
+The first live record reduces each tile (the app wrapper skips dead records). No agents are written
+by these stages. Raw buffers join scores in one final mapping; histogram totals must equal each
+tile's catches. Completed-matchup diagnostic JSON is durable before proceeding. Guard calibration
+includes the instrumentation and its source/settings in identity. A 64 MiB combined buffer cap,
+u32 catch bounds and device binding limits are enforced before allocation. Sampling is not exact
+every-step occupancy, and instrumented timings are not baseline throughput evidence.
+
+Cross-play adds `coevo-forgetting-max-drawdown-v1`: maximum earlier-to-later drop in mean signed
+catch score against the fixed anchors, checkpoints sorted numerically by generation. It resamples
+whole episodes jointly across all checkpoints and recomputes the maximum for each of 10,000 draws.
+Lower is less forgetting. This records an available scalar, not H3 acceptance: 14.5 must freeze
+checkpoint budget/selection, anchors and archive-on/off comparison handling before final outcomes.
+
+Evidence: headless agents 142/142; new A53 diagnostics/A54 evaluator harness passed 37/37 on each
+of Node/NVIDIA, Node/AMD and Chrome/AMD, zero WebGPU errors. Forced catch locations, CPU geometric
+oracles, dead-first-record/live denominators, contacts-on record/catch bit invariance, single final
+mapping and raw-data replay are checked. Browser uses `test/coevo-arena-gpu/evaluate.html`.
+An actual CLI seven-matchup evaluation with diagnostics completed; exported histograms agree with
+counters and replay agrees.
+
+**14.4 second review, 2026-10-20:** the 37 checks sample one tick of frozen bodies with every wolf
+resting, and six of thirteen injected diagnostic faults passed them: catches or samples in the
+wrong window, sampling a tick late, idle wolves counted as resting, speed on the wrong axis,
+sampling before containment. An eight-step fixture (wolves waking at known ticks, moving prey, a
+prey that only containment moves) now compares every sampled tick with the records read back after
+it and every window's histogram with the counters' increase: **44/44 on each of Node/NVIDIA,
+Node/AMD and Chrome/AMD**, zero WebGPU errors, and all thirteen faults fail it (NVIDIA). A
+full-length CLI check (contact-v3 at 36 m, 10 matchups × 20 episodes, T = 1200, NVIDIA): catches
+identical with and without `--diagnostics-stride 60`, each episode's histograms sum to its catches,
+both evaluations replay. Diagnostics doubled the GPU time, 7.2 s against 3.5 s per matchup: each
+sample is one thread per tile looping over the tile's body pairs, so the guard's calibrated worst
+step rose from 77 to 127 ms and it halved its batches. These are infrastructure checks, not score
+quality or learning. No training settings accepted; 14.0 remains open.
 
 **Measured with the runner's layout, 2026-10-20** (`test/spikes/coevo-eval/spawn-share.mjs`,
 Node/NVIDIA; P = 192, W = 16, contact-v2, contacts on, rest 5 s; 20 held-out tiles; mean catches
@@ -430,10 +480,12 @@ initial prey spawns closer than 2 m to a wolf, in the measurement only; respawns
 | L = 36 m (§16 reference density), uniform | 9.45 | 18.35 | 55.45 | 65.75 | 14.75 |
 | L = 36 m, separated spawn | 0 | 15.95 | 51.90 | 62.15 | 4.20 |
 
-At L = 24 m **the prey's policy does not affect catches**: prey standing still are caught as often
-as rule prey, because the 5 s rest, not search, limits the wolves (16 wolves, at most about four
-catches each in 20 s), and about 20 prey per tile start inside a wolf's reach and are caught on the
-first step under any policy (82% of a 5 s episode). Prey evolution would have no fitness signal.
+At L = 24 m **these tested prey drivers have nearly equal mean catches**: standing-still and rule
+prey differ by 0.10 catches at 20 s. This suggests a weak signal in this fixture, not proof that
+every prey policy or ES perturbation has zero effect. Wolf rest and initial overlaps are plausible
+contributors, but multiple prey per wolf per step are permitted (§5), so rest does not impose a
+four-catches-per-wolf bound. About 20 prey per tile are caught on the first step (82% of the
+rule/rule 5 s mean), 20.05 to 20.15 under every tested pairing, either species standing still included.
 At the reference density fleeing saves 16% of catches; separation removes the free first-step
 catches, which are otherwise half of a 5 s episode's at 36 m. Rule, label and clone pairings, all
 near-copies of one policy, differ by at most 3.9% everywhere. The wolves' policy registers in
@@ -451,9 +503,10 @@ with prey standing still against rule wolves, paired by tile and seed):
 | 24 m | 128 | 0.222 | 64.50 | −4.7% | −0.65 | 1.51 |
 | 24 m | 64 | 0.111 | 59.15 | −2.5% | −0.37 | 2.77 |
 
-Fewer prey do not make the prey's behaviour count: at 36 m it saves about 17% at every count, and
+In these tested pairings, fewer prey do not increase the relative benefit of fleeing: at 36 m it saves about 17% at every count, and
 at 24 m it saves nothing even at 64 prey, a lower prey density than 192 prey at 36 m. Tile size,
-that is wolf density and room to flee, decides it. Per prey, risk rises as the herd shrinks
+including wolf density and room to flee, matters in these fixtures; these comparisons do not
+isolate a unique causal mechanism. Per prey, risk rises as the herd shrinks
 (dilution: wolves' catches barely fall). Fewer bodies per tile remain cheaper per episode, a
 throughput question for 14.0 (64-prey alignment, and the clones were trained among denser herds).
 
@@ -472,6 +525,8 @@ drivers per species against the combined rule, one-row tables against the traine
 baselines on a clone run, and cross-play replaying baseline cells. **A52** (`--only v3`) checks
 contact-v3: separated spawns in the GPU records, contact-v2 everywhere else (bit for bit at a 1 mm
 separation), no first-step catch, exact mirrored lanes, and a contact-v3 run trained and evaluated.
+14.4 completion reserves **A53–A54** in `test/coevo-arena-gpu/evaluate-protocol.json`: diagnostic
+geometry, accounting over time, invariance and readback, and browser-loadable evaluation/replay.
 
 | Property | Required evidence |
 |---|---|
@@ -518,7 +573,7 @@ and cleanup all resources; do not overwrite unrelated or previously completed ou
 | **14.1 ✅** | Production lane/arena factory, legacy/contact modes, lifecycle | I1/I2/I3/E5/C1/R1, three pairs (Node NVIDIA/AMD, Chrome/AMD 40/40), watched failing; Q8 semantics settled |
 | **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
 | **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | Review findings closed with regressions (below); infrastructure evidence is not research acceptance |
-| **14.4 in progress** | Arena evaluation, clone opponents, crossplay, intervals, README | U54 statistics and held-out manifests; `agents:arena-eval` and `agents:crossplay` with raw-data replay, A48–A51; exploit diagnostics next |
+| **14.4 ✅ infrastructure** | Arena evaluation, clone opponents, crossplay, intervals, diagnostics, `contact-v3`, README | U54 statistics/manifests/replay/forgetting; A48–A51 runner; A52 contact-v3; A53–A54 diagnostics/evaluator 44/44 on all three pairs |
 | **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
 
 **14.3 closure, 2026-10-20.** The re-review found two defects the repairs had not reached, both

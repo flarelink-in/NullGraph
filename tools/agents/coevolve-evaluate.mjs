@@ -6,7 +6,8 @@
 // can run it in Chrome too; the command line is coevolve-eval.mjs.
 import { arenaLayout } from './scenario/arena-layout.mjs';
 import { buildLane, readBuffers } from './scenario/herd-wolves-arenas.mjs';
-import { meanInterval, noninferior, pairedBootstrap, superior } from './coevolve-stats.mjs';
+import { meanInterval, noninferior, pairedBootstrap, superior, forgettingInterval } from './coevolve-stats.mjs';
+import { decodeDiagnostics } from './coevolve-diagnostics.mjs';
 
 export const MIN_EPISODES = 20;     // design §10: at least 20 held-out episodes per pairing
 const SPECIES = ['prey', 'wolf'];
@@ -118,10 +119,19 @@ export function crossplaySummary(generations, plan, catches, anchors, options) {
     const average = lists => Array.from(lists[0], (_, e) => lists.reduce((sum, list) => sum + list[e], 0) / lists.length);
     const score = (values, sign) => meanInterval(values.map(v => sign * v), stats(options));
     const intervals = ids.map((_, i) => ids.map((__, j) => meanInterval(cell(i, j), stats(options))));
+    const chronological = ids.map((id, i) => {
+        if (!/^gen-\d+$/.test(id)) fail('forgetting requires gen-NNNN checkpoint identities');
+        return i;
+    }).sort((i, j) => Number(ids[i].slice(4)) - Number(ids[j].slice(4)));
+    const preyCurve = chronological.map(i => average(anchorIndex.map(j => cell(i, j))).map(v => -v));
+    const wolfCurve = chronological.map(j => average(anchorIndex.map(i => cell(i, j))));
     return {
         generations: ids, anchors: [...anchors],
         mean: intervals.map(row => row.map(interval => interval.mean)),
         intervals,
+        forgetting: { order: chronological.map(i => ids[i]),
+            definition: 'maximum earlier-to-later drop in mean signed catch score against fixed anchors; lower is less forgetting',
+            prey: forgettingInterval(preyCurve, stats(options)), wolf: forgettingInterval(wolfCurve, stats(options)) },
         anchorScores: {
             prey: ids.map((_, i) => score(average(anchorIndex.map(j => cell(i, j))), -1)),
             wolf: ids.map((_, j) => score(average(anchorIndex.map(i => cell(i, j))), 1)),
@@ -151,9 +161,10 @@ export function replay(evaluation) {
  * species ({ prey, wolf }); `run(lane)` steps the lane exactly T times under the caller's guard.
  * `compile(make)` builds the lane and resolves its pipelines before any step is submitted.
  */
-export async function playMatchup(engine, { experiment, geometry, seeds, game, tables, run, T,
+export async function playMatchup(engine, { experiment, geometry, seeds, game, tables, run, T, diagnostics,
     compile = async make => ({ value: make(), setupCompileMs: 0 }) }) {
     if (!Array.isArray(seeds) || seeds.length !== geometry.arenas) fail('one held-out seed per tile');
+    if (diagnostics && diagnostics.steps !== T) fail('diagnostic steps must equal matchup T');
     const brains = {};
     for (const species of SPECIES) {
         const driver = checkDriver(game[species], species);
@@ -163,16 +174,20 @@ export async function playMatchup(engine, { experiment, geometry, seeds, game, t
     const built = await compile(() => buildLane(engine, geometry, { environment: experiment.environment,
         contacts: experiment.contacts, contactOptions: experiment.contactOptions, catchMargin: experiment.catchMargin,
         spawnSeparation: experiment.spawnSeparation, thinkEvery: experiment.thinkEvery, dt: experiment.dt,
-        monitorFinite: true, brains, seedOf: a => seeds[a], rowOf: () => 0 }));
+        monitorFinite: true, diagnostics, brains, seedOf: a => seeds[a], rowOf: () => 0 }));
     const lane = built.value;
     try {
         const observed = { ...await run(lane), setupCompileMs: built.setupCompileMs };
         // One mapping per matchup, after all T steps (I6).
-        const [counters, laneStats] = await readBuffers(engine.device,
-            [{ buffer: lane.counters, words: geometry.arenas }, { buffer: lane.stats, words: 4 }]);
+        const entries = [{ buffer: lane.counters, words: geometry.arenas }, { buffer: lane.stats, words: 4 }];
+        if (lane.diagnostic) entries.push(...['samples', 'catches'].map(key =>
+            ({ buffer: lane.diagnosticBuffers[key], words: lane.diagnostic.words })));
+        const [counters, laneStats, samples, locations] = await readBuffers(engine.device, entries);
         if (laneStats[3]) fail(`nonfinite runtime state in ${game.id}`);
         if (counters.reduce((sum, n) => sum + n, 0) !== laneStats[0] || counters.some(n => n > geometry.prey * T))
             fail(`catch counters of ${game.id} are inconsistent`);
-        return { catches: Array.from(counters), observed };
+        const diagnostic = lane.diagnostic ? decodeDiagnostics(lane.lay, lane.diagnostic, samples, locations) : null;
+        if (diagnostic?.episodes.some((episode, e) => episode.catches !== counters[e])) fail('diagnostic catch locations disagree with counters');
+        return { catches: Array.from(counters), observed, ...(diagnostic ? { diagnostics: diagnostic } : {}) };
     } finally { lane.destroy(); }
 }
