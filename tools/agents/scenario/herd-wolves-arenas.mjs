@@ -157,10 +157,40 @@ fn step(i: u32, tick: u32) {
 // A species `brains` names by string runs the scenario's rule instead of a policy table: the demo's
 // teacher, or the rule without wander and coin flips (the label's decisions, plan-2's baseline).
 export const RULE_DRIVERS = Object.freeze({ rule: DRIVER, label: LABEL_DRIVING });
+// contact-v3 is contact-v2 with separated initial spawns (design §5); both catch exhaustively.
+export const ENVIRONMENTS = Object.freeze(['legacy-v1', 'contact-v2', 'contact-v3']);
+const EXHAUSTIVE = new Set(['contact-v2', 'contact-v3']);
 
-export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
-    seedOf, rowOf, brains, fixture, catchMargin, contactOptions = {}, dt = 1 / 60, monitorFinite = false } = {}) {
-    if (!['legacy-v1', 'contact-v2'].includes(environment)) throw new Error(`coevolve: unknown environment ${environment}`);
+/**
+ * One tile's spawn, slot by slot (wolves first): the demo's draws from the episode seed, in its
+ * expression order, so legacy-v1 and contact-v2 spawn bit for bit as before. With `separation`
+ * (contact-v3) a prey drawn closer than that to a wolf of its tile is drawn again from the seed's
+ * next keys, the same in both mirrored lanes; headings never change.
+ */
+export function tileSpawns(lay, lo, seed, separation = 0) {
+    const inset = lay.L / 2 - 1, spawns = [];
+    const at = (slot, kx, kz) => [lo[0] + lay.L / 2 + (A.rand01(slot, seed, kx) * 2 - 1) * inset,
+        lo[1] + lay.L / 2 + (A.rand01(slot, seed, kz) * 2 - 1) * inset];
+    for (let slot = 0; slot < lay.perArena; slot++) {
+        let [x, z] = at(slot, 0, 1);
+        if (separation > 0 && slot >= lay.wolves) {
+            const near = () => spawns.slice(0, lay.wolves).some(w => Math.hypot(x - w.x, z - w.z) < separation);
+            for (let retry = 0; near(); retry++) {
+                if (retry >= 1000) throw new Error(`coevolve: no spawn for prey slot ${slot} keeps ${separation} m from its tile's wolves`);
+                [x, z] = at(slot, 3 + 2 * retry, 4 + 2 * retry);
+            }
+        }
+        spawns.push({ x, z, heading: A.rand01(slot, seed, 2) * Math.PI * 2 - Math.PI });
+    }
+    return spawns;
+}
+
+export function buildLane(engine, geometry, { environment, contacts, thinkEvery, seedOf, rowOf, brains, fixture,
+    catchMargin, spawnSeparation, contactOptions = {}, dt = 1 / 60, monitorFinite = false } = {}) {
+    if (!ENVIRONMENTS.includes(environment)) throw new Error(`coevolve: unknown environment ${environment}`);
+    if (environment === 'contact-v3' ? !(Number.isFinite(spawnSeparation) && spawnSeparation > 0 && spawnSeparation < geometry.L / 2)
+        : spawnSeparation !== undefined)
+        throw new Error('coevolve: contact-v3 needs an explicit spawnSeparation in (0, L/2) m; other environments take none');
     if (brains) for (const name of ['prey', 'wolf']) if (typeof brains[name] === 'string' ? !RULE_DRIVERS[brains[name]] : !brains[name])
         throw new Error(`coevolve: ${name} driver must be a brain, "rule" or "label"`);
     const table = name => brains && typeof brains[name] !== 'string';
@@ -168,7 +198,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
     if (environment === 'legacy-v1' && contacts) throw new Error('coevolve: legacy-v1 requires contacts off');
     if (!Number.isInteger(thinkEvery) || thinkEvery < 1) throw new Error('coevolve: invalid thinkEvery');
     if (typeof seedOf !== 'function' || typeof rowOf !== 'function') throw new Error('coevolve: seedOf and rowOf are required');
-    if (environment === 'contact-v2' && (!Number.isFinite(catchMargin) || catchMargin < 0)) throw new Error('coevolve: explicit finite nonnegative catchMargin required');
+    if (EXHAUSTIVE.has(environment) && (!Number.isFinite(catchMargin) || catchMargin < 0)) throw new Error('coevolve: explicit finite nonnegative catchMargin required');
     const allowed = ['iterations', 'maxPush', 'relaxation', 'compliance', 'damping', 'mass', 'maxScanPerCell', 'cellSize'];
     for (const key of Object.keys(contactOptions)) if (!allowed.includes(key)) throw new Error(`coevolve: forbidden contact override ${key}`);
     const lay = arenaLayout({ ...geometry, contacts: contacts ? contactOptions : null });
@@ -200,7 +230,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         if (brains) for (const name of ['prey', 'wolf']) sys.setBrain(table(name) ? brains[name]
             : (rules[brains[name]] ??= rule(RULE_DRIVERS[brains[name]])), { species: name });
         else sys.setBrain(rule(DRIVER));
-        if (environment === 'contact-v2') {
+        if (EXHAUSTIVE.has(environment)) {
             const snapshot = alloc(bytes);
             const stage = engine.createComputeStage({ name: 'coevolve catch snapshot', dispatchCount: [Math.ceil(lay.count / 64), 1, 1],
                 shaderCode: `@group(0) @binding(0) var<storage, read> src: array<vec4<u32>>;
@@ -238,13 +268,11 @@ fn step(i: u32, tick: u32) {
 }` });
         for (let a = 0; a < lay.arenas; a++) {
             const lo = [lay.origin[0] + a % lay.cols * lay.pitch, lay.origin[1] + Math.floor(a / lay.cols) * lay.pitch];
-            const inset = lay.L / 2 - 1, seed = assignments[a].seed;
+            const spawns = tileSpawns(lay, lo, assignments[a].seed, spawnSeparation ?? 0);
             for (let slot = 0; slot < lay.perArena; slot++) {
                 const wolf = slot < lay.wolves, name = wolf ? 'wolf' : 'prey';
                 const i = wolf ? a * lay.wolves + slot : lay.wolfTotal + a * lay.prey + slot - lay.wolves;
-                const init = { position: [lo[0] + lay.L / 2 + (A.rand01(slot, seed, 0) * 2 - 1) * inset, 0.08,
-                    lo[1] + lay.L / 2 + (A.rand01(slot, seed, 1) * 2 - 1) * inset],
-                    species: name, heading: A.rand01(slot, seed, 2) * Math.PI * 2 - Math.PI,
+                const init = { position: [spawns[slot].x, 0.08, spawns[slot].z], species: name, heading: spawns[slot].heading,
                     genome: assignments[a].rows[name], user1: a };
                 fixture?.(init, { i, slot, a, lo, lay, wolf });
                 sys.spawn(i, init);

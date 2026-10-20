@@ -156,7 +156,7 @@ export function planEvaluation(raw) {
 }
 
 const laneOptions = experiment => ({ environment: experiment.environment, contacts: experiment.contacts,
-    contactOptions: experiment.contactOptions, catchMargin: experiment.catchMargin,
+    contactOptions: experiment.contactOptions, catchMargin: experiment.catchMargin, spawnSeparation: experiment.spawnSeparation,
     thinkEvery: experiment.thinkEvery, dt: experiment.dt, monitorFinite: true });
 
 export async function runEvaluation(raw, { log = console.log } = {}) {

@@ -162,7 +162,8 @@ export async function playMatchup(engine, { experiment, geometry, seeds, game, t
     }
     const built = await compile(() => buildLane(engine, geometry, { environment: experiment.environment,
         contacts: experiment.contacts, contactOptions: experiment.contactOptions, catchMargin: experiment.catchMargin,
-        thinkEvery: experiment.thinkEvery, dt: experiment.dt, monitorFinite: true, brains, seedOf: a => seeds[a], rowOf: () => 0 }));
+        spawnSeparation: experiment.spawnSeparation, thinkEvery: experiment.thinkEvery, dt: experiment.dt,
+        monitorFinite: true, brains, seedOf: a => seeds[a], rowOf: () => 0 }));
     const lane = built.value;
     try {
         const observed = { ...await run(lane), setupCompileMs: built.setupCompileMs };

@@ -232,6 +232,19 @@ the 1500 ms safety stop (NVIDIA max 39.7 ms, AMD max 14.1 ms, Chrome max 133.8 m
 (A47). 14.1 foundation is delivered; production module builds fresh lane systems and attaches shared brain
 tables; training optimizer/CLI and full research screening remain for phases 14.2–14.5.
 
+### `contact-v3`, separated initial spawns (user-selected 2026-10-20)
+
+`contact-v2` with one change: an initial prey drawn closer than `spawnSeparation` metres (centre to
+centre) to a wolf of its tile is drawn again from the episode seed's next keys (`tileSpawns`, keys
+3 + 2r and 4 + 2r on retry r, at most 1,000), so both mirrored lanes spawn identically. Wolves,
+headings and every other draw are contact-v2's, and `legacy-v1`/`contact-v2` spawn bit for bit as
+before. `spawnSeparation` is explicit, in (0, L/2), required for contact-v3 and refused elsewhere;
+it enters the hashed experiment only for contact-v3, so earlier hashes are unchanged. Respawns are
+unchanged: a respawned prey can still land within reach of a wolf. Not pooled with contact-v2
+evidence. The user's option C pairs it with §16's reference density, L = 160 √((P+W)/4096) (36 m
+for 208 bodies), a profile setting; §10 has the measurements behind the choice. A52 checks it on
+the GPU.
+
 ## 6. Complete episode lifecycle
 
 Correctness-first: create fresh plus/minus `AgentSystem`s and fresh contact solvers for each
@@ -424,8 +437,31 @@ first step under any policy (82% of a 5 s episode). Prey evolution would have no
 At the reference density fleeing saves 16% of catches; separation removes the free first-step
 catches, which are otherwise half of a 5 s episode's at 36 m. Rule, label and clone pairings, all
 near-copies of one policy, differ by at most 3.9% everywhere. The wolves' policy registers in
-every row. Density is a profile setting; spawn separation would be a versioned environment
-change. Both await the user's decision before 14.0's settings and 14.5's freeze.
+every row. Density is a profile setting; spawn separation is a versioned environment change. The
+user chose both (option C): `contact-v3` (§5) at the reference density.
+
+**Fewer prey, 2026-10-20** (same harness, separated spawns, 20 s; "fleeing saves" compares rule prey
+with prey standing still against rule wolves, paired by tile and seed):
+
+| Tile | Prey per tile | Prey per m² | rule/rule | Fleeing saves | Paired effect (mean / SD) | Catches per prey per minute |
+|---|---|---|---|---|---|---|
+| 36 m | 192 | 0.148 | 51.90 | 16.5% | 3.65 | 0.81 |
+| 36 m | 128 | 0.099 | 49.90 | 17.3% | 2.29 | 1.17 |
+| 36 m | 64 | 0.049 | 45.25 | 17.4% | 3.83 | 2.12 |
+| 24 m | 128 | 0.222 | 64.50 | −4.7% | −0.65 | 1.51 |
+| 24 m | 64 | 0.111 | 59.15 | −2.5% | −0.37 | 2.77 |
+
+Fewer prey do not make the prey's behaviour count: at 36 m it saves about 17% at every count, and
+at 24 m it saves nothing even at 64 prey, a lower prey density than 192 prey at 36 m. Tile size,
+that is wolf density and room to flee, decides it. Per prey, risk rises as the herd shrinks
+(dilution: wolves' catches barely fall). Fewer bodies per tile remain cheaper per episode, a
+throughput question for 14.0 (64-prey alignment, and the clones were trained among denser herds).
+
+**Episode length at option C** (36 m, 192 prey, separated): fleeing saves −0.3% at 5 s (300
+steps), 2.7% at 10 s and 16.5% at 20 s (1,200 steps). Fresh wolves outrun what they chase; only
+after the first rests do fleeing and regrouping pay. The built `contact-v3` (§5) at 36 m
+reproduces it: no first-step catch, fleeing saves −1.6%, 2.5% and 16.5% at 5, 10 and 20 s. Data:
+`tools/agents/out/coevo-eval/{environment-options,environment-bounds,prey-count,episode-length,contact-v3}-nvidia-2026-10-20.json`.
 
 ## 11. Invariants, test allocation and negative controls
 
@@ -433,7 +469,9 @@ Existing steps own U43–U49 and A35–A41. Reserve **U50–U55, A42–A47** her
 allocations before implementation. E/I labels name properties, not global test numbers. 14.4 adds
 **A48–A51** (unused elsewhere on 2026-10-20) in `validate-coevolve.mjs --only evaluate`: rule
 drivers per species against the combined rule, one-row tables against the trainer's rows,
-baselines on a clone run, and cross-play replaying baseline cells.
+baselines on a clone run, and cross-play replaying baseline cells. **A52** (`--only v3`) checks
+contact-v3: separated spawns in the GPU records, contact-v2 everywhere else (bit for bit at a 1 mm
+separation), no first-step catch, exact mirrored lanes, and a contact-v3 run trained and evaluated.
 
 | Property | Required evidence |
 |---|---|
@@ -525,6 +563,11 @@ than silently modifying the engine or research hypothesis.
 **2026-10-17:** Q1–Q5 accepted (§1); those decisions remain, not the old measurements.
 **2026-10-18:** user requested full revision and discarding original phase 14.0 results. Old S7
 acceptance/defaults/conclusions withdrawn; S8/S9 remain independent evidence.
+**2026-10-20:** after §10's measurements the user chose option C for research: `contact-v3`
+(separated spawns, 2 m measured) at §16's reference density (36 m tiles). Asked whether fewer prey
+would help, the measurement answered no for the signal (§10); the prey count stays a throughput
+choice for 14.0. Episode length is open for 14.0, with §10's evidence that prey behaviour registers
+only in long episodes (16.5% at 20 s, 2.7% at 10 s, none at 5 s).
 
 Before 14.1: replacement S7 validates lane/reset architecture, proposes population/T/E and tuning
 ranges, and tests proposed contact-v1 Q8 margin/order. Final settings and any trade-off requiring

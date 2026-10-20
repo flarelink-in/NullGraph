@@ -1,13 +1,14 @@
 // Measurement, not a test (phase 14.4, design §10): how much of an episode's catches no policy can
 // influence. Replays an evaluation's layout and held-out seeds for several pairings and reports mean
-// catches per tile after 1, 20, 300 and 1,200 steps. Reads counters mid-run, so it is a diagnostic
+// catches per tile after 1, 20, 300, 600 and 1,200 steps. Reads counters mid-run, so it is a diagnostic
 // outside the I6 production contract and not timing evidence.
 //
-//   node test/spikes/coevo-eval/spawn-share.mjs <evaluation.json> [--L <m>] [--separation <m>]
+//   node test/spikes/coevo-eval/spawn-share.mjs <evaluation.json> [--L <m>] [--separation <m>] [--P <prey>]
 //
 // --L replaces the tile side (density); --separation re-draws any prey spawned closer than that to
-// a wolf of its tile (measurement only: the environment's own spawn is unchanged). NG_DAWN_FLAGS
-// picks the GPU.
+// a wolf of its tile (measurement only, before contact-v3 existed; a contact-v3 evaluation applies
+// its own spawnSeparation); --P replaces the prey per tile (a multiple of 64). Per-tile catches are
+// kept for paired statistics. NG_DAWN_FLAGS picks the GPU.
 import { readFileSync } from 'node:fs';
 import { installNodeGPU } from '../../gpu/node-gpu.mjs';
 import { NullGraph } from '../../../dist/index.js';
@@ -22,7 +23,8 @@ const [file, ...rest] = process.argv.slice(2), option = name => {
 };
 const evaluation = JSON.parse(readFileSync(file, 'utf8'));
 const x = evaluation.experiment, seeds = evaluation.heldOut.seeds;
-const geometry = { ...evaluation.evaluation.geometry, ...(option('L') ? { L: option('L') } : {}) };
+const geometry = { ...evaluation.evaluation.geometry, ...(option('L') ? { L: option('L') } : {}),
+    ...(option('P') ? { prey: option('P') } : {}) };
 const separation = option('separation') ?? 0;
 
 /** Re-draws a prey spawned within `separation` of a wolf of its tile, deterministically. */
@@ -50,22 +52,25 @@ const pairings = { 'rule/rule': { prey: 'rule', wolf: 'rule' }, 'label/label': {
     // Bounds on what any policy can change: one species standing still (throttle -1, no turn).
     'rule/still': { prey: 'rule', wolf: 'rule', still: 'wolf' }, 'still/rule': { prey: 'rule', wolf: 'rule', still: 'prey' } };
 const stationary = { kind: 'stage', wgsl: 'fn think(i: u32, species: u32, tick: u32) { setAct(i, 0u, 0.0); setAct(i, 1u, -1.0); }' };
-const marks = [1, 20, 300, 1200];
-const out = { adapter: adapter.info.description, dt: x.dt, L: geometry.L, separation, marks, pairings: {} };
+const marks = [1, 20, 300, 600, 1200];
+const out = { adapter: adapter.info.description, dt: x.dt, L: geometry.L, P: geometry.prey, W: geometry.wolves,
+    separation, marks, pairings: {}, tiles: {} };
 try {
     for (const [name, { still, ...brains }] of Object.entries(pairings)) {
         const lane = buildLane(engine, geometry, { environment: x.environment, contacts: x.contacts, contactOptions: x.contactOptions,
-            catchMargin: x.catchMargin, thinkEvery: x.thinkEvery, dt: x.dt, monitorFinite: true, brains,
-            seedOf: a => seeds[a], rowOf: () => 0, fixture: separation ? separated() : undefined });
+            catchMargin: x.catchMargin, spawnSeparation: x.spawnSeparation, thinkEvery: x.thinkEvery, dt: x.dt, monitorFinite: true,
+            brains, seedOf: a => seeds[a], rowOf: () => 0, fixture: separation ? separated() : undefined });
         try {
             if (still) lane.sys.setBrain(stationary, { species: still });
-            const row = {};
+            const row = {}, tiles = {};
             for (let step = 0, k = 0; k < marks.length; k++) {
                 for (; step < marks[k]; step++) engine.render(lane.chain);
                 const [counters] = await readBuffers(device, [{ buffer: lane.counters, words: geometry.arenas }]);
                 row[marks[k]] = counters.reduce((a, b) => a + b, 0) / geometry.arenas;
+                tiles[marks[k]] = Array.from(counters);
             }
             out.pairings[name] = row;
+            out.tiles[name] = tiles;
         } finally { lane.destroy(); }
     }
     await host.settle();

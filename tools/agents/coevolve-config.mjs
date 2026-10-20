@@ -28,7 +28,7 @@ export function configHash(config) {
 
 const KNOWN_CONFIG_KEYS = new Set([
     'name', 'K', 'E', 'P', 'W', 'L', 'cols', 'gap', 'T', 'dt', 'thinkEvery',
-    'environment', 'contacts', 'contactOptions', 'catchMargin', 'generations',
+    'environment', 'contacts', 'contactOptions', 'catchMargin', 'spawnSeparation', 'generations',
     'start', 'hidden', 'optimizer', 'archive', 'seeds', 'outDir', 'exportOnnx', 'arenas'
 ]);
 const KNOWN_OPT_KEYS = new Set(['sigma', 'rate', 'decay']);
@@ -111,12 +111,18 @@ export function validateConfig(raw) {
     if (raw.arenas !== undefined && raw.arenas !== totalArenas)
         fail(`--arenas ${raw.arenas} does not equal 2KE = ${totalArenas}`);
 
-    if (!['contact-v2', 'legacy-v1'].includes(environment))
+    if (!['contact-v2', 'contact-v3', 'legacy-v1'].includes(environment))
         fail(`unknown environment "${environment}"`);
     if (typeof contacts !== 'boolean') fail('contacts must be an explicit boolean');
     if (environment === 'legacy-v1' && contacts) fail('legacy-v1 requires contacts off');
-    if (environment === 'contact-v2' && (!Number.isFinite(catchMargin) || catchMargin < 0))
-        fail('contact-v2 requires explicit nonnegative finite catchMargin');
+    if (environment !== 'legacy-v1' && (!Number.isFinite(catchMargin) || catchMargin < 0))
+        fail(`${environment} requires explicit nonnegative finite catchMargin`);
+    // contact-v3 = contact-v2 with initial prey spawns at least spawnSeparation m from the tile's wolves.
+    if (environment === 'contact-v3') {
+        if (raw.spawnSeparation === undefined) fail('explicit research profile requires spawnSeparation for contact-v3');
+        if (!Number.isFinite(raw.spawnSeparation) || raw.spawnSeparation <= 0 || raw.spawnSeparation >= L / 2)
+            fail(`spawnSeparation ${raw.spawnSeparation} must be in (0, L/2 = ${L / 2}) m`);
+    } else if (raw.spawnSeparation !== undefined) fail(`${environment} takes no spawnSeparation (contact-v3 does)`);
     if (!Number.isFinite(catchMargin) || catchMargin < 0) fail('catchMargin must be finite and nonnegative');
     if (contacts && (contactOptions.relaxation <= 0 || contactOptions.relaxation >= 2 ||
         contactOptions.compliance < 0 || contactOptions.damping < 0 || contactOptions.damping > 1 ||
@@ -197,6 +203,8 @@ export function validateConfig(raw) {
         contacts,
         contactOptions: contacts ? { iterations: 2, maxPush: 0.25, ...contactOptions } : {},
         catchMargin,
+        // Only contact-v3 has the field, so earlier environments keep their experiment hashes.
+        ...(environment === 'contact-v3' ? { spawnSeparation: raw.spawnSeparation } : {}),
         generations,
         start,
         hidden: [...hidden],
@@ -214,7 +222,7 @@ export function validateConfig(raw) {
 export function parseCliArgs(argv) {
     const args = argv.slice();
     const values = new Set(['config', 'name', 'start', 'hidden', 'arenas', 'K', 'E', 'P', 'W', 'L',
-        'gap', 'cols', 'T', 'dt', 'thinkEvery', 'environment', 'catchMargin', 'generations',
+        'gap', 'cols', 'T', 'dt', 'thinkEvery', 'environment', 'catchMargin', 'spawnSeparation', 'generations',
         'sigma', 'rate', 'decay', 'archive-every', 'archive-cap', 'archive-share', 'master-seed', 'domain', 'out-dir']);
     const flags = new Set(['contacts', 'no-contacts', 'export-onnx']);
     const seen = new Set();
@@ -297,6 +305,9 @@ export function parseCliArgs(argv) {
 
     const catchMargin = getOpt('catchMargin');
     if (catchMargin !== undefined) configObj.catchMargin = Number(catchMargin);
+
+    const spawnSeparation = getOpt('spawnSeparation');
+    if (spawnSeparation !== undefined) configObj.spawnSeparation = Number(spawnSeparation);
 
     const generations = getOpt('generations');
     if (generations !== undefined) configObj.generations = Number(generations);

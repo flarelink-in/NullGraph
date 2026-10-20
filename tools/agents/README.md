@@ -216,6 +216,10 @@ are errors. `dt` controls both the agent kernels and contacts solver. Output lab
 affect experiment hashes; immutable models, generation manifests and ONNX are deterministic,
 but provenance and wall-time logs intentionally differ between runs.
 
+`environment` is `legacy-v1`, `contact-v2` or `contact-v3`. contact-v3 is contact-v2 with initial
+prey spawns kept an explicit `spawnSeparation` (metres) from their tile's wolves, re-drawn from the
+episode seed; it is the research environment the user chose, with 36 m tiles (design §5).
+
 Models are written and read under the demo's feature names (`bounds.side`, `turn`, …), not the
 arena stages' indexed ones, so `--start clones` loads the committed clones (pass `--hidden 64x64x64`,
 their shape) and every checkpoint loads wherever the demo's networks do. Each `gen-NNNN/manifest.json`
@@ -269,9 +273,10 @@ Known limits of the trainer:
 - **In the test profile's environment (24 m tiles) the prey's policy does not affect catches.**
   Prey standing still are caught as often as rule prey over 20 s, because the 5 s rest caps the
   wolves, and about 20 catches per tile happen on the first step from prey spawned inside a wolf's
-  reach. At the design's reference density (36 m) fleeing saves 16%; separating the spawns
-  removes the free catches (design §10, `test/spikes/coevo-eval/spawn-share.mjs`). Density and
-  spawn await a decision before research settings are chosen.
+  reach. The user chose `contact-v3` (separated spawns) at the reference density (36 m tiles) for
+  research: fleeing then saves 16.5% over 20 s, but nothing over 5 s, and fewer prey per tile do
+  not change that (design §10, `test/spikes/coevo-eval/spawn-share.mjs`). The test profile keeps
+  24 m and contact-v2 so its infrastructure checks stay comparable.
 
 - **One scenario.** The tools take a scenario module, but only Herd & Wolves exists.
 - **The label pass finds its place by a stage's name,** `AgentSystem act`. If a library change

@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateConfig, parseCliArgs, experimentOf, configHash } from '../tools/agents/coevolve-config.mjs';
 import { arenaLayout } from '../tools/agents/scenario/arena-layout.mjs';
-import { arenaDefinition, modelNames } from '../tools/agents/scenario/herd-wolves-arenas.mjs';
+import { arenaDefinition, modelNames, tileSpawns, buildLane } from '../tools/agents/scenario/herd-wolves-arenas.mjs';
+import { rand01 } from '../dist/agents.js';
 import { herdDefinition } from '../tools/agents/scenario/herd-wolves.mjs';
 import { networkFromModel } from '../tools/agents/model.mjs';
 import { calibrateArenaSteps, createSubmissionGuard, probeLayouts, guardIdentity, WORKLOADS } from '../tools/agents/coevolve-guard.mjs';
@@ -113,6 +114,55 @@ test('U50 regression: explicit profile, strict CLI, nested types and counter bou
         ['--T', '5', '--T', '6'], ['--contacts', '--no-contacts'], ['--contacts', 'false']])
         assert.throws(() => parseCliArgs(args), /^Error: coevolve:/);
     assert.deepEqual(parseCliArgs(['--T', '50', '--no-contacts']), { T: 50, contacts: false });
+});
+
+test('U50 contact-v3 spawns: separation 0 is the old draw bit for bit; separated prey keep their distance', () => {
+    const lay = arenaLayout(geometry), lo = [-17.5, 4.25];
+    for (const seed of [1, 18001, 0xfffffff0]) {
+        const plain = tileSpawns(lay, lo, seed), inset = lay.L / 2 - 1;
+        plain.forEach((s, slot) => {   // the inline formula buildLane used before contact-v3
+            assert.equal(s.x, lo[0] + lay.L / 2 + (rand01(slot, seed, 0) * 2 - 1) * inset);
+            assert.equal(s.z, lo[1] + lay.L / 2 + (rand01(slot, seed, 1) * 2 - 1) * inset);
+            assert.equal(s.heading, rand01(slot, seed, 2) * Math.PI * 2 - Math.PI);
+        });
+        const separated = tileSpawns(lay, lo, seed, 2), wolves = separated.slice(0, lay.wolves);
+        assert.deepEqual(wolves, plain.slice(0, lay.wolves), 'wolves never move');
+        let redrawn = 0;
+        separated.slice(lay.wolves).forEach((s, k) => {
+            const before = plain[lay.wolves + k];
+            assert.equal(s.heading, before.heading);
+            assert.ok(wolves.every(w => Math.hypot(s.x - w.x, s.z - w.z) >= 2), 'every prey keeps 2 m from every wolf');
+            assert.ok(s.x >= lo[0] + 1 && s.x <= lo[0] + lay.L - 1 && s.z >= lo[1] + 1 && s.z <= lo[1] + lay.L - 1);
+            const clear = wolves.every(w => Math.hypot(before.x - w.x, before.z - w.z) >= 2);
+            if (clear) assert.deepEqual(s, before, 'a prey already clear keeps its draw');
+            else redrawn++;
+        });
+        assert.ok(redrawn > 0, `seed ${seed} exercised a re-draw`);
+        assert.deepEqual(tileSpawns(lay, lo, seed, 2), separated, 'deterministic');
+    }
+    assert.throws(() => tileSpawns(arenaLayout({ ...geometry, L: 6 }), lo, 7, 2.9), /no spawn for prey slot/);
+    // The environment check comes before any GPU use.
+    for (const options of [{ environment: 'contact-v3', catchMargin: 0.05 }, { environment: 'contact-v3', catchMargin: 0.05, spawnSeparation: 12 },
+        { environment: 'contact-v2', catchMargin: 0.05, spawnSeparation: 2 }, { environment: 'contact-v4' }])
+        assert.throws(() => buildLane(null, geometry, { contacts: false, thinkEvery: 3, seedOf: () => 1, rowOf: () => 0, ...options }),
+            /^Error: coevolve:/);
+});
+
+test('U50 contact-v3 config: explicit separation, refused elsewhere, contact-v2 identity unchanged', () => {
+    const v3 = validateConfig(coevoProfile({ environment: 'contact-v3', spawnSeparation: 2, L: 36 }));
+    assert.equal(v3.spawnSeparation, 2);
+    assert.equal(experimentOf(v3).spawnSeparation, 2);
+    assert.notEqual(v3.configHash, validateConfig(coevoProfile({ environment: 'contact-v3', spawnSeparation: 2.5, L: 36 })).configHash);
+    for (const [change, message] of [[{ environment: 'contact-v3' }, /requires spawnSeparation/],
+        [{ environment: 'contact-v3', spawnSeparation: 0 }, /spawnSeparation 0/], [{ environment: 'contact-v3', spawnSeparation: 12 }, /L\/2/],
+        [{ environment: 'contact-v3', spawnSeparation: NaN }, /spawnSeparation/], [{ spawnSeparation: 2 }, /contact-v2 takes no spawnSeparation/],
+        [{ environment: 'legacy-v1', spawnSeparation: 2 }, /legacy-v1 takes no/]])
+        assert.throws(() => validateConfig(coevoProfile(change)), message, JSON.stringify(change));
+    // The validator's contact-v2 profile hashed this before contact-v3 existed (reports of 2026-10-20).
+    const contactOptions = { iterations: 2, maxPush: 0.25, relaxation: 1, compliance: 0, damping: 0.05, mass: 'equal', maxScanPerCell: 64, cellSize: 2 };
+    assert.equal(validateConfig(coevoProfile({ name: 'one', T: 50, dt: 0.1, contacts: true, contactOptions, exportOnnx: true })).configHash,
+        'b2db807c4fc5e65c7c1790b6d3d5f8036229b9a2c8c6e3ac4cb8a87cbd1e6d1c');
+    assert.equal(parseCliArgs(['--spawnSeparation', '2']).spawnSeparation, 2);
 });
 
 test('U50 regression: accepted timestep reaches definition and changes WGSL', () => {

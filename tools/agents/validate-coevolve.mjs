@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { installNodeGPU } from '../../test/gpu/node-gpu.mjs';
 import { NullGraph } from '../../dist/index.js';
 import { MlpBrain } from '../../dist/agents.js';
-import { buildLane, readBuffers } from './scenario/herd-wolves-arenas.mjs';
+import { buildLane, buildMirroredLanes, readBuffers } from './scenario/herd-wolves-arenas.mjs';
 import { herdDefinition } from './scenario/herd-wolves.mjs';
 import { initNetwork } from './mlp-train.mjs';
 import { networkFromModel } from './model.mjs';
@@ -17,7 +17,7 @@ import { replay } from './coevolve-evaluate.mjs';
 import { coevoProfile } from '../../test/fixtures/coevo-profile.mjs';
 
 const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
-if (only && only !== 'clones' && only !== 'evaluate') throw new Error(`--only takes clones or evaluate, not "${only}"`);
+if (only && !['clones', 'evaluate', 'v3'].includes(only)) throw new Error(`--only takes clones, evaluate or v3, not "${only}"`);
 const base = resolve('tools/agents/out/coevo', `phase143-regression-${Date.now()}`);
 mkdirSync(base, { recursive: true });
 const host = installNodeGPU();
@@ -53,6 +53,70 @@ async function rollout(engine, lane, steps) {
 }
 
 try {
+    // A52: contact-v3, contact-v2 with initial prey spawns kept spawnSeparation from the tile's wolves.
+    if (!only || only === 'v3') {
+        const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        const device = await adapter.requestDevice(), engine = new NullGraph();
+        try {
+            assert.equal((await engine.init(null, { device, width: 8, height: 8 })).success, true);
+            const geometry = { arenas: 8, wolves: 16, prey: 192, cols: 4, L: 36, gap: 10 };
+            const common = { contacts: true, contactOptions, catchMargin: 0.05, thinkEvery: 3, seedOf: a => 500 + a, rowOf: () => 0,
+                monitorFinite: true, brains: { prey: 'rule', wolf: 'rule' } };
+            const v3 = buildLane(engine, geometry, { ...common, environment: 'contact-v3', spawnSeparation: 2 });
+            const v2 = buildLane(engine, geometry, { ...common, environment: 'contact-v2' });
+            try {
+                const lay = v3.lay, read = async lane => new Float32Array((await readBuffers(device,
+                    [{ buffer: lane.sys.buffer, words: lay.count * 16 }]))[0].buffer);
+                const [p3, p2] = [await read(v3), await read(v2)];
+                let redrawn = 0;
+                for (let a = 0; a < lay.arenas; a++) for (let s = 0; s < lay.perArena; s++) {
+                    const i = s < lay.wolves ? a * lay.wolves + s : lay.wolfTotal + a * lay.prey + s - lay.wolves;
+                    const same = [0, 2].every(c => p3[i * 16 + c] === p2[i * 16 + c]);
+                    if (s < lay.wolves) { assert.ok(same, 'wolves spawn as in contact-v2'); continue; }
+                    const gap = (p, w) => Math.hypot(p[i * 16] - p[w * 16], p[i * 16 + 2] - p[w * 16 + 2]);
+                    const tileWolves = Array.from({ length: lay.wolves }, (_, k) => a * lay.wolves + k);
+                    assert.ok(tileWolves.every(w => gap(p3, w) >= 2 - 1e-4), `prey ${i} keeps 2 m from its tile's wolves`);
+                    const close = tileWolves.some(w => gap(p2, w) < 2);
+                    assert.equal(!same, close, `prey ${i} is re-drawn exactly when contact-v2 put it within 2 m`);
+                    if (close) redrawn++;
+                }
+                assert.ok(redrawn > 0, 'some prey were re-drawn');
+                const [one3, one2] = [await rollout(engine, v3, 1), await rollout(engine, v2, 1)];
+                assert.ok(one3.counters.every(n => n === 0), 'no catch on the first step');
+                assert.ok(one2.counters.some(n => n > 0), 'contact-v2 gives free first-step catches on the same seeds');
+                report.v3Redrawn = redrawn;
+            } finally { v3.destroy(); v2.destroy(); }
+            // With a separation no draw falls inside (1 mm), contact-v3 plays contact-v2 bit for bit.
+            const near3 = buildLane(engine, geometry, { ...common, environment: 'contact-v3', spawnSeparation: 0.001 });
+            const near2 = buildLane(engine, geometry, { ...common, environment: 'contact-v2' });
+            try {
+                const [a3, a2] = [await rollout(engine, near3, 120), await rollout(engine, near2, 120)];
+                assert.deepEqual(a3.records, a2.records); assert.deepEqual(a3.counters, a2.counters);
+            } finally { near3.destroy(); near2.destroy(); }
+            const table = MlpBrain.byGenome(engine, [initNetwork([{ input: 24, output: 16, activation: 'tanh' },
+                { input: 16, output: 2, activation: 'tanh' }], 51)]);
+            const pair = buildMirroredLanes(engine, geometry, { ...common, environment: 'contact-v3', spawnSeparation: 2,
+                brains: { prey: table, wolf: table }, rowOf: () => 0 });
+            try {
+                const [plus, minus] = [await rollout(engine, pair.lanes[0], 120), await rollout(engine, pair.lanes[1], 120)];
+                assert.deepEqual(plus.records, minus.records); assert.deepEqual(plus.counters, minus.counters);
+            } finally { pair.destroy(); table.destroy(); }
+            report.checks.push('A52 contact-v3: separated spawns on the GPU, contact-v2 otherwise (bit for bit at 1 mm), no first-step catch, mirrored lanes exact');
+        } finally { device.destroy(); }
+
+        const v3Dir = join(base, 'v3');
+        await runCoevolution(coevoProfile({ name: 'v3', outDir: v3Dir, environment: 'contact-v3', spawnSeparation: 2, L: 36,
+            T: 20, generations: 2, contacts: true, contactOptions }), { log() {} });
+        assert.equal(JSON.parse(readFileSync(join(v3Dir, 'gen-0002', 'manifest.json'))).experiment.spawnSeparation, 2);
+        const v3Eval = await runEvaluation({ mode: 'baselines', run: v3Dir, generations: [2], purpose: 'validation', seed: 7,
+            domain: 14, analysisSeed: 99, clones: true, T: 60, outDir: join(base, 'v3-eval') }, { log() {} });
+        assert.equal(v3Eval.evaluation.experiment.environment, 'contact-v3');
+        assert.deepEqual(replay(JSON.parse(readFileSync(join(base, 'v3-eval', 'evaluation.json'), 'utf8'))).results, v3Eval.evaluation.results);
+        report.checks.push('contact-v3 trains, checkpoints its separation and evaluates in it');
+        await host.settle();
+        assert.equal(host.events.length, 0, JSON.stringify(host.events));
+    }
+
     if (!only) {
         const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
         assert.ok(adapter);
@@ -207,7 +271,8 @@ try {
                 assert.equal((await replayEngine.init(null, { device: replayDevice, width: 8, height: 8 })).success, true);
                 const table = MlpBrain.byGenome(replayEngine, [loadClones().prey.network]);
                 const lane = buildLane(replayEngine, e.evaluation.geometry, { environment: x.environment, contacts: x.contacts,
-                    contactOptions: x.contactOptions, catchMargin: x.catchMargin, thinkEvery: x.thinkEvery, dt: x.dt,
+                    contactOptions: x.contactOptions, catchMargin: x.catchMargin, spawnSeparation: x.spawnSeparation,
+                    thinkEvery: x.thinkEvery, dt: x.dt,
                     monitorFinite: true, brains: { prey: table, wolf: 'rule' }, seedOf: a => e.heldOut.seeds[a], rowOf: () => 0 });
                 try {
                     const { counters } = await rollout(replayEngine, lane, e.evaluation.T);
