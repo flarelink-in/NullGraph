@@ -2,9 +2,10 @@
 
 **Parent:** [`work/plan-2.md`](./work/plan-2.md) §3–§5.
 **Revision 2 — 2026-10-18:** complete revision after steps 12–13 and code review.
-**Status (2026-10-18):** replacement 14.0 browser correctness verified (77/77); full-run safety and
+**Status (2026-10-20):** replacement 14.0 browser correctness verified (77/77); full-run safety and
 both-species quality gates remain unaccepted. 14.1 infrastructure validated on all three pairs;
-14.2 pure optimizer implemented and tested; 14.3 schedule, archive, trainer, guard, checkpoints and logs delivered (I5/I6 verified on Node NVIDIA/AMD). No training settings accepted. At the user's request, **all original
+14.2 pure optimizer implemented and tested; **14.3 closed after re-review (§13); 14.4 next.**
+Trainer runs so far are infrastructure smoke, not research or safety acceptance. Repairs and regression evidence are tracked in the work log. No training settings accepted. At the user's request, **all original
 phase 14.0 / S7 results are discarded**: invariant acceptance, timing/noise tables, learning and
 exploit conclusions, derived defaults and browser feasibility. **14.0 is reopened, not complete.**
 The old spike source remains historical code, not a reference implementation. No new results are
@@ -158,6 +159,8 @@ then rename; failures leave the run incomplete rather than publish partial final
 Custom wall sensor and steering integrator use tile bounds while retaining canonical input/output
 order and meaning. Assert actual generated names against the canonical model names; custom names
 are not automatically equivalent. Rule/settings/species values reuse existing scenario constants.
+The library names custom fields by index, so `modelNames()` renames exactly `bounds.0/1` and
+`steer.0/1` to the demo's names and refuses any other difference (14.3 re-review).
 
 ### `legacy-v1`, contacts off
 
@@ -421,9 +424,25 @@ and cleanup all resources; do not overwrite unrelated or previously completed ou
 | **14.0 reopened** | Replacement revision-2 S7, scripts only, §16 | Correctness before measurements, raw evidence on three pairs, new settings proposed |
 | **14.1 ✅** | Production lane/arena factory, legacy/contact modes, lifecycle | I1/I2/I3/E5/C1/R1, three pairs (Node NVIDIA/AMD, Chrome/AMD 40/40), watched failing; Q8 semantics settled |
 | **14.2 ✅** | Pure optimizer and helpers | E1–E4, headless/golden fixtures (10/10) and refusals |
-| **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | I5/I6 verified; ten-generation runs completed on Node NVIDIA & AMD, headless tests green |
+| **14.3 ✅** | Schedule/archive/trainer/guard/logs/checkpoints | Review findings closed with regressions (below); infrastructure evidence is not research acceptance |
 | **14.4** | Arena evaluation, clone opponents, crossplay, intervals, README | At least 20 held-out episodes per validation pairing; raw-data replay |
 | **14.5** | Preregistered H1/H2/H3, contacts ablation if scheduled | Results, uncertainty and verdicts recorded even on failure |
+
+**14.3 closure, 2026-10-20.** The re-review found two defects the repairs had not reached, both
+now fixed with regressions watched failing: the archive appended only the species that had just
+evolved (half the snapshots at H = 5; with even H, prey never past its start), and models carried
+the custom stages' indexed names (`bounds.0`, `steer.0`), so H1's clone start always failed and no
+checkpoint loaded under the demo's definition. `modelNames()` maps the four custom fields onto the
+demo's names and refuses any other drift (§5). Generation manifests now carry the hashed experiment
+(an evaluable environment on their own), the archive keeps an index of IDs and model hashes, the
+log holds archive IDs rather than weights, and one upload per species packs the opponent rows.
+Evidence: headless agents 132/132; `validate-coevolve.mjs` on Node/NVIDIA and Node/AMD, each with
+two byte-identical ten-generation runs, a clone start with E = 2 and archive evictions, and I6
+instrumented (one mapping per generation; a per-batch readback injected on the GPU is caught).
+Known limits, not blockers: the engine keeps every compute stage it creates (88 per generation;
+about 1.6 MB of process memory per generation on NVIDIA), a library matter for long budgets; rule
+wander and respawn draws depend on body index and tick only, so held-out episodes differ from
+training in their spawn alone, to settle before 14.5's freeze.
 
 Replacement 14.0 implements spike versions needed to measure end to end; it does not complete
 production phases. Promote reviewed behavior, not copied bugs. Fresh-system setup costs may reject

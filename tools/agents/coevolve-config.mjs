@@ -16,8 +16,14 @@ export function canonicalJson(obj) {
     return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
+/** The settings a run's checkpoints depend on: everything but output location and human labels. */
+export function experimentOf(config) {
+    const { name, targetDir, outDir, configHash: ignored, ...experiment } = config;
+    return experiment;
+}
+
 export function configHash(config) {
-    return createHash('sha256').update(canonicalJson(config)).digest('hex');
+    return createHash('sha256').update(canonicalJson(experimentOf(config))).digest('hex');
 }
 
 const KNOWN_CONFIG_KEYS = new Set([
@@ -35,6 +41,27 @@ export function validateConfig(raw) {
     for (const key of Object.keys(raw)) {
         if (!KNOWN_CONFIG_KEYS.has(key)) fail(`unknown config property "${key}"`);
     }
+
+    for (const key of ['K', 'E', 'P', 'W', 'L', 'cols', 'gap', 'T', 'dt', 'thinkEvery',
+        'environment', 'contacts', 'contactOptions', 'catchMargin', 'generations', 'start',
+        'hidden', 'optimizer', 'archive', 'seeds']) {
+        if (raw[key] === undefined) fail(`explicit research profile requires ${key}`);
+    }
+    for (const [key, fields] of [['optimizer', ['sigma', 'rate', 'decay']],
+        ['archive', ['every', 'cap', 'share']], ['seeds', ['master', 'domain']]]) {
+        if (!raw[key] || typeof raw[key] !== 'object' || Array.isArray(raw[key])) fail(`${key} must be an object`);
+        for (const field of fields) if (raw[key][field] == null) fail(`explicit research profile requires ${key}.${field}`);
+    }
+    if (!raw.contactOptions || typeof raw.contactOptions !== 'object' || Array.isArray(raw.contactOptions))
+        fail('contactOptions must be an object');
+    const contactKeys = ['iterations', 'maxPush', 'relaxation', 'compliance', 'damping', 'mass', 'maxScanPerCell', 'cellSize'];
+    for (const key of Object.keys(raw.contactOptions)) if (!contactKeys.includes(key)) fail(`unknown contactOptions property "${key}"`);
+    if (raw.contacts) for (const key of contactKeys) {
+        if (raw.contactOptions[key] === undefined) fail(`explicit research profile requires contactOptions.${key}`);
+        if (key !== 'mass' && !Number.isFinite(raw.contactOptions[key])) fail(`contactOptions.${key} must be finite`);
+    }
+    if (!raw.contacts && Object.keys(raw.contactOptions).length) fail('contacts off requires empty contactOptions');
+    if (raw.exportOnnx !== undefined && typeof raw.exportOnnx !== 'boolean') fail('exportOnnx must be boolean');
 
     const {
         name,
@@ -72,9 +99,15 @@ export function validateConfig(raw) {
     if (!Number.isFinite(dt) || dt <= 0) fail('dt must be finite and > 0');
     if (!Number.isFinite(L) || L <= 2) fail(`L ${L} leaves no room for spawn inset`);
     if (!Number.isFinite(gap) || gap <= 0) fail('gap must be positive');
+    if (T > 0xffffffff || thinkEvery > 0xffffffff) fail('tick/cadence overflows u32');
 
     const arenas = K * E;
     const totalArenas = 2 * arenas; // 2KE total evaluated arena episodes
+    if (!Number.isSafeInteger(totalArenas)) fail('arena product overflows safe integer');
+    if (!Number.isSafeInteger(P * T) || P * T >= 2 ** 32) fail('per-arena catch bound P*T overflows u32');
+    if (!Number.isSafeInteger(arenas * P * T) || arenas * P * T >= 2 ** 32)
+        fail('lane catch bound arenas*P*T overflows u32');
+    if (generations > 0xffffffff || K > 0xffffffff || E > 0xffffffff) fail('seed tuple fields overflow u32');
     if (raw.arenas !== undefined && raw.arenas !== totalArenas)
         fail(`--arenas ${raw.arenas} does not equal 2KE = ${totalArenas}`);
 
@@ -84,6 +117,14 @@ export function validateConfig(raw) {
     if (environment === 'legacy-v1' && contacts) fail('legacy-v1 requires contacts off');
     if (environment === 'contact-v2' && (!Number.isFinite(catchMargin) || catchMargin < 0))
         fail('contact-v2 requires explicit nonnegative finite catchMargin');
+    if (!Number.isFinite(catchMargin) || catchMargin < 0) fail('catchMargin must be finite and nonnegative');
+    if (contacts && (contactOptions.relaxation <= 0 || contactOptions.relaxation >= 2 ||
+        contactOptions.compliance < 0 || contactOptions.damping < 0 || contactOptions.damping > 1 ||
+        !['area', 'equal'].includes(contactOptions.mass) || contactOptions.cellSize <= 0 ||
+        !Number.isSafeInteger(contactOptions.maxScanPerCell) || contactOptions.maxScanPerCell < 1))
+        fail('invalid contactOptions solver settings');
+    if (contacts && (!Number.isSafeInteger(contactOptions.iterations) || contactOptions.iterations < 1 ||
+        contactOptions.iterations > 8 || contactOptions.maxPush <= 0)) fail('invalid contactOptions iterations/maxPush');
 
     // Layout verification verifies alignment: P % 64 === 0, arenas * wolves % 64 === 0, safe gap
     const layout = arenaLayout({
@@ -128,7 +169,7 @@ export function validateConfig(raw) {
         fail('seeds.domain must be u32');
 
     // Hidden layer widths
-    if (!Array.isArray(hidden) || hidden.length < 1 || !hidden.every(w => Number.isInteger(w) && w > 0 && w <= 64))
+    if (!Array.isArray(hidden) || hidden.length < 1 || hidden.length > 3 || !hidden.every(w => Number.isInteger(w) && w > 0 && w <= 64))
         fail('hidden layers must be array of positive integers <= 64');
 
     if (!['clones', 'random'].includes(start)) fail(`unknown start mode "${start}"`);
@@ -172,6 +213,19 @@ export function validateConfig(raw) {
 
 export function parseCliArgs(argv) {
     const args = argv.slice();
+    const values = new Set(['config', 'name', 'start', 'hidden', 'arenas', 'K', 'E', 'P', 'W', 'L',
+        'gap', 'cols', 'T', 'dt', 'thinkEvery', 'environment', 'catchMargin', 'generations',
+        'sigma', 'rate', 'decay', 'archive-every', 'archive-cap', 'archive-share', 'master-seed', 'domain', 'out-dir']);
+    const flags = new Set(['contacts', 'no-contacts', 'export-onnx']);
+    const seen = new Set();
+    for (let i = 0; i < args.length; i++) {
+        const token = args[i], key = token.startsWith('--') ? token.slice(2) : '';
+        if (!values.has(key) && !flags.has(key)) fail(`unknown argument ${token}`);
+        if (seen.has(key)) fail(`duplicate argument ${token}`);
+        seen.add(key);
+        if (values.has(key) && (!args[++i] || args[i].startsWith('--'))) fail(`${token} needs a value`);
+    }
+    if (seen.has('contacts') && seen.has('no-contacts')) fail('conflicting --contacts and --no-contacts');
     let configObj = {};
 
     const getOpt = name => {
@@ -189,6 +243,7 @@ export function parseCliArgs(argv) {
             fail(`failed to read config file "${configFile}": ${e.message}`);
         }
     }
+    if (!configObj || typeof configObj !== 'object' || Array.isArray(configObj)) fail('config file must contain an object');
 
     const name = getOpt('name');
     if (name) configObj.name = name;

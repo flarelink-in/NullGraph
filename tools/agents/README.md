@@ -156,11 +156,74 @@ rest 5 s, flocking and fleeing on.
 | `model.mjs` | A `.mlp.json` written, and read back with its names checked |
 | `onnx.mjs`, `export.mjs` | A network as `.onnx` bytes, and its command line |
 | `cli.mjs` | What the command lines share |
+| `scenario/arena-layout.mjs`, `scenario/herd-wolves-arenas.mjs` | Step 14's tiles: geometry, the contact-v2 catch rule, mirrored lane systems, the demo's model names |
+| `es.mjs` | Step 14's evolution-strategies math: noise, ranks, the mirrored gradient, Adam |
+| `coevolve.mjs` and `coevolve-*.mjs` | The co-evolution trainer: config, schedule and archive, guard, lifecycle, checkpoints |
+| `validate-coevolve.mjs` | The trainer's GPU infrastructure regressions |
 
 `scenario/`, `label-pass.mjs`, `dataset.mjs`'s row helpers, `recorder.mjs`, `evaluator.mjs`,
 `model.mjs` and `onnx.mjs` import nothing from Node, so the GPU suites also run them in Chrome.
 
 ## Limits
+
+### Co-evolution (step 14) — 14.3 closed 2026-10-20
+
+Trainer runs so far are infrastructure smoke only; no contact-v2 research settings or cross-GPU
+equality are accepted, and 14.0's safety and quality gates are still open.
+
+`npm run agents:coevolve -- --config <explicit-profile.json> --name <fresh-name>` requires every
+simulation, optimizer, archive and seed field explicitly (see `test/fixtures/coevo-profile.mjs`
+for a **test-only**, not recommended research profile). Contacts-on additionally requires all
+eight solver overrides, including `mass: "equal"` or `"area"`; contacts-off uses `{}`.
+Unknown/duplicate options, missing values, conflicting contacts flags and catch-counter overflow
+are errors. `dt` controls both the agent kernels and contacts solver. Output labels/paths do not
+affect experiment hashes; immutable models, generation manifests and ONNX are deterministic,
+but provenance and wall-time logs intentionally differ between runs.
+
+Models are written and read under the demo's feature names (`bounds.side`, `turn`, …), not the
+arena stages' indexed ones, so `--start clones` loads the committed clones (pass `--hidden 64x64x64`,
+their shape) and every checkpoint loads wherever the demo's networks do. Each `gen-NNNN/manifest.json`
+holds the experiment its `configHash` hashes, so a checkpoint names its environment on its own.
+After every `archive.every` completed updates **both** species append their current master;
+`archive/index.jsonl` lists each snapshot's ID, generation and model hash, and the log records IDs
+and evictions only. `run.json` adds the start models' hashes or seeds, device limits, OS, Dawn
+version and the flags that picked the adapter.
+
+`status.json` starts `incomplete` and becomes `complete` only after final GPU checks and cleanup.
+Failures keep fsynced failure metadata/log entries; interruption leaves the original incomplete
+marker. Checkpoints/logs are flushed with `fsync`; atomic rename avoids partially published
+checkpoints. This is **not** a guarantee against filesystem or power-loss corruption (directory
+metadata persistence is platform-dependent), nor a resume format. Existing output is never reused.
+
+Calibration uses progressively doubled, layout-valid arena counts and separate ordinary/dense/
+wall/coincident/frozen fixtures with candidate policy rows. Cache identity includes adapter,
+driver, runtime, source/build, actual initial networks, geometry, grids and settings. Cached
+maxima gate probes but never waive fresh calibration. Compilation completion is timed separately;
+no hidden warm-up steps enter scored episodes. Predictions gate every probe, submissions target
+500 ms using floor division, back off after overruns, and stop above 1500 ms. **No post-hoc guard
+can prevent the first unexpected stall or guarantee protection from an OS GPU reset.**
+
+Run `node tools/agents/validate-coevolve.mjs` for fresh contacts-on ten-generation infrastructure
+regressions on the selected `NG_DAWN_FLAGS` adapter, byte repeatability across distinct directories,
+GPU timestep/finite-state checks and a deliberate validation-error/incomplete-run test. It also runs
+a clone start with two replicas and an archive small enough to evict, and counts mappable buffers on
+the trainer's device (none while calibrating, exactly one per generation: I6). `--only clones` runs
+that part alone. This does not establish research acceptance; its report identifies the
+intentionally injected error.
+
+Known limits of the trainer:
+
+- **The engine keeps every compute stage it creates.** Fresh lanes each generation leave 88 stages
+  behind; process memory grew about 1.6 MB per generation on NVIDIA over 60 generations. Fine for
+  hundreds of generations, not for unbounded runs; the remedy is a library change or pooling.
+- **Randomness after spawn is the scenario's own.** The rule's wander and every respawn draw depend
+  on body index and tick, not the episode seed, so two episodes in the same tile differ only in
+  where bodies start. Held-out seeds hold out spawns, not those draws.
+- **The finite-state check runs last in a step.** A position the contact solver made nonfinite can
+  be clamped by its world clamp or tile containment before the check sees it; velocities and
+  timers are not clamped.
+- **Calibration's cache key includes seeds and weights,** so evidence carries over only to a rerun
+  of the same experiment. It never waives fresh probes either way.
 
 - **One scenario.** The tools take a scenario module, but only Herd & Wolves exists.
 - **The label pass finds its place by a stage's name,** `AgentSystem act`. If a library change

@@ -1,20 +1,21 @@
 // Phase 14.3, design §4, §6, §8, §9, §12. Headless ES Co-evolution CLI & Trainer.
 import { resolve, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { NullGraph } from '../../dist/index.js';
 import * as A from '../../dist/agents.js';
 import { arenaLayout } from './scenario/arena-layout.mjs';
-import { arenaDefinition, buildLane, buildMirroredLanes, readBuffers } from './scenario/herd-wolves-arenas.mjs';
+import { arenaDefinition, buildLane, buildMirroredLanes, modelNames, readBuffers } from './scenario/herd-wolves-arenas.mjs';
 import { noise, centeredRanks, gradient, createAdamState, adamAscent, masterParams, candidateNetworks } from './es.mjs';
 import { shapeOf, initNetwork, networkOf } from './mlp-train.mjs';
 import { networkFromModel } from './model.mjs';
-import { checkStep } from '../film/guard.mjs';
-import { validateConfig, parseCliArgs } from './coevolve-config.mjs';
+import { managedRun, watchDevice, buildCompiled } from './coevolve-runtime.mjs';
+import { calibrateArenaSteps, guardIdentity, createSubmissionGuard } from './coevolve-guard.mjs';
+import { validateConfig, parseCliArgs, experimentOf } from './coevolve-config.mjs';
 import {
-    buildSeedManifest, permutationForGeneration, opponentForPair,
+    buildSeedManifest, permutationForGeneration, opponentForPair, policyRows, initSeed,
     createArchiveManager, evolvingSpecies, opponentSpecies, noiseChecksum,
-    STREAM_INIT
 } from './coevolve-schedule.mjs';
 import {
     createRunDirectory, writeRunJson, appendLog,
@@ -27,6 +28,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 export async function runCoevolution(rawConfig, { log = console.log } = {}) {
     const config = validateConfig(rawConfig);
     createRunDirectory(config.targetDir);
+    return managedRun(config, async ({ own, progress }) => {
 
     const seedManifest = buildSeedManifest({
         masterSeed: config.seeds.master,
@@ -35,6 +37,8 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
         K: config.K,
         E: config.E,
     });
+    // Preserve settings and full seed manifest even when adapter/engine initialization fails.
+    writeRunJson(config.targetDir, { config, seedManifest });
 
     const geometry = {
         arenas: config.arenasPerLane,
@@ -46,18 +50,28 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
         contacts: config.contacts ? config.contactOptions : null,
     };
     const lay = arenaLayout(geometry);
-    const def = arenaDefinition(lay);
+    const def = arenaDefinition(lay, { dt: config.dt });
+    // Models read and write the demo's feature names, not the custom stages' indexed ones.
+    const names = modelNames(def);
+    const experiment = experimentOf(config);
 
     // Initialize start networks
-    let preyNetwork, wolfNetwork;
+    let preyNetwork, wolfNetwork, start = { mode: config.start };
     if (config.start === 'clones') {
         const preyPath = join(root, 'tools/agents/models/herd-wolves/prey.mlp.json');
         const wolfPath = join(root, 'tools/agents/models/herd-wolves/wolf.mlp.json');
         if (!existsSync(preyPath) || !existsSync(wolfPath)) {
             fail('clone models not found in tools/agents/models/herd-wolves');
         }
-        preyNetwork = networkFromModel(JSON.parse(readFileSync(preyPath, 'utf8')), def, 'prey.mlp.json');
-        wolfNetwork = networkFromModel(JSON.parse(readFileSync(wolfPath, 'utf8')), def, 'wolf.mlp.json');
+        const [preyText, wolfText] = [preyPath, wolfPath].map(path => readFileSync(path, 'utf8'));
+        preyNetwork = networkFromModel(JSON.parse(preyText), names, 'prey.mlp.json');
+        wolfNetwork = networkFromModel(JSON.parse(wolfText), names, 'wolf.mlp.json');
+        for (const network of [preyNetwork, wolfNetwork]) {
+            if (JSON.stringify(network.slice(0, -1).map(layer => layer.output)) !== JSON.stringify(config.hidden))
+                fail('clone shape differs from explicit hidden profile');
+        }
+        start.files = Object.fromEntries([['prey', preyText], ['wolf', wolfText]].map(([sp, text]) =>
+            [sp, { path: `tools/agents/models/herd-wolves/${sp}.mlp.json`, hash: createHash('sha256').update(text).digest('hex') }]));
     } else {
         const buildShape = () => {
             const layers = [];
@@ -69,10 +83,12 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
             layers.push({ input: inDim, output: 2, activation: 'tanh' });
             return layers;
         };
-        const preyShape = buildShape(), wolfShape = buildShape();
-        preyNetwork = initNetwork(preyShape, (config.seeds.master ^ 0x12345678) >>> 0);
-        wolfNetwork = initNetwork(wolfShape, (config.seeds.master ^ 0x87654321) >>> 0);
+        const seedOf = species => initSeed({ masterSeed: config.seeds.master, domain: config.seeds.domain, species });
+        preyNetwork = initNetwork(buildShape(), seedOf('prey'));
+        wolfNetwork = initNetwork(buildShape(), seedOf('wolf'));
+        start.seeds = { prey: seedOf('prey'), wolf: seedOf('wolf') };
     }
+    writeRunJson(config.targetDir, { config, seedManifest, start });
 
     const shape = {
         prey: shapeOf(preyNetwork),
@@ -96,40 +112,40 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
         wolf: { params: master.wolf },
     });
 
-    // Write initial archive snapshots and gen-0000 start checkpoint
-    for (const sp of ['prey', 'wolf']) {
-        writeArchiveSnapshot(config.targetDir, {
-            snapshot: archive.get(sp, 0),
-            species: sp,
-            network: networkOf(shape[sp], master[sp]),
-            obsNames: def.obsNames,
-            actNames: def.actNames,
-            configHash: config.configHash,
-        });
-    }
-    writeGenerationCheckpoint(config.targetDir, {
-        generation: 0,
+    const exportSnapshot = (snapshot, sp) => writeArchiveSnapshot(config.targetDir, {
+        snapshot,
+        species: sp,
+        network: networkOf(shape[sp], snapshot.params),
+        obsNames: names.obsNames,
+        actNames: names.actNames,
+        configHash: config.configHash,
+    });
+    const exportCheckpoint = generation => writeGenerationCheckpoint(config.targetDir, {
+        generation,
         preyNetwork: networkOf(shape.prey, master.prey),
         wolfNetwork: networkOf(shape.wolf, master.wolf),
-        obsNames: def.obsNames,
-        actNames: def.actNames,
+        obsNames: names.obsNames,
+        actNames: names.actNames,
         configHash: config.configHash,
+        experiment,
         exportOnnx: config.exportOnnx,
     });
 
+    // Write initial archive snapshots and gen-0000 start checkpoint
+    for (const sp of ['prey', 'wolf']) exportSnapshot(archive.get(sp, 0), sp);
+    exportCheckpoint(0);
+
     // Acquire WebGPU device & engine
-    if (typeof navigator === 'undefined' || !navigator?.gpu) {
-        try {
-            const { installNodeGPU } = await import('../../test/gpu/node-gpu.mjs');
-            installNodeGPU();
-        } catch {
-            // ignore
-        }
+    let host;
+    if (!globalThis.navigator?.gpu) {
+        const { installNodeGPU } = await import('../../test/gpu/node-gpu.mjs');
+        host = installNodeGPU();
     }
     if (typeof navigator === 'undefined' || !navigator?.gpu) fail('navigator.gpu not found. WebGPU environment required.');
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) fail('no WebGPU adapter available');
-    const device = await adapter.requestDevice();
+    const device = own(await adapter.requestDevice());
+    const health = own(watchDevice(device));
     const engine = new NullGraph();
     const initResult = await engine.init(null, { device, width: 8, height: 8 });
     if (!initResult.success) fail(`engine initialization failed: ${initResult.error}`);
@@ -137,58 +153,111 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
     writeRunJson(config.targetDir, {
         config,
         seedManifest,
+        start,
         adapterInfo: adapter.info,
+        limits: device.limits,
     });
 
     log(`coevolve: run "${config.name}" started on ${adapter.info.vendor} ${adapter.info.description}`);
     log(`coevolve: layout ${config.arenasPerLane} arenas/lane (${config.totalArenas} total), ${config.P} prey, ${config.W} wolves`);
 
     // Shared caller-owned MlpBrain.byGenome tables (2K + 1 + M rows per species)
-    const rowCapacity = 2 * config.K + 1 + config.archive.cap;
-    const brains = {
-        prey: A.MlpBrain.byGenome(engine, Array.from({ length: rowCapacity }, () => networkOf(shape.prey, master.prey))),
-        wolf: A.MlpBrain.byGenome(engine, Array.from({ length: rowCapacity }, () => networkOf(shape.wolf, master.wolf))),
-    };
-
-    // Pack initial start master into row 2K and row 2K+1 (archive 0)
+    const rows = policyRows({ K: config.K, cap: config.archive.cap });
+    const brains = {};
     for (const sp of ['prey', 'wolf']) {
-        const packed = A.packMlpWeights(networkOf(shape[sp], master[sp]));
-        brains[sp].setRows(packed, { first: 2 * config.K });
-        brains[sp].setRows(packed, { first: 2 * config.K + 1 });
+        const bytes = rows.count * A.mlpLayout(networkOf(shape[sp], master[sp])).floats * 4;
+        if (!Number.isSafeInteger(bytes) || bytes > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize))
+            fail('policy rows exceed device buffer limits');
+        brains[sp] = own(A.MlpBrain.byGenome(engine,
+            Array.from({ length: rows.count }, () => networkOf(shape[sp], master[sp]))));
     }
+    // One upload per species per generation: the current opponent and its archive are contiguous.
+    const packOpponentRows = sp => {
+        const members = [master[sp], ...archive.list(sp).map(snapshot => snapshot.params)];
+        const packed = new Float32Array(members.length * brains[sp].floats);
+        members.forEach((params, j) => A.packMlpWeights(networkOf(shape[sp], params),
+            packed.subarray(j * brains[sp].floats, (j + 1) * brains[sp].floats)));
+        brains[sp].setRows(packed, { first: rows.current });
+    };
+    for (const sp of ['prey', 'wolf']) packOpponentRows(sp);
 
-    try {
-        // Calibration using disposable lane
-        const calibLane = buildLane(engine, geometry, {
+    {
+        const laneOptions = {
             environment: config.environment,
             contacts: config.contacts,
             contactOptions: config.contactOptions,
             catchMargin: config.catchMargin,
             thinkEvery: config.thinkEvery,
+            dt: config.dt,
+            monitorFinite: true,
             brains,
             seedOf: () => 18001,
-            rowOf: () => 0,
-        });
-        let singleStepMs = 10;
-        try {
-            const t0 = performance.now();
-            await calibLane.sys.step();
-            singleStepMs = Math.max(0.1, performance.now() - t0);
-            checkStep(singleStepMs, 1500);
-        } finally {
-            calibLane.destroy();
+            rowOf: a => a % rows.current,
+        };
+        // Candidate rows are genuinely perturbed during calibration, not duplicate master rows.
+        for (const sp of ['prey', 'wolf']) for (let k = 0; k < config.K; k++) {
+            const candidate = candidateNetworks(shape[sp], master[sp], noise(config.seeds.master, 0, k, master[sp].length), config.optimizer.sigma);
+            brains[sp].setRows(A.packMlpWeights(candidate.plus), { first: rows.candidate(k, 0) });
+            brains[sp].setRows(A.packMlpWeights(candidate.minus), { first: rows.candidate(k, 1) });
         }
-
-        // Batch target: 500 ms (never > 1000 ms, safety stop at 1500 ms)
-        let batchSteps = Math.max(1, Math.min(config.T, Math.floor(500 / singleStepMs)));
-        if (batchSteps * singleStepMs > 1000) batchSteps = Math.max(1, Math.floor(1000 / singleStepMs));
-        log(`coevolve: calibrated ~${singleStepMs.toFixed(1)} ms/step; initial batch size ${batchSteps} steps (submission target <= 500 ms)`);
+        const guard = await calibrateArenaSteps({ geometry,
+            key: guardIdentity(config, adapter.info, { prey: preyNetwork, wolf: wolfNetwork }),
+            cacheFile: join(root, 'tools/agents/out/coevo-costs.json'), log,
+            record: sample => appendLog(config.targetDir, { event: 'calibration-sample', ...sample }),
+            async measure(probe, workload) {
+                const built = await buildCompiled(device, () => buildLane(engine, probe, { ...laneOptions,
+                    fixture(init, { lo, slot }) {
+                        if (workload === 'ordinary') return;
+                        const shift = workload === 'coincident' ? 0 : (slot % 8) * 0.02;
+                        init.position = [lo[0] + (workload === 'wall' ? 0.61 : probe.L / 2) + shift,
+                            0.08, lo[1] + probe.L / 2 + shift];
+                        if (workload === 'frozen') { init.frozen = true; init.age = 1; }
+                    },
+                }));
+                const lane = built.value;
+                try {
+                    await health.check();
+                    const single = createSubmissionGuard(1);
+                    let ms = 0;
+                    // Singles at advancing cadence; compilation is complete before the first step.
+                    for (let step = 0; step < Math.max(8, 2 * config.thinkEvery); step++) {
+                        const start = performance.now(); engine.render(lane.chain);
+                        await health.check();
+                        const took = performance.now() - start;
+                        single.observe(1, took); ms = Math.max(ms, took);
+                        if (took > 1000) fail('calibration single exceeds admission limit');
+                    }
+                    return { ms, setupCompileMs: built.setupCompileMs, contactGrid: lane.solver?.options ?? null };
+                } finally { lane.destroy(); }
+            },
+        });
+        appendLog(config.targetDir, { event: 'calibration', ...guard });
+        const submissions = createSubmissionGuard(guard.stepMs);
+        // Exactly T one-step chains in guarded batches; each batch is waited for and checked.
+        const runLane = async lane => {
+            const observed = { ms: 0, batches: 0, maxBatchMs: 0, maxStepMs: 0 }, start = performance.now();
+            for (let remaining = config.T; remaining > 0;) {
+                const count = submissions.next(remaining), seq = [];
+                for (let s = 0; s < count; s++) seq.push(...lane.chain);
+                const submitted = performance.now();
+                engine.render(seq);
+                await health.check();
+                const ms = performance.now() - submitted;
+                submissions.observe(count, ms);
+                Object.assign(observed, { batches: observed.batches + 1, maxBatchMs: Math.max(observed.maxBatchMs, ms),
+                    maxStepMs: Math.max(observed.maxStepMs, ms / count) });
+                remaining -= count;
+            }
+            observed.ms = performance.now() - start;
+            return observed;
+        };
 
         const B = config.arenasPerLane;
 
         // Generation Loop
         for (let t = 0; t < config.generations; t++) {
             const tGenStart = performance.now();
+            const tPackStart = performance.now();
             const sEvo = evolvingSpecies(t);
             const sOpp = opponentSpecies(t);
             const speciesSign = sEvo === 'wolf' ? 1 : -1;
@@ -208,23 +277,17 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
             const noiseCk = noiseChecksum(directions);
 
             // In-place setRows: upload all 2K candidates into evolving species brain table
-            const packedCandidates = new Float32Array(2 * config.K * brains[sEvo].floats);
-            for (let k = 0; k < config.K; k++) {
-                A.packMlpWeights(candidates[k].plus, packedCandidates.subarray(2 * k * brains[sEvo].floats, (2 * k + 1) * brains[sEvo].floats));
-                A.packMlpWeights(candidates[k].minus, packedCandidates.subarray((2 * k + 1) * brains[sEvo].floats, (2 * k + 2) * brains[sEvo].floats));
+            const floats = brains[sEvo].floats;
+            const packedCandidates = new Float32Array(2 * config.K * floats);
+            for (let k = 0; k < config.K; k++) for (const [sign, network] of [[0, candidates[k].plus], [1, candidates[k].minus]]) {
+                const row = rows.candidate(k, sign);
+                A.packMlpWeights(network, packedCandidates.subarray(row * floats, (row + 1) * floats));
             }
             brains[sEvo].setRows(packedCandidates, { first: 0 });
 
-            // In-place setRows: update current master in row 2K of opponent species brain table
-            const packedOpponent = A.packMlpWeights(networkOf(shape[sOpp], master[sOpp]));
-            brains[sOpp].setRows(packedOpponent, { first: 2 * config.K });
-
-            // Update opponent archive rows if any
+            // In-place setRows: the opponent's current master (row 2K) and its archive after it
             const oppArchive = archive.list(sOpp);
-            for (let idx = 0; idx < oppArchive.length; idx++) {
-                const packedArch = A.packMlpWeights(networkOf(shape[sOpp], oppArchive[idx].params));
-                brains[sOpp].setRows(packedArch, { first: 2 * config.K + 1 + idx });
-            }
+            packOpponentRows(sOpp);
 
             // Tile permutation and opponent assignments
             const perm = permutationForGeneration({
@@ -243,69 +306,37 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
                 k,
                 archive: oppArchive,
                 h: config.archive.share,
-                K: config.K,
+                rows,
             }));
 
             const genSeeds = seedManifest.seedsByGeneration[t];
 
             // Build fresh mirrored lanes for generation episode
-            const pair = buildMirroredLanes(engine, geometry, {
+            const packingMs = performance.now() - tPackStart;
+            const built = await buildCompiled(device, () => buildMirroredLanes(engine, geometry, {
                 environment: config.environment,
                 contacts: config.contacts,
                 contactOptions: config.contactOptions,
                 catchMargin: config.catchMargin,
                 thinkEvery: config.thinkEvery,
+                dt: config.dt,
+                monitorFinite: true,
                 brains,
                 seedOf: a => genSeeds[perm[a]],
                 rowOf: (sign, a, sp) => {
-                    const b = perm[a];
-                    const k = Math.floor(b / config.E);
-                    if (sp === sEvo) return 2 * k + sign;
-                    return opponents[k].row;
+                    const k = Math.floor(perm[a] / config.E);
+                    return sp === sEvo ? rows.candidate(k, sign) : opponents[k].row;
                 },
-            });
+            }));
+            const pair = built.value;
 
-            let tEpisodePlus = 0, tEpisodeMinus = 0;
+            let plus, minus, readbackMs = 0;
             let plusCounters, minusCounters, plusStats, minusStats;
 
             try {
-                // Submit Lane 0 (plus) in guarded batches
-                const t0Plus = performance.now();
-                let remPlus = config.T;
-                while (remPlus > 0) {
-                    const count = Math.min(remPlus, batchSteps);
-                    const seq = [];
-                    for (let s = 0; s < count; s++) seq.push(...pair.lanes[0].chain);
-                    const tSub0 = performance.now();
-                    engine.render(seq);
-                    await device.queue.onSubmittedWorkDone();
-                    const subMs = performance.now() - tSub0;
-                    checkStep(subMs, 1500);
-                    if (subMs > 500 && batchSteps > 1) {
-                        batchSteps = Math.max(1, Math.floor(batchSteps * (400 / subMs)));
-                    }
-                    remPlus -= count;
-                }
-                tEpisodePlus = performance.now() - t0Plus;
-
-                // Submit Lane 1 (minus) in guarded batches
-                const t0Minus = performance.now();
-                let remMinus = config.T;
-                while (remMinus > 0) {
-                    const count = Math.min(remMinus, batchSteps);
-                    const seq = [];
-                    for (let s = 0; s < count; s++) seq.push(...pair.lanes[1].chain);
-                    const tSub0 = performance.now();
-                    engine.render(seq);
-                    await device.queue.onSubmittedWorkDone();
-                    const subMs = performance.now() - tSub0;
-                    checkStep(subMs, 1500);
-                    if (subMs > 500 && batchSteps > 1) {
-                        batchSteps = Math.max(1, Math.floor(batchSteps * (400 / subMs)));
-                    }
-                    remMinus -= count;
-                }
-                tEpisodeMinus = performance.now() - t0Minus;
+                // Lanes run one after the other: plus (sign 0), then minus (sign 1)
+                plus = await runLane(pair.lanes[0]);
+                minus = await runLane(pair.lanes[1]);
 
                 // Single readback after both lanes complete (I6)
                 const t0Read = performance.now();
@@ -315,10 +346,18 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
                     { buffer: pair.lanes[0].stats, words: 4 },
                     { buffer: pair.lanes[1].stats, words: 4 },
                 ]);
+                await health.check();
+                for (const [counters, stats] of [[plusCounters, plusStats], [minusCounters, minusStats]]) {
+                    if (stats[3]) fail('nonfinite runtime state');
+                    if (counters.reduce((sum, n) => sum + n, 0) !== stats[0] || counters.some(n => n > config.P * config.T))
+                        fail('runtime catch counters are inconsistent');
+                }
+                readbackMs = performance.now() - t0Read;
             } finally {
                 pair.destroy();
             }
 
+            const tOptimizerStart = performance.now();
             // Aggregate catches per candidate and replica
             const replicaCatches = [];
             const scores = new Float64Array(2 * config.K);
@@ -367,19 +406,12 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
             let tiedScores = 0;
             for (const [, count] of scoreCounts) if (count > 1) tiedScores += count;
             const tieShare = tiedScores / scores.length;
+            const optimizerMs = performance.now() - tOptimizerStart;
+            const tExportStart = performance.now();
 
-            // Archive snapshot check
-            const archiveChange = archive.maybeSnapshot(t, sEvo, master[sEvo]);
-            if (archiveChange?.snapshotted) {
-                writeArchiveSnapshot(config.targetDir, {
-                    snapshot: archiveChange.snapshotted,
-                    species: sEvo,
-                    network: networkOf(shape[sEvo], master[sEvo]),
-                    obsNames: def.obsNames,
-                    actNames: def.actNames,
-                    configHash: config.configHash,
-                });
-            }
+            // Archive: every H completed updates, both species' current masters (design §8)
+            const archiveChanges = archive.snapshotDue(t, master);
+            for (const change of archiveChanges) exportSnapshot(change.snapshotted, change.species);
 
             const tGenTotal = performance.now() - tGenStart;
 
@@ -399,39 +431,41 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
                 updateNorm,
                 weightNorm,
                 f32Collisions: totalCollisions,
-                archive: archiveChange,
+                // IDs only: the snapshots' weights are their archive/ files
+                archive: archiveChanges.length ? archiveChanges.map(change => ({ species: change.species,
+                    added: change.snapshotted.id, evicted: change.evicted?.id ?? null })) : null,
                 timing: {
                     genWallMs: tGenTotal,
-                    lanePlusMs: tEpisodePlus,
-                    laneMinusMs: tEpisodeMinus,
+                    lanePlusMs: plus.ms,
+                    laneMinusMs: minus.ms,
+                    setupCompileMs: built.setupCompileMs,
+                    packingMs,
+                    readbackMs,
+                    optimizerMs,
                 },
                 guard: {
-                    batchSteps,
+                    batchSteps: submissions.next(config.T),
+                    batches: plus.batches + minus.batches,
+                    maxBatchMs: Math.max(plus.maxBatchMs, minus.maxBatchMs),
+                    maxStepMs: Math.max(plus.maxStepMs, minus.maxStepMs),
                 },
             };
-            appendLog(config.targetDir, logEntry);
-
             // Periodic and final checkpoint
-            if ((t + 1) % 10 === 0 || t === config.generations - 1) {
-                writeGenerationCheckpoint(config.targetDir, {
-                    generation: t + 1,
-                    preyNetwork: networkOf(shape.prey, master.prey),
-                    wolfNetwork: networkOf(shape.wolf, master.wolf),
-                    obsNames: def.obsNames,
-                    actNames: def.actNames,
-                    configHash: config.configHash,
-                    exportOnnx: config.exportOnnx,
-                });
-            }
+            if ((t + 1) % 10 === 0 || t === config.generations - 1) exportCheckpoint(t + 1);
 
+            logEntry.timing.exportMs = performance.now() - tExportStart;
+            logEntry.timing.genWallMs = performance.now() - tGenStart;
+            appendLog(config.targetDir, logEntry);
             log(`coevolve: gen ${String(t + 1).padStart(3)}/${config.generations} (${sEvo.padEnd(4)}) ` +
                 `scores [${scores.slice(0, 4).map(s => s.toFixed(1)).join(', ')}...] ` +
-                `|g| ${gradNorm.toFixed(3)} |Δx| ${updateNorm.toFixed(4)} in ${tGenTotal.toFixed(0)} ms`);
+                `|g| ${gradNorm.toFixed(3)} |Δx| ${updateNorm.toFixed(4)} in ${logEntry.timing.genWallMs.toFixed(0)} ms`);
+            progress(t + 1);
         }
-    } finally {
-        brains.prey.destroy();
-        brains.wolf.destroy();
-        device.destroy();
+        await health.check({ final: true });
+        if (host) {
+            await host.settle();
+            if (host.events.length) fail(`Node WebGPU failures: ${JSON.stringify(host.events)}`);
+        }
     }
 
     log(`coevolve: completed ${config.generations} generations for "${config.name}". Output saved to ${config.targetDir}`);
@@ -441,6 +475,7 @@ export async function runCoevolution(rawConfig, { log = console.log } = {}) {
         configHash: config.configHash,
         generations: config.generations,
     };
+    });
 }
 
 // Standalone CLI invocation

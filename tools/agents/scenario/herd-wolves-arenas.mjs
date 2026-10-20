@@ -3,7 +3,7 @@
 import * as A from '../../../dist/agents.js';
 import { DiscContacts } from '../../../dist/physics.js';
 import { arenaLayout, exhaustiveCatchWGSL } from './arena-layout.mjs';
-import { DRIVER, HERD_CATCHES, HERD_DEFAULTS, SETTINGS, herdRule } from './herd-wolves.mjs';
+import { DRIVER, HERD_CATCHES, HERD_DEFAULTS, SETTINGS, herdDefinition, herdRule } from './herd-wolves.mjs';
 const f32 = v => Number.isInteger(v) ? v.toFixed(1) : String(v);
 const arenaWGSL = lay => `
 const ARENA_ORIGIN_X: f32 = ${f32(lay.origin[0])};
@@ -109,9 +109,12 @@ fn step(i: u32, tick: u32) {
         agents[i].ids.y &= ~256u;
     }
 }`;
-export function arenaDefinition(lay) {
+export function arenaDefinition(lay, { dt = 1 / 60 } = {}) {
+    if (!Number.isFinite(dt) || dt <= 0) throw new Error('coevolve: invalid dt');
     const o = HERD_DEFAULTS;
     return A.defineAgents({
+        dt,
+        maxFrameDelta: Math.max(0.25, dt),
         capacity: lay.count,
         world: { min: lay.origin, max: [lay.origin[0] + lay.spanX, lay.origin[1] + lay.spanZ] },
         cellSize: 8,
@@ -125,6 +128,21 @@ export function arenaDefinition(lay) {
         actions: steering(lay),
     });
 }
+// The library names custom fields by index. The tile's wall sensor and steering mean
+// Sensors.bounds() and Actions.steering() (I2 checks it bit for bit), so models carry the demo's
+// names: clones load, and checkpoints load wherever the demo's networks do. Only these four rename.
+const CANONICAL_FIELDS = Object.freeze({
+    'bounds.0': 'bounds.side', 'bounds.1': 'bounds.forward', 'steer.0': 'turn', 'steer.1': 'throttle' });
+export function modelNames(def) {
+    const demo = herdDefinition(), names = {};
+    for (const key of ['obsNames', 'actNames']) {
+        names[key] = Object.freeze(def[key].map(name => CANONICAL_FIELDS[name] ?? name));
+        const k = Math.max(names[key].length, demo[key].length);
+        for (let j = 0; j < k; j++) if (names[key][j] !== demo[key][j])
+            throw new Error(`coevolve: arena ${key}[${j}] "${def[key][j]}" does not map onto the demo's "${demo[key][j]}"`);
+    }
+    return Object.freeze(names);
+}
 export const containmentWGSL = lay => `${arenaWGSL(lay)}
 fn step(i: u32, tick: u32) {
     let a = agents[i];
@@ -137,7 +155,7 @@ fn step(i: u32, tick: u32) {
 }`;
 
 export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
-    seedOf, rowOf, brains, fixture, catchMargin, contactOptions = {} } = {}) {
+    seedOf, rowOf, brains, fixture, catchMargin, contactOptions = {}, dt = 1 / 60, monitorFinite = false } = {}) {
     if (!['legacy-v1', 'contact-v2'].includes(environment)) throw new Error(`coevolve: unknown environment ${environment}`);
     if (typeof contacts !== 'boolean') throw new Error('coevolve: contacts must be explicit');
     if (environment === 'legacy-v1' && contacts) throw new Error('coevolve: legacy-v1 requires contacts off');
@@ -147,7 +165,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
     const allowed = ['iterations', 'maxPush', 'relaxation', 'compliance', 'damping', 'mass', 'maxScanPerCell', 'cellSize'];
     for (const key of Object.keys(contactOptions)) if (!allowed.includes(key)) throw new Error(`coevolve: forbidden contact override ${key}`);
     const lay = arenaLayout({ ...geometry, contacts: contacts ? contactOptions : null });
-    const device = engine.device, owned = [], external = [], def = arenaDefinition(lay);
+    const device = engine.device, owned = [], external = [], def = arenaDefinition(lay, { dt });
     const bytes = lay.count * A.AGENT_FLOATS * 4;
     const largest = Math.max(bytes, def.grid.cellTotal * 4 + 4);
     if (largest > Math.min(device.limits.maxBufferSize, device.limits.maxStorageBufferBindingSize) ||
@@ -189,6 +207,7 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         sys.addStepStage({ name: 'respawn', wgsl: respawnWGSL(lay), buffers: [settings, stats, counters] });
         if (contacts) {
             solver = new DiscContacts(engine, sys.buffer, { capacity: lay.count, stride: A.AGENT_FLOATS,
+                dt: def.dt,
                 world: { min: lay.origin, max: [lay.origin[0] + lay.spanX, lay.origin[1] + lay.spanZ] },
                 maxRadius: 0.6, alive: { offset: A.AGENT_FLAGS_OFFSET, mask: A.AGENT_FLAG_ALIVE },
                 fixed: { offset: A.AGENT_FLAGS_OFFSET, mask: A.AGENT_FLAG_FROZEN },
@@ -197,6 +216,16 @@ export function buildLane(engine, geometry, { environment, contacts, thinkEvery,
         }
         if (environment !== 'legacy-v1')
             sys.addStepStage({ name: 'containment', wgsl: containmentWGSL(lay) });
+        // Sticky flag shares the score readback; no per-step CPU readbacks are introduced.
+        if (monitorFinite) sys.addStepStage({ name: 'finite state', buffers: [stats], wgsl: `
+@group(1) @binding(0) var<storage, read_write> finiteStats: array<atomic<u32>, 4>;
+fn step(i: u32, tick: u32) {
+    let a = agents[i];
+    let values = array<vec4<f32>, 3>(a.posRadius, a.velHeading, a.state);
+    for (var v = 0u; v < 3u; v++) { for (var c = 0u; c < 4u; c++) {
+        if ((bitcast<u32>(values[v][c]) & 0x7f800000u) == 0x7f800000u) { atomicStore(&finiteStats[3], 1u); }
+    } }
+}` });
         for (let a = 0; a < lay.arenas; a++) {
             const lo = [lay.origin[0] + a % lay.cols * lay.pitch, lay.origin[1] + Math.floor(a / lay.cols) * lay.pitch];
             const inset = lay.L / 2 - 1, seed = assignments[a].seed;

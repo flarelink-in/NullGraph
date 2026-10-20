@@ -20,6 +20,34 @@ export function opponentSpecies(t) {
     return t % 2 === 0 ? 'wolf' : 'prey';
 }
 
+/** Seed of a random start network (H2): its own stream, per species, never derived by arithmetic. */
+export function initSeed({ masterSeed, domain, species }) {
+    const index = ['prey', 'wolf'].indexOf(species);
+    if (index < 0) fail(`unknown species "${species}"`);
+    return tupleHash(masterSeed, domain, STREAM_INIT, index);
+}
+
+/** Rows of each species' policy table (design §4): [0,2K) candidates, row 2k+sign; 2K the
+ * current opponent; [2K+1, 2K+1+cap) the archive. The +1 is the current opponent's row.
+ */
+export function policyRows({ K, cap }) {
+    if (!Number.isSafeInteger(K) || K < 1) fail('K must be >= 1');
+    if (!Number.isSafeInteger(cap) || cap < 2) fail('archive cap must be integer >= 2');
+    const count = 2 * K + 1 + cap;
+    if (count > 0xffffffff) fail(`policy table of ${count} rows overflows u32`);
+    return Object.freeze({
+        K, cap, count, current: 2 * K,
+        candidate(k, sign) {
+            if (!Number.isInteger(k) || k < 0 || k >= K || (sign !== 0 && sign !== 1)) fail(`no candidate row for k ${k}, sign ${sign}`);
+            return 2 * k + sign;
+        },
+        archive(index) {
+            if (!Number.isInteger(index) || index < 0 || index >= cap) fail(`archive index ${index} outside cap ${cap}`);
+            return 2 * K + 1 + index;
+        },
+    });
+}
+
 /** Precompute numerical episode seed manifest for the requested budget.
  * Detects cross-pair/cross-episode collisions and regenerates deterministically with retry counters.
  */
@@ -95,15 +123,15 @@ export function permutationForGeneration({ masterSeed, domain, t, B }) {
 }
 
 /** Draws opponent for candidate pair k at generation t: with probability 1-h current (row 2K),
- * otherwise uniform sample from archive.
+ * otherwise uniform sample from archive. `rows` is policyRows().
  */
-export function opponentForPair({ masterSeed, domain, t, k, archive, h, K }) {
+export function opponentForPair({ masterSeed, domain, t, k, archive, h, rows }) {
     if (!Number.isInteger(masterSeed) || masterSeed < 0 || masterSeed > 0xffffffff) fail('masterSeed must be u32');
     if (!Number.isInteger(domain) || domain < 0 || domain > 0xffffffff) fail('domain must be u32');
     if (!Number.isInteger(t) || t < 0) fail('t must be >= 0');
     if (!Number.isInteger(k) || k < 0) fail('k must be >= 0');
     if (!Number.isFinite(h) || h < 0 || h > 1) fail('h must be in [0, 1]');
-    if (!Number.isInteger(K) || K < 1) fail('K must be >= 1');
+    if (typeof rows?.archive !== 'function') fail('opponent rows require policyRows()');
 
     const u = (tupleHash(masterSeed, domain, STREAM_OPPONENT, t, k, 0) + 0.5) / 4294967296;
     if (h > 0 && u < h && Array.isArray(archive) && archive.length > 0) {
@@ -114,7 +142,7 @@ export function opponentForPair({ masterSeed, domain, t, k, archive, h, K }) {
             type: 'archive',
             index: idx,
             id: snap.id,
-            row: 2 * K + 1 + idx,
+            row: rows.archive(idx),
             params: snap.params,
         };
     }
@@ -122,7 +150,7 @@ export function opponentForPair({ masterSeed, domain, t, k, archive, h, K }) {
         type: 'current',
         index: -1,
         id: 'current',
-        row: 2 * K,
+        row: rows.current,
     };
 }
 
@@ -148,7 +176,18 @@ export function createArchiveManager({ cap = 32, every = 5 } = {}) {
         wolf: [],
     };
 
-    return {
+    const manager = {
+        /** Design §8: after every H completed updates BOTH species append their current master,
+         * whichever one just evolved. Returns one change per species, or none when not due.
+         */
+        snapshotDue(t, masters) {
+            if (!Number.isInteger(t) || t < 0) fail('generation t must be a non-negative integer');
+            if ((t + 1) % every !== 0) return [];
+            // Both or neither: refuse before either species' archive changes.
+            for (const species of ['prey', 'wolf'])
+                if (!(masters?.[species] instanceof Float64Array)) fail('snapshot params must be Float64Array');
+            return ['prey', 'wolf'].map(species => ({ species, ...manager.maybeSnapshot(t, species, masters[species]) }));
+        },
         init({ prey, wolf }) {
             if (!prey?.params || !wolf?.params) fail('archive init requires prey and wolf params');
             archives.prey = [{
@@ -192,4 +231,5 @@ export function createArchiveManager({ cap = 32, every = 5 } = {}) {
             return archives[species]?.slice() ?? [];
         },
     };
+    return manager;
 }

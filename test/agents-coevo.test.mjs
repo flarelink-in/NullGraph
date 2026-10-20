@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { coevoProfile } from './fixtures/coevo-profile.mjs';
 import { mlpLayout } from '../dist/agents.js';
 import { flatParams, networkOf } from '../tools/agents/mlp-train.mjs';
 import { NOISE_VERSION, MAX_PARAMETERS, tupleHash, noise, centeredRanks, gradient,
@@ -175,7 +176,7 @@ test('U50 canonical config validation, hashing, default geometry and strict refu
     assert.equal(canonicalJson({ b: 1, a: 2 }), '{"a":2,"b":1}');
     assert.equal(canonicalJson([3, 2, 1]), '[3,2,1]');
 
-    const valid = validateConfig({ name: 'test-run-u50' });
+    const valid = validateConfig(coevoProfile({ name: 'test-run-u50' }));
     assert.equal(valid.schema, 1);
     assert.equal(valid.K, 8); assert.equal(valid.E, 1);
     assert.equal(valid.arenasPerLane, 8); assert.equal(valid.totalArenas, 16);
@@ -191,11 +192,11 @@ test('U50 canonical config validation, hashing, default geometry and strict refu
     assert.ok(typeof valid.configHash === 'string' && valid.configHash.length === 64);
 
     // Hash sensitivity
-    const modified = validateConfig({ name: 'test-run-u50-b', generations: 12 });
+    const modified = validateConfig(coevoProfile({ name: 'test-run-u50-b', generations: 12 }));
     assert.notEqual(valid.configHash, modified.configHash);
 
     // Refusals
-    const bad = obj => assert.throws(() => validateConfig(obj), /^Error: coevolve:/);
+    const bad = obj => assert.throws(() => validateConfig(obj && !Array.isArray(obj) ? coevoProfile(obj) : obj), /^Error: coevolve:/);
     bad(null);
     bad([]);
     bad({ name: 'invalid name with spaces' });
@@ -286,19 +287,22 @@ test('U52 seeds manifest, cross-pair collision detection, tile permutation and a
     assert.notDeepEqual(perm0, perm1); // Changes with t
 
     // Opponent sampling
+    const { policyRows } = await import('../tools/agents/coevolve-schedule.mjs');
+    const rows = policyRows({ K: 8, cap: 32 });
     const archiveMock = [
         { id: 'wolf-0000', generation: 0, params: new Float64Array(10) },
         { id: 'wolf-0005', generation: 5, params: new Float64Array(10) },
     ];
     // h = 0: always current
-    const oppCurrent = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 0, K: 8 });
+    const oppCurrent = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 0, rows });
     assert.equal(oppCurrent.type, 'current');
     assert.equal(oppCurrent.row, 16);
 
     // h = 1: always archive
-    const oppArchive = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 1, K: 8 });
+    const oppArchive = opponentForPair({ masterSeed: 18001, domain: 1, t: 0, k: 0, archive: archiveMock, h: 1, rows });
     assert.equal(oppArchive.type, 'archive');
     assert.ok(oppArchive.row >= 17 && oppArchive.row <= 18);
+    assert.throws(() => opponentForPair({ masterSeed: 1, domain: 1, t: 0, k: 0, archive: archiveMock, h: 1, K: 8 }), /policyRows/);
 
     // Archive manager
     const mgr = createArchiveManager({ cap: 3, every: 2 });
@@ -339,6 +343,59 @@ test('U52 seeds manifest, cross-pair collision detection, tile permutation and a
     const ck2 = noiseChecksum(dirs);
     assert.equal(ck1, ck2);
     assert.notEqual(ck1, noiseChecksum([new Float64Array([1, 2]), new Float64Array([3, 5])]));
+});
+
+test('U52 archive: both species append every H completed updates, whichever evolved', async () => {
+    const { createArchiveManager, evolvingSpecies } = await import('../tools/agents/coevolve-schedule.mjs');
+    // H = 2: due only at odd t, when wolves evolve. Appending only the evolving species (the
+    // 14.3 re-review bug) would never archive prey past its start.
+    const mgr = createArchiveManager({ cap: 3, every: 2 });
+    mgr.init({ prey: { params: new Float64Array([1]) }, wolf: { params: new Float64Array([2]) } });
+    const log = [];
+    for (let t = 0; t < 6; t++) {
+        const masters = { prey: new Float64Array([10 + t]), wolf: new Float64Array([20 + t]) };
+        const changes = mgr.snapshotDue(t, masters);
+        assert.equal(changes.length, (t + 1) % 2 ? 0 : 2);
+        for (const c of changes) log.push([t, evolvingSpecies(t), c.species, c.snapshotted.id, c.evicted?.id ?? null]);
+    }
+    assert.deepEqual(log, [
+        [1, 'wolf', 'prey', 'prey-0002', null], [1, 'wolf', 'wolf', 'wolf-0002', null],
+        [3, 'wolf', 'prey', 'prey-0004', null], [3, 'wolf', 'wolf', 'wolf-0004', null],
+        [5, 'wolf', 'prey', 'prey-0006', 'prey-0002'], [5, 'wolf', 'wolf', 'wolf-0006', 'wolf-0002']]);
+    assert.deepEqual(mgr.list('prey').map(s => s.id), ['prey-0000', 'prey-0004', 'prey-0006']);
+    // Snapshots copy the master: a later update does not change an archived member.
+    assert.deepEqual([...mgr.get('prey', 2).params], [15]);
+    assert.throws(() => mgr.snapshotDue(7, { prey: new Float64Array([1]) }), /Float64Array/);
+    assert.deepEqual(mgr.list('prey').map(s => s.id), ['prey-0000', 'prey-0004', 'prey-0006'], 'refusal is atomic');
+});
+
+test('U52 policy rows: 2K candidates, the current opponent, then a full archive inside the table', async () => {
+    const { policyRows, opponentForPair } = await import('../tools/agents/coevolve-schedule.mjs');
+    const rows = policyRows({ K: 4, cap: 3 });
+    assert.equal(rows.count, 2 * 4 + 1 + 3);
+    assert.deepEqual([rows.candidate(0, 0), rows.candidate(0, 1), rows.candidate(3, 1)], [0, 1, 7]);
+    assert.equal(rows.current, 8);
+    assert.deepEqual([0, 1, 2].map(rows.archive), [9, 10, 11]);
+    // The last archive row exists; without the +1 it would be the table's end.
+    assert.ok(rows.archive(rows.cap - 1) < rows.count);
+    for (const bad of [() => rows.archive(3), () => rows.archive(-1), () => rows.candidate(4, 0), () => rows.candidate(0, 2)])
+        assert.throws(bad, /^Error: coevolve:/);
+    for (const args of [{ K: 0, cap: 3 }, { K: 1, cap: 1 }, { K: 2 ** 31, cap: 2 }])
+        assert.throws(() => policyRows(args), /^Error: coevolve:/);
+    const full = Array.from({ length: 3 }, (_, j) => ({ id: `wolf-${j}`, params: new Float64Array(1) }));
+    const sampled = new Set();
+    for (let t = 0; t < 64; t++) sampled.add(opponentForPair({ masterSeed: 7, domain: 1, t, k: 0, archive: full, h: 1, rows }).row);
+    assert.deepEqual([...sampled].sort((a, b) => a - b), [9, 10, 11]);
+});
+
+test('U52 random start seeds: own stream per species and domain, no arithmetic on the master seed', async () => {
+    const { initSeed, STREAM_INIT } = await import('../tools/agents/coevolve-schedule.mjs');
+    const prey = initSeed({ masterSeed: 18001, domain: 1, species: 'prey' });
+    assert.equal(prey, tupleHash(18001, 1, STREAM_INIT, 0));
+    assert.equal(initSeed({ masterSeed: 18001, domain: 1, species: 'wolf' }), tupleHash(18001, 1, STREAM_INIT, 1));
+    assert.notEqual(prey, initSeed({ masterSeed: 18001, domain: 2, species: 'prey' }));
+    assert.notEqual(prey, initSeed({ masterSeed: 18002, domain: 1, species: 'prey' }));
+    assert.throws(() => initSeed({ masterSeed: 1, domain: 1, species: 'deer' }), /^Error: coevolve:/);
 });
 
 test('U53 checkpoint writing, atomic export, model identity and manifest verification', async () => {
@@ -388,6 +445,7 @@ test('U53 checkpoint writing, atomic export, model identity and manifest verific
             obsNames,
             actNames,
             configHash: 'hash123',
+            experiment: { environment: 'contact-v2', dt: 0.1 },
             exportOnnx: true,
         });
 
@@ -403,8 +461,11 @@ test('U53 checkpoint writing, atomic export, model identity and manifest verific
         const manifest = JSON.parse(readFileSync(join(gen0Dir, 'manifest.json'), 'utf8'));
         assert.equal(manifest.generation, 0);
         assert.equal(manifest.configHash, 'hash123');
+        assert.deepEqual(manifest.experiment, { environment: 'contact-v2', dt: 0.1 });
         assert.ok(manifest.models.prey.hash);
         assert.ok(manifest.models.wolf.hash);
+        assert.throws(() => writeGenerationCheckpoint(testDir, { generation: 1, preyNetwork: net, wolfNetwork: net,
+            obsNames, actNames, configHash: 'hash123' }), /experiment/);
 
         // Test archive snapshot
         writeArchiveSnapshot(testDir, {
@@ -416,6 +477,10 @@ test('U53 checkpoint writing, atomic export, model identity and manifest verific
             configHash: 'hash123',
         });
         assert.ok(existsSync(join(testDir, 'archive/prey-0000.mlp.json')));
+        const { createHash } = await import('node:crypto');
+        const index = readFileSync(join(testDir, 'archive/index.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        assert.deepEqual(index, [{ id: 'prey-0000', species: 'prey', generation: 0,
+            hash: createHash('sha256').update(readFileSync(join(testDir, 'archive/prey-0000.mlp.json'))).digest('hex') }]);
     } finally {
         if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
     }
@@ -437,11 +502,8 @@ test('U55 guard submission calibration, batch size and 1500 ms safety threshold'
     assert.throws(() => checkStep(NaN, 1500), /film: invalid step timing/);
 
     // Batch sizing arithmetic: target 500 ms, capped at 1000 ms, floor division
-    const calcBatch = (stepMs, T = 300) => {
-        let b = Math.max(1, Math.min(T, Math.floor(500 / stepMs)));
-        if (b * stepMs > 1000) b = Math.max(1, Math.floor(1000 / stepMs));
-        return b;
-    };
+    const { createSubmissionGuard } = await import('../tools/agents/coevolve-guard.mjs');
+    const calcBatch = (stepMs, T = 300) => createSubmissionGuard(stepMs).next(T);
     assert.equal(calcBatch(10), 50);    // 50 * 10 = 500 ms
     assert.equal(calcBatch(20), 25);    // 25 * 20 = 500 ms
     assert.equal(calcBatch(400), 1);    // 1 * 400 = 400 ms
