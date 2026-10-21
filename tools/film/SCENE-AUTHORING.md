@@ -52,6 +52,7 @@ Return this interface:
 | `async step()` | Submit one simulation step and await completion |
 | `view(state, seconds)` | Apply an orbit keyframe or handle null with a default view; update presentation time |
 | `draw(frame)` | Return the sequence the runner will submit with `engine.render(...)` |
+| `async prepareSurface(frame)` | Optional awaited derived reconstruction before drawing; split expensive work into bounded submissions. Called for record and replay, not tracks-only jobs. Must not advance persistent simulation state. |
 | `destroy()` | Release scene-owned resources, not the runner's engine/device |
 | `info` | Optional report metadata; `wgsl` and `networks` can carry dependency hashes |
 
@@ -157,6 +158,11 @@ npm run film -- 'D:/orion-realms/null-graph/tools/film/films/my-scene-trial.json
 The second command records state only. The third draws the complete recording to the recording's
 `replay/frames/` directory. Omit `--frames png` to encode video with ffmpeg instead. Choose a fresh
 output directory for a new job; use `--resume` only for compatible interrupted jobs.
+
+Titles, captions and credits need nothing from the scene: list them as `overlays` in the film JSON
+and the runner burns them into `film-labelled.mp4` after encoding (see the README's
+[Text overlays](./README.md#text-overlays-burned-in-after-encoding)). They sit at fixed places on
+the screen. Text that must follow an agent or an object belongs in the scene, drawn by the engine.
 
 Replay keeps recorded scene settings authoritative. Camera, output size and playback speed can be
 changed using the [replay options](./README.md#compute-records-replay-and-long-jobs-d22). Keep the code,

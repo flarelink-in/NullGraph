@@ -87,9 +87,46 @@ npm run film -- <film.json> [--frames ffmpeg|png|none] [--out <dir>] [--seconds 
 - **`camera`** keyframes use the demo's orbit terms. Each value moves smoothly between keyframes and
   starts and stops at rest; distance moves on a log scale. With no keyframes, the scene's own view
   holds.
+- **`overlays`** (optional) are text burned into a second video after encoding; see
+  [Text overlays](#text-overlays-burned-in-after-encoding).
 - **Defaults:** 60 fps, 1920 × 1080, `libx264` CRF 16 `medium`, 10 s segments, no warm-up.
 - **Refused by name:** odd sizes, a frame rate that is not a whole number of steps, keyframes out of
   order, and the like.
+
+### Text overlays (burned in after encoding)
+
+A film file may list text to draw over the finished video. Any scene can use it: the text is drawn
+by ffmpeg's `drawtext` after `film.mp4` is joined, so the simulation and the frames are untouched and
+the labelled copy can be made again, or differently, without rendering. The film's `film.mp4` stays
+as rendered; the labelled one is `film-labelled.mp4` beside it. Design:
+[`docs/film-overlays-design.md`](../../docs/film-overlays-design.md).
+
+```json
+"overlays": [
+  { "text": "Herd & Wolves: 4,096 agents", "fade": 0.5 },
+  { "text": "rendered offline", "x": "w-text_w-20", "y": "h-20-text_h", "size": 16 },
+  { "text": "Caption from the second second", "x": 20, "y": 60, "from": 1, "to": 2 }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `text` | Required. Drawn as written: `:`, `'`, `,` and `;` need no escaping. |
+| `x`, `y` | Pixels from the top left, or an ffmpeg expression such as `w-text_w-20` (anchored to an edge). Default: a padding of 0.6 × the size. |
+| `size` | Font size in pixels. Default: the film's height ÷ 30. |
+| `from`, `to` | Seconds in the finished film. Default: all of it. An item that ends after the film is allowed, so a `--seconds` preview of a longer film still reads; it just never shows. |
+| `fade` | Seconds of fade in and out within the item's range. At most half the range. |
+
+- **When it runs:** the runner burns the overlays right after joining the segments, and refuses a
+  missing font before the first frame (exit 2). To label a finished film again, or after editing
+  `overlays` in its `film.json`: `node tools/film/burn.mjs <film output directory> [--font <ttf>]`.
+- **Font:** `C:/Windows/Fonts/segoeui.ttf` by default; `--font <ttf>` picks another.
+- **Cannot follow an agent.** Text that moves with an object belongs in the scene (world labels),
+  which the engine draws into the frame. Overlays are fixed on the screen.
+- **Scene-specific labels** compute their items and hand them to the same pass: the co-evolution
+  films' tile labels (`tools/agents/coevolve-film-labels.mjs`) are the example.
+- **Refused by name:** unknown fields, empty text, a size at or below zero, `from` not below `to`, a
+  fade longer than half the item.
 
 ## CLI reference
 
@@ -111,6 +148,7 @@ rejected; there is currently no `--help` flag. CLI overrides do not edit the fil
 | `--camera <file.json>` | Recorded camera | Replay only; replace the camera with a JSON **array of keyframes**, not a whole film manifest. Keyframes use `t`, `target`, `distance`, `azimuth` and `polar`, as described above. |
 | `--resume` | Off | Continue compatible committed output; rewrite any incomplete segment. Keep the original manifest overrides and sink. Changed inputs are refused. Combine with `--replay` to resume replay output. |
 | `--stop-after <n>` | No deliberate stop | Pause after a positive integer number of **total committed segments**, not additional segments or frames. Useful for testing resume. A paused successful run exits zero; it is not necessarily a finished film. |
+| `--font <ttf>` | `C:/Windows/Fonts/segoeui.ttf` | Font file for the film's [overlays](#text-overlays-burned-in-after-encoding). Checked before the first frame, and only when the film has overlays and `--frames ffmpeg`. |
 | `--detach` | Off | Launch an independent Node process, append output to `film.log`, and save PID/start metadata in `job.json`. The launcher returning does not prove rendering finished. |
 | `--status` | Off | Print JSON with output directory, process status, committed/total frames, ETA and segments, then exit without GPU initialization. Keep the original destination/replay flags. Manifest/build checks and sink discovery still run; for a PNG/none job, keep its `--frames` mode too. |
 
@@ -296,7 +334,8 @@ those discontinuities. Packed m=1 replay is tested at ≤2% changed pixels and m
 ## Tests
 
 - `npm run test:film`: the film file and its plan, the camera path, ffmpeg's arguments, the drift
-  check. Headless.
+  check, the overlay filters and their refusals (O1–O6, O10), and burning text with the real ffmpeg
+  (O7–O9, skipped without ffmpeg or the default font). Headless.
 - `NG_DAWN_FLAGS=adapter=NVIDIA npm run test:gpu -- --only film`: GPU, Node only.
   - **F1, determinism.** Two films of 4,096 agents end with the same agents buffer, byte for byte.
     Every frame is byte-exact with flashes off, since the stable visibility draw order. Flashes

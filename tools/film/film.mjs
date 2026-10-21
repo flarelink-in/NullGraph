@@ -1,6 +1,6 @@
 // D2.1 (docs/offline-films-design.md §4, §5, §7): records a film.
 //
-//   npm run film -- <film.json> [--frames ffmpeg|png|none] [--out <dir>] [--seconds <n>] [--size <W>x<H>]
+//   npm run film -- <film.json> [--frames ffmpeg|png|none] [--out <dir>] [--seconds <n>] [--size <W>x<H>] [--font <ttf>]
 //   NG_DAWN_FLAGS=adapter=NVIDIA picks the GPU; NG_FFMPEG the ffmpeg to run; NG_SITE the test site.
 //
 // The scene is stepped exactly, `stepsPerFrame` steps a frame, each its own submission. The camera follows
@@ -22,12 +22,13 @@ import { assertDistCurrent, root } from '../agents/cli.mjs';
 import { readManifest, planFilm } from './manifest.mjs';
 import { cameraPath } from './camera.mjs';
 import { concatSegments, ffmpegSegment, findFfmpeg, noSink, pngSink } from './sinks.mjs';
+import { burnOverlays, DEFAULT_FONT } from './burn.mjs';
 import { FrameCapture } from './capture.mjs';
 import { compareCopies } from './check.mjs';
 import { atomicJSON, inputHash, number, track, saveCheckpoint, restoreCheckpoint, TrackWriter, TrackReader, resumeSegments } from './records.mjs';
 import { checkStep } from './guard.mjs';
 
-const VALUE = new Set(['--frames', '--out', '--seconds', '--size', '--camera', '--speed', '--track-every', '--stop-after', '--replay-out']);
+const VALUE = new Set(['--frames', '--out', '--seconds', '--size', '--camera', '--speed', '--track-every', '--stop-after', '--replay-out', '--font']);
 const SWITCH = new Set(['--replay', '--resume', '--detach', '--status']);
 const argv = process.argv.slice(2);
 const flag = name => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined; };
@@ -88,6 +89,8 @@ const frames = flag('frames') ?? 'ffmpeg';
 if (!['ffmpeg', 'png', 'none'].includes(frames)) refuse(`film: --frames must be ffmpeg, png or none; got ${frames}.`);
 const ffmpeg = frames === 'ffmpeg' ? findFfmpeg() : null;
 if (frames === 'ffmpeg' && !ffmpeg) refuse('film: ffmpeg not found (NG_FFMPEG, PATH). Install it (choco install ffmpeg), or pass --frames png.');
+const font = flag('font') ?? DEFAULT_FONT;
+if (frames === 'ffmpeg' && manifest.overlays.length && !existsSync(font)) refuse(`film: overlay font ${font} not found (pass another with --font).`);
 const out = replay ? resolve(flag('replay-out') ?? join(recording, 'replay')) : recording;
 if (replay && out === recording) refuse('film: replay output must differ from the recording directory.');
 mkdirSync(out, { recursive: true });
@@ -228,7 +231,11 @@ try {
             await Promise.all([steps, capture.pending ? drain() : null]);
             const seconds = j / film.fps;
             scene.view(path ? path(seconds) : null, replay ? seconds * speed : seconds);
-            if (frames !== 'none') { engine.render(scene.draw(j)); capture.grab(j); }
+            if (frames !== 'none') {
+                // Optional bounded, awaited reconstruction work before the final draw/readback.
+                await scene.prepareSurface?.(j);
+                engine.render(scene.draw(j)); capture.grab(j);
+            }
         }
         while (capture.pending) await drain();
         await sink.close();
@@ -252,7 +259,12 @@ try {
             (done < plan.frames ? `; about ${ms(eta)} left` : ''));
         if (stopping || (flag('stop-after') && progress.segments.length >= Number(flag('stop-after')))) break;
     }
-    if (frames === 'ffmpeg' && progress.segments.length === plan.segments.length) await concatSegments(ffmpeg, progress.segments.map(s => s.file), join(out, 'film.mp4'));
+    if (frames === 'ffmpeg' && progress.segments.length === plan.segments.length) {
+        await concatSegments(ffmpeg, progress.segments.map(s => s.file), join(out, 'film.mp4'));
+        // The film is finished and exact; the labelled copy is made from it, beside it (docs/film-overlays-design.md §3).
+        if (manifest.overlays.length) burnOverlays({ input: join(out, 'film.mp4'), output: join(out, 'film-labelled.mp4'),
+            film: { ...film, seconds: plan.frames / film.fps }, encode, overlays: manifest.overlays, font, ffmpeg });
+    }
 } catch (error) {
     failure = error;
     console.error(error.message.startsWith('film:') ? error.message : `film: ${error.stack ?? error}`);

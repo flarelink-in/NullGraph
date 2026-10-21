@@ -1,12 +1,15 @@
 // D2.1 (docs/offline-films-design.md §5, §13): a film file, read and checked, and the plan it gives: frames,
 // steps, the warm-up and the segments. Pure: no node: imports, so the headless tests check every refusal.
 
+import { readOverlays } from './overlay.mjs';
+
 export const FILM_DEFAULTS = Object.freeze({
     warmupSeconds: 0,
     segmentSeconds: 10,
     film: Object.freeze({ fps: 60, width: 1920, height: 1080, scale: 1 }),
     encode: Object.freeze({ codec: 'libx264', crf: 16, preset: 'medium', tune: null }),
     camera: Object.freeze([]),
+    overlays: Object.freeze([]),
     settings: Object.freeze({}),
 });
 
@@ -60,6 +63,7 @@ export function readManifest(json, name = 'film') {
         settings: { ...(json.settings ?? {}) },
         warmupSeconds, segmentSeconds, film, encode,
         camera: readCamera(json.camera ?? []),
+        overlays: readOverlays(json.overlays ?? [], film.seconds),
     };
 }
 

@@ -12,16 +12,20 @@ import { encodePNG } from '../../test/gpu/png.mjs';
  */
 export const BT709 = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv';
 
-/** ffmpeg's arguments for one segment: raw RGBA frames of `film`'s size on stdin, `encode`'s encoder, to `file`. Pure. */
-export function encoderArgs(encode, film, file) {
-    const quality = encode.codec === 'libx264'
+/** The quality arguments of `encode`'s encoder. Pure. A pass over a finished film (overlay text) uses the same ones. */
+export function qualityArgs(encode) {
+    return encode.codec === 'libx264'
         ? ['-preset', encode.preset, '-crf', String(encode.crf), ...(encode.tune ? ['-tune', encode.tune] : [])]
         : encode.codec === 'h264_nvenc'
             ? ['-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-cq', String(encode.crf), '-b:v', '0']
             : [];
+}
+
+/** ffmpeg's arguments for one segment: raw RGBA frames of `film`'s size on stdin, `encode`'s encoder, to `file`. Pure. */
+export function encoderArgs(encode, film, file) {
     return ['-hide_banner', '-loglevel', 'error', '-y',
         '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${film.width}x${film.height}`, '-r', String(film.fps), '-i', '-',
-        '-c:v', encode.codec, ...quality, '-vf', BT709, '-movflags', '+faststart', file];
+        '-c:v', encode.codec, ...qualityArgs(encode), '-vf', BT709, '-movflags', '+faststart', file];
 }
 
 /** The ffmpeg to run: NG_FFMPEG, or `ffmpeg` on PATH. Resolves to { path, version }, or null when neither runs. */

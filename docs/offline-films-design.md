@@ -319,7 +319,7 @@ else.
 | World labels that follow a buffer (the wolves' names follow `agents.buffer`) | Work in record and replay. Replay writes the tracked positions into that same buffer. |
 | The demo's live overlay (ms per step, runs a second) | Left out: in a film these measure the render. |
 | A caption from the film's inputs and tracks (count, brains, catches, "rendered offline") | Optional, drawn in replay: change it and replay again. |
-| Titles, credits, subtitles | Optional, with ffmpeg after encoding (`drawtext`, or a subtitle track). They cannot follow an agent. |
+| Titles, credits, subtitles | Optional, with ffmpeg after encoding (`drawtext`, or a subtitle track). They cannot follow an agent. A general overlay pass is proposed in [`film-overlays-design.md`](./film-overlays-design.md). |
 
 **The font atlas.** Node cannot draw glyphs (fact 5). The demo's atlas is baked once in Chrome:
 `npm run drive` opens a small page that runs `fromCanvas` with the demo's settings (Inter SemiBold

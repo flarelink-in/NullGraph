@@ -56,7 +56,8 @@ a generation number, `"clone"` or `"rule"`), `seed` (77001), `cols` (2), `look` 
 The film tool draws no text under Node yet (an atlas needs a canvas; captions are D2.3's next work).
 `node tools/agents/coevolve-film-labels.mjs <film output>` burns two lines a tile ("Prey: generation
 50", "Wolves: the rule") beside the tiles, plus a title (`--title`) and a footer (environment,
-layout, seed, "exploratory, not a result"), with ffmpeg's drawtext. It finds each tile through the
+layout, the film seed that set the start positions, "exploratory, not a result"), with ffmpeg's
+drawtext. It finds each tile through the
 scene's own `topDownView` and the engine's camera, reads tiles and grid from the film's
 `report.json`, and re-encodes with the film runner's BT.709 tags to `film-labelled.mp4`.
 

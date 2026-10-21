@@ -84,7 +84,21 @@ test('U1: a film file gets every default, and its name', () => {
     assert.equal(m.warmupSeconds, 0);
     assert.equal(m.segmentSeconds, 10);
     assert.deepEqual(m.camera, []);
+    assert.deepEqual(m.overlays, []);
     assert.equal(readManifest(minimal({ name: 'given' }), 'from-file').name, 'given');
+});
+
+test('O6: a film file\'s overlays are read, checked against the film\'s length, and kept', () => {
+    const overlays = [{ text: 'Title', fade: 0.5 }, { text: 'Later', x: 'w-text_w-40', from: 1, to: 2 }];
+    assert.deepEqual(readManifest(minimal({ overlays }), 'f').overlays, overlays);
+    // minimal() is 2 s long: an item that ends later is allowed, so a --seconds preview of a longer film still reads.
+    assert.equal(readManifest(minimal({ overlays: [{ text: 'Late', from: 1, to: 50 }] }), 'f').overlays.length, 1);
+    const refuses = (more, pattern) => assert.throws(() => readManifest(minimal(more), 'f'), pattern);
+    refuses({ overlays: {} }, /overlays must be a list of items/);
+    refuses({ overlays: ['Title'] }, /overlay 0 must be an object/);
+    refuses({ overlays: [{ text: 'a', colour: 'red' }] }, /overlay 0: unknown field "colour"/);
+    refuses({ overlays: [{ text: 'a' }, { text: '' }] }, /overlay 1: text must be a non-empty string/);
+    refuses({ overlays: [{ text: 'a', from: 2 }] }, /overlay 0: from must be below to \(2 and 2\)/);
 });
 
 test('U1: every refusal names what is wrong', () => {
