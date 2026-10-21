@@ -1,0 +1,7 @@
+{
+  "name": "liquid-splash-preview",
+  "scene": "liquid-splash",
+  "warmupSeconds": 0.35,
+  "film": { "seconds": 0.016666666666666666, "fps": 60, "width": 1000, "height": 1000 },
+  "segmentSeconds": 1
+}

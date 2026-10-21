@@ -1,0 +1,8 @@
+{
+  "name": "navier-stokes-preview",
+  "scene": "navier-stokes",
+  "settings": { "grid": 128, "iterations": 120, "viscosity": 0.0002 },
+  "warmupSeconds": 3,
+  "film": { "seconds": 0.016666666666666666, "fps": 60, "width": 1200, "height": 1200 },
+  "segmentSeconds": 1
+}

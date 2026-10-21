@@ -1,0 +1,24 @@
+{
+  "name": "crystalline-bottle",
+  "scene": "crystalline-bottle",
+  "settings": {
+    "dustCount": 96,
+    "subdivisionLevels": 3
+  },
+  "film": {
+    "seconds": 10,
+    "fps": 60,
+    "width": 1920,
+    "height": 1080
+  },
+  "segmentSeconds": 1,
+  "camera": [
+    { "t": 0, "target": [0.0, 0.44, 0.0], "distance": 1.58, "azimuth": 0.38, "polar": 1.44 },
+    { "t": 5, "target": [0.0, 0.47, 0.0], "distance": 1.42, "azimuth": 0.62, "polar": 1.38 },
+    { "t": 10, "target": [0.0, 0.44, 0.0], "distance": 1.58, "azimuth": 0.88, "polar": 1.42 }
+  ],
+  "encode": {
+    "crf": 16,
+    "preset": "medium"
+  }
+}

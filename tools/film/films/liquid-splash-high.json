@@ -1,0 +1,8 @@
+{
+  "name": "liquid-splash-high",
+  "scene": "liquid-splash",
+  "settings": { "quality": "high" },
+  "warmupSeconds": 0.35,
+  "film": { "seconds": 0.016666666666666666, "fps": 60, "width": 1920, "height": 1080 },
+  "segmentSeconds": 1
+}
