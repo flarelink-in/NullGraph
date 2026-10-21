@@ -122,6 +122,25 @@ never evidence for H1–H3. `node tools/agents/coevolve-report.mjs training <run
 learning curve and `… evaluation <evaluation>` an evaluation's results. Every step, from a new run to
 a labelled film: [`docs/agents-coevo-runbook.md`](../../docs/agents-coevo-runbook.md).
 
+### Checkpoints in the site (step 16, first slice)
+
+The test site's page `Herd & Wolves (evolved)` (`/dashboard/agents/herd-wolves-coevo`) runs a run's
+checkpoints live, in the pens they trained in or in the open field
+([`docs/agents-coevo-demo-design.md`](../../docs/agents-coevo-demo-design.md)). `npm run agents:site`
+(`coevolve-site.mjs`) feeds and checks it:
+
+```text
+npm run agents:site -- export --run tools/agents/out/coevo/x150-clones-15001
+npm run agents:site -- remove --name x150-clones-15001
+npm run agents:site -- check            (U57; add --gpu for A56)
+```
+
+`export` copies the multiples of 50 and the last generation (or `--generations 0,100,200`) byte for
+byte into the site's `HerdWolvesCoevo/checkpoints/` and rewrites its catalog; one catalog holds runs of
+one pen experiment. `check` holds the page's port of the pens (`arena.ts`) to
+`scenario/herd-wolves-arenas.mjs`: WGSL, definitions and spawns on the CPU, and with `--gpu` a lane of
+each stepped on one GPU, byte for byte. `--site` or `NG_SITE` names the site.
+
 ## What you need
 
 - Node, and a GPU that Dawn can use: recording and evaluating run the simulation headless.

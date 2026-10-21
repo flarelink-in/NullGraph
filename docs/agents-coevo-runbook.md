@@ -8,7 +8,7 @@ films of them, step by step. Every command runs from a PowerShell window in
 
 These are **exploratory runs**: good for seeing what evolves and for choosing settings, never evidence
 for H1–H3. The preregistered study (14.5) has its own seeds and commands, and must not be touched by
-exploration (§7).
+exploration (§8).
 
 ## 0. Before you start
 
@@ -45,7 +45,15 @@ npm run agents:coevolve -- --config tools/agents/explore/x150-clones.json --mast
 - **A new name every time.** The run's folder must not exist; nothing is ever overwritten.
 - **Seeds:** use master seeds from 15000 to 15999 (the configs' domain is 150). Never 14501–14503
   with domain 145: those belong to the preregistered study. Used so far: 15001 (clones), 15002
-  (random), 15003 (clones).
+  (random), 15003 (clones). The master seed is one of three kinds of seed, which never mix:
+
+  | Seed | Set by | Decides |
+  |---|---|---|
+  | Master seed, 15000–15999 | `--master-seed` when training | the whole run: every generation's perturbations, every training episode's start positions, which older opponents are drawn, and a random start's first weights |
+  | Evaluation seed, 15500 | `--seed` when scoring (§3) | the fresh test episodes, which training never played |
+  | Film seed, 77001 by default | the film file's `"seed"` (§4) | only where the animals stand when the filmed episode starts, the same in every pen; nothing about the brains |
+
+  A film's footer prints its film seed; its run's master seed is in the run's name.
 - **One generation = one species learns:** prey in odd generations (1, 3, 5, …), wolves in even
   ones. 200 generations is 100 updates of each.
 - **Time:** about 9 s a generation on NVIDIA (30 minutes for 200), about 15 s on AMD.
@@ -161,8 +169,9 @@ notepad tools/film/out/presets/x150-clones-15004-prey.json
   (`"prey": ["rule", "rule", "rule", "rule"], "wolf": [0, 50, 100, 200]`) and **the arms race**
   (`"prey": [0, 50, 100, 200], "wolf": [0, 50, 100, 200]`).
 - `"clone"` cannot share a film with a random start's generations (different network sizes).
-- Optional settings: `"seed"` (77001: a different spawn layout), `"look": "faithful"` (the demo's
-  plainer look). 20 seconds is exactly one training episode.
+- Optional settings: `"seed"` (the film seed, 77001 by default: another number films the same
+  brains from other start positions), `"look": "faithful"` (the demo's plainer look). 20 seconds
+  is exactly one training episode.
 
 **2. Record, then label:**
 
@@ -175,7 +184,39 @@ The film is `tools/film/out/x150-clones-15004-prey/film-labelled.mp4` (`film.mp4
 unlabelled). About 30–40 seconds a film on either GPU. If a recording stops, run the same `npm run
 film` command again with `--resume` added: it continues exactly where it stopped.
 
-## 5. Ideas worth a run
+## 5. Watch them live in the site
+
+The site's page **Herd & Wolves (evolved)** (Agent Experiments in the menu,
+`/dashboard/agents/herd-wolves-coevo`) runs checkpoints live
+([design](./agents-coevo-demo-design.md)). It already holds the three runs so far, generations 0, 50,
+100, 150 and 200. To add a run you trained:
+
+```powershell
+npm run agents:site -- export --run tools/agents/out/coevo/x150-clones-15004
+```
+
+- Without `--generations` it copies the multiples of 50 and the last; `--generations 0,100,200`
+  chooses. A run exported again replaces its earlier copy; `npm run agents:site -- remove --name
+  x150-clones-15004` takes it out.
+- Every run in the page must have trained in the same pens (36 m, 192 and 16, `contact-v3`): the
+  export refuses a run whose pens differ, and says which setting.
+- Reload the page (or restart the site's dev server) to see a new run in the panel.
+
+On the page:
+- **Agents:** *training pens* (4, 16 or 64 pens of 36 m, run by the trainer's own pen code, so the
+  brains meet exactly what they trained in; 64 pens is one whole training generation), or the *open
+  field* (4K to 1M agents, Herd & Wolves' own rules: the transfer test).
+- **Brains,** per species: *Rule*, *Clone*, or *Evolved* with a run and a generation.
+- **Pens show:** *Generation ladder* puts the run's generations side by side, every pen from the
+  same start, as the films do; *One matchup* runs one generation in every pen. A change of brains
+  rebuilds the pens from the same start, so two brains are compared from the same positions;
+  *Restart* moves to the next start.
+- The overlay says when speeds, rest or think-every leave the values the brains trained with.
+
+After editing the page's `arena.ts`, or the trainer's pens, run `npm run agents:site -- check`
+(add `--gpu` to step both on the GPU): it must print `ok` on every line.
+
+## 6. Ideas worth a run
 
 | Question | Run | Compare |
 |---|---|---|
@@ -185,11 +226,12 @@ film` command again with `--resume` added: it continues exactly where it stopped
 | How much does perturbation size matter? | `--sigma 0.05` and `--sigma 0.25` | prey and wolves against the rule |
 | Do random starts reach the clones every time? | the random config, new seeds | generation 200 against the clones |
 
-## 6. Where things are
+## 7. Where things are
 
 | What | Where |
 |---|---|
 | Run configs | `tools/agents/explore/x150-clones.json`, `x150-random.json` |
+| The site's page and its checkpoints | the site's `src/data/engine-demos/demos/AgentsExperiments/HerdWolvesCoevo/` (`checkpoints/`) |
 | Runs | `tools/agents/out/coevo/<name>/` |
 | Evaluations | `tools/agents/out/coevo-eval/<name>/` (`evaluation.json`, `plan.json`, `log.jsonl`) |
 | Films | `tools/film/out/<name>/film-labelled.mp4` |
@@ -200,7 +242,7 @@ film` command again with `--resume` added: it continues exactly where it stopped
 
 Everything under an `out/` folder is ignored by git: keep what you want elsewhere.
 
-## 7. Keep the preregistered study clean
+## 8. Keep the preregistered study clean
 
 The 14.5 study ([prereg](./agents-coevolution-prereg.md)) will judge H1–H3 on fresh runs and fresh
 test episodes. Until its freeze, and for exploration after it:
@@ -212,7 +254,7 @@ Its runs start only after the freeze (14.0's gates in `contact-v3`, the directio
 held-out lists). They will use the frozen configs and the commands in the prereg's §5; films of
 them are made the same way as in §4 here.
 
-## 8. When something goes wrong
+## 9. When something goes wrong
 
 | Message | What to do |
 |---|---|
@@ -225,3 +267,5 @@ them are made the same way as in §4 here.
 | `guard: … stopped` or `WebGPU failure` | Close other apps that use the GPU; run again with a new name |
 | The PC slept, or the window closed | Training: run again with a new name. Film: same command with `--resume` |
 | `status.json` says `incomplete` | The run did not finish; its checkpoints so far can still be scored and filmed |
+| `coevolve-site: … pens differ from the catalog's in L, …` | The run trained in other pens: the page shows one kind at a time. Remove the catalog's runs first (`agents:site -- remove`) |
+| The page's overlay says `a checkpoint did not load` | Export the run again, then `npm run agents:site -- check` |
