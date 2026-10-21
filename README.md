@@ -21,6 +21,8 @@ WebGPU implementation.
 
 The repository also includes offline rendering tools: fixed-step scene recording, GPU-state tracks,
 checkpoints, replay, and frame export to PNG or ffmpeg video, independent of real-time frame rate.
+The agent APIs provide GPU policy tables, species-specific brains, and explicit stepping for
+application-defined population evaluation, co-evolution, and historical-opponent comparisons.
 
 ## Installation and getting started
 
@@ -120,6 +122,31 @@ Neighbour scans have a configurable per-cell budget: crowded cells can omit cand
 overflow-free operation is required for the documented same-device deterministic replay guarantee.
 See the [agents guide](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md)
 for supported shapes, buffer ownership, inspection and integration examples.
+
+### Population policies and co-evolution building blocks
+
+The agent module provides reusable execution primitives for applications that evaluate multiple
+policies, evolve interacting populations, or compare current policies with historical opponents:
+
+- **Per-agent policy selection.** `MlpBrain.byGenome` stores same-shape networks in a GPU table;
+  each agent's `genome` field selects its policy row. Candidate policies and archived policies can
+  share a table without creating a separate brain for every network.
+- **Independent species policies.** `setBrain(brain, { species })` assigns brains per species,
+  including networks of different shapes or a mixture of neural and WGSL rule policies.
+- **In-place policy updates.** `setWeights` replaces a network's weights, while `setRows` uploads
+  contiguous packed rows to a genome-indexed table. Shapes and activations remain fixed; policy
+  updates do not require rebuilding the brain. `prepareBrain` prepares a different brain ahead
+  of a later switch.
+- **Explicit rollout scheduling.** Frame and lockstep execution let applications control simulation
+  advancement, policy changes, and additional compute stages. GPU simulation buffers can feed
+  rendering directly; inspection and evaluation readbacks remain explicit.
+
+These primitives support application-managed co-evolution and Hall-of-Fame-style (HoF) opponent
+sampling: applications retain historical networks, upload them as policy rows, and assign agents
+to current or archived policies. The library does not select archive members, define fitness,
+optimize weights, or guarantee that an evolved policy improves. Training algorithms, archive
+management, and evaluation protocols belong to application code or separate repository tooling,
+not the packaged agent runtime.
 
 ### Offline rendering and replay
 
