@@ -15,6 +15,15 @@ legitimate stopping point** for most applications.
 
 ---
 
+## Implemented: XZ disc contacts (Phase 2 step 13)
+
+`DiscContacts` and its CPU reference are implemented in the optional `null-graph/physics` entry.
+They separate discs in any declared GPU record layout using a solver-owned stable grid and
+bounded Jacobi passes. Agents integrate through the generic external step-stage seam.
+See the [API guide and checked example](../api/physics.md) and
+[contact design and measurements](./physics-contacts-design.md).
+This is not the 3D P2/P3 solver: the P1–P3 documents below remain designs, not shipped APIs.
+
 ## The three phases specified here
 
 | Phase | Spec | Ships | Engine cost |

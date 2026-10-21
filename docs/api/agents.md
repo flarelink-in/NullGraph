@@ -10,6 +10,12 @@ Training is done by tools in the repository, outside the package ([a trained net
 An `.onnx` file is read, and ONNX Runtime brains (`OrtBrain`) run, from another entry, `null-graph/inference`
 ([inference.md](./inference.md)).
 
+**Disc contacts:** [the physics guide](./physics.md) shows `DiscContacts` from the separate
+`null-graph/physics` entry and `addStepStage({ name, stages })` to run its stages after movement
+on every fixed step. Contacts and other app-stage groups run in registration order; register
+contacts after respawn/movement stages and before stages that inspect separated positions.
+The caller owns external stages and destroys contacts after the agent system stops using them.
+
 **See it running:** the test site's Herd & Wolves demo ([nullgraph.dev](https://nullgraph.dev/),
 `/dashboard/agents/herd-wolves-gpu`) runs on this API, from 4,096 to 1M agents as far as the GPU
 allows. Each species switches live between the rule, its trained network on `MlpBrain` and the
