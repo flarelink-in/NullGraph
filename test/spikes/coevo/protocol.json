@@ -1,0 +1,19 @@
+{
+ "version": "s7-replacement-2.1",
+ "registered": "2026-10-18",
+ "policy": "Gate 1 must pass on an adapter before later gates run there. Screening is exploratory, not final research. Fresh systems/buffers use a tools-local same-device immutable pipeline cache keyed by full WGSL, entry and constants; cold misses and warm construction are recorded. Episode state is never pooled.",
+ "screen": [
+  { "K": 8, "E": 1, "P": 192, "W": 16, "T": 300, "shape": "C2", "environment": "legacy-v1", "contacts": false, "state": "ordinary" },
+  { "K": 8, "E": 1, "P": 192, "W": 16, "T": 300, "shape": "C2", "environment": "contact-v1", "contacts": true, "state": "ordinary" },
+  { "K": 8, "E": 1, "P": 192, "W": 16, "T": 300, "shape": "H2", "environment": "contact-v1", "contacts": true, "state": "dense" },
+  { "K": 16, "E": 1, "P": 256, "W": 16, "T": 600, "shape": "C2", "environment": "contact-v1", "contacts": true, "state": "ordinary" },
+  { "K": 8, "E": 2, "P": 192, "W": 16, "T": 600, "shape": "C2", "environment": "contact-v1", "contacts": true, "state": "ordinary" },
+  { "K": 8, "E": 1, "P": 192, "W": 16, "T": 300, "shape": "C2", "environment": "contact-v1", "contacts": false, "state": "ordinary" }
+ ],
+ "rate": { "warmupGenerations": 1, "measuredGenerations": 5, "sigma": 0.02, "rate": 0.01, "decay": 0.005, "seed": 18001 },
+ "noise": { "K": 8, "directionsReported": 8, "E": [2, 4], "T": [600], "sigma": [0.1, 0.25], "validationSeeds": 20, "seed": 29001, "shape": "C2", "environment": "contact-v1", "contacts": true, "P": 192, "W": 16 },
+ "qualityGate": { "splitHalfRankCorrelation": 0.7, "signalToResidual": 1, "nonzeroIntervals": 4, "bothSpeciesRequired": true, "policy": "Exploratory conservative acceptance bars registered before 2.1 runs. Each species must pass the same E/T/sigma setting. Failure blocks smoke learning and production, not a test pass disguised as statistical acceptance." },
+ "submission": { "hardStopMs": 1500, "targetMs": 25, "maxCopies": 2, "firstSingles": 4, "compileCompletion": "explicit async pipeline preparation; no simulation warm-up", "hostYield": true },
+ "smoke": { "generations": 10, "repeatGenerations": 3, "K": 8, "E": 2, "P": 192, "W": 16, "T": 600, "sigma": 0.1, "rate": 0.01, "decay": 0.005, "seed": 39001, "validationSeeds": 20, "validationDomain": 49001, "archiveEvery": 5, "archiveCap": 32, "archiveShare": 0.5 },
+ "scope": "Staged subset spans both shapes/environments, a dense stress, a larger K, a replicated E and a matched contacts-off ablation. Larger frontier/1200-step settings are deferred if this subset supplies adequate evidence. No H1-H3 acceptance from smoke learning. Smoke settings are preregistered, not post-selected from favorable validation outcomes."
+}

@@ -61,10 +61,10 @@ Who uses it (plan-2 §3's second consumers):
    before `sense` on every fixed step without gating (`AgentSystem.ts:124-130, 191-195`), because
    `addStepStage` runs every step. A query-only neighbour list is therefore fresh on every step at
    any `thinkEvery`.
-5. **Spike S7 proved that body overlap changes what evolves.** In S7 (`agents-coevolution-design.md`
-   §16), without contacts, herds stack onto one spot (mean nearest-prey distance `0.66–0.72 m`,
-   below the `2 × radius = 0.80 m` body diameter, against `1.28 m` under the rule), because
-   overlapping lets many prey shelter inside one wolf's 5 s catch rest timer.
+5. **Contacts remain a scenario consumer, not an S7-derived proof.** Original S7 results were
+   discarded at the user's request on 2026-10-18; they establish no learning or exploit conclusion.
+   Step 12's implemented API and independent S8 evidence remain valid. Step 14 revision 2 supplies
+   the replacement fairness/reset/contact validation protocol.
 
 ### Non-goals
 
@@ -501,7 +501,8 @@ equal mass per unit area or equal weight per agent, compliance $\alpha \ge 0$):
   against a crowd.
 
 Three candidate peer sources compared on the **same** Herd & Wolves simulation (C2's clones at
-4,096 / 16,384 / 65,536 agents, plus S7's 64-arena layout of 17,408 agents):
+4,096 / 16,384 / 65,536 agents, plus a historical 64-arena workload of 17,408 agents;
+the workload is retained, not the discarded S7 evidence):
 1. **`(a) today-lists`:** `addStepStage` reading Herd & Wolves' existing `neighbours` (`1` wolf +
    `3` prey = `4` slots per agent, no query stage added);
 2. **`(b) query-k8`:** `addStepStage` reading a prototype `k = 8` any-species query slice within
@@ -515,7 +516,7 @@ Three candidate peer sources compared on the **same** Herd & Wolves simulation (
 | # | Question | Metric |
 |---|---|---|
 | 1 | **Step cost** | GPU ms per step (and % added to `none`) at 4,096, 16,384, and 65,536 agents on Node/NVIDIA, Node/AMD, and Chrome/AMD |
-| 2 | **Worst overlap & stacking** | Over 600 steps: worst penetration $\max_{i \ne j} \max(0, r_i + r_j - d_{ij})$ (in m and % of $r_i + r_j$), % of agents with any overlap $> 5\%$, mean nearest-prey distance (against S7's `0.66–0.72 m` stacking), and peak cell count |
+| 2 | **Worst overlap & stacking** | Over 600 steps: worst penetration $\max_{i \ne j} \max(0, r_i + r_j - d_{ij})$ (in m and % of $r_i + r_j$), % of agents with any overlap $> 5\%$, mean nearest-prey distance (no retained S7 comparison baseline), and peak cell count |
 | 3 | **Pile-up stress test** | 256 prey spawned inside a `4 m × 4 m` box (guaranteed >6-way overlaps): how many steps `(a)`, `(b)`, and `(c)` take to separate below 5% overlap, and whether `(a)`'s `k = 3` prey limit leaves permanent overlaps in the interior |
 | 4 | **Jitter** | Mean high-frequency position reversal ($\cos \theta < -0.5$ between consecutive step displacements) in dense herds, with and without normal-velocity damping |
 | 5 | **Exact reruns** | Two 300-step runs from the same seed compared byte for byte across all `capacity × 16` record words (`0` differing words required on every pair) |

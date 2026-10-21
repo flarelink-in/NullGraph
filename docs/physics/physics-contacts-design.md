@@ -5,7 +5,7 @@ and §9 (decision 2, Q4: contacts get a new `null-graph/physics` entry); [`READM
 (the physics series); [`../agents-queries-design.md`](../agents-queries-design.md) §14 (spike S8's
 findings and what it left to this step).
 **Status:** accepted with recommended answers by the user on 2026-10-18 (§15). Spike S9 (phase
-13.0) measured and accepted; Q5–Q7 accepted with recommended options, Q8 deferred to scenarios. Phase 13.1 and 13.2 committed (`8d0d1df`, `8388ede`); phase 13.3 built and validated. Phase 13.4 next.
+13.0) measured and accepted; Q5–Q7 accepted with recommended options, Q8 deferred to scenarios. Phases 13.1–13.3 committed (`8d0d1df`, `8388ede`, `f91ea93`); phase 13.4 implemented and validated, uncommitted for review. Step 13 implementation complete.
 **Package:** a new entry, `null-graph/physics` 🔌.
 **Builds on:**
 - `PointGrid` ([`../api/agent-grid.md`](../api/agent-grid.md), `src/extras/spatial/`), the stable
@@ -34,9 +34,9 @@ Who uses it (plan-2 §5's second consumers):
 - **crowds:** the venue planner (I13), where pedestrians must keep their space for density maps and
   bottleneck times to mean anything;
 - **horde games (G1, G2):** enemies that surround the player instead of stacking into one point;
-- **herds** in films and in the co-evolution arenas (step 14). Spike S7 found that herds driven by
-  the cloned networks stack without contacts: mean nearest neighbour 0.66–0.72 m against a body
-  diameter of 0.80 m (1.28 m under the rule);
+- **herds** in films and the co-evolution arenas (step 14), where overlap is a measurable scenario
+  concern. Original S7 results were discarded on 2026-10-18 and are not evidence for an exploit or
+  learning conclusion. This step's independent S8/S9 measurements remain unchanged.
 - **later, particles** (P3), once a 3D grid exists (deferred, §13).
 
 ### Pre-existing facts this design rests on
@@ -457,7 +457,7 @@ IDs continue from step 12 (U45, A36).
 | **13.0** ✅ | Spike S9 (§16), scripts only: the solver's options and both grids, measured with GPU timestamps on the three pairs | Complete 2026-10-18: results after §16; G2 chosen; no configuration met T1–T6 on every pair, so the trade-offs went to the user (Q5–Q8) |
 | **13.1** ✅ | The entry and the CPU mirror (`contactMath.ts`): the declaration, its refusals, `resolveDiscContacts`; U46–U48; the physics size line | Reviewed and committed `8d0d1df`; U48 strengthened to 64 random layouts and actual window differences |
 | **13.3** ✅ | The agents seam S-A; U49's seam checks; A41; the agents size line at Q3's ceiling | Green on Node/NVIDIA and Chrome/AMD, zero WebGPU errors; S-A seam +24 B, agents.js 21,491 B (<= 21,495 B) |
-| **13.4** | `docs/api/physics.md` with a checked example; a cross-link from the agents guide; the physics README's line | The example runs and is watched failing |
+| **13.4** ✅ | `docs/api/physics.md` with a checked example; a cross-link from the agents guide; the physics README's line | Example extracted for TypeScript, browser bundle, setup/order/cleanup checks and three caught mutations; actual example runs on Node/NVIDIA and Node/AMD |
 
 ### Deferred
 
@@ -555,7 +555,7 @@ Node/AMD and Chrome/AMD, and takes its turn on the GPU (plan-2 §7). No library 
 
 The §2 pass as gather and apply stages over a solver-owned `PointGrid`, and over the agents' grid,
 with every §7 option a switch. The worlds are S8's: Herd & Wolves on the rule, at 4,096, 16,384 and
-65,536 agents, and S7's 64 arenas, plus three tests:
+65,536 agents, and the historical 64-arena workload (not accepted S7 evidence), plus three tests:
 - **piles:** 256 bodies in a 4 m × 4 m box (S8's) and 4,096 in 16 m × 16 m;
 - **a jam:** 4,096 bodies steering at full throttle toward one point for 600 steps, a bottleneck's
   steady state;
