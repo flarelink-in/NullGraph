@@ -20,3 +20,18 @@ firebase.json
 *.obj
 *.blend
 test/spikes/animated-models/models/
+
+# Private notes (2026-10-24): idea specs, session notes and planning docs live in a private repo that
+# tracks them in place under docs/ (`git private …`, a local alias). Not part of the public project.
+docs/work/
+docs/handoff.md
+docs/roadmap.md
+docs/roadmap-modules.md
+docs/recommendation.md
+docs/use-cases-current.md
+docs/use-cases-after-phase-2.md
+docs/agents-coevolution-prereg.md
+docs/lineage-design-spec.md
+docs/lineage-sanctuary-design-spec.md
+docs/evolved-enemies-game-design.md
+docs/ai-live-film-studio-design.md

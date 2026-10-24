@@ -178,9 +178,6 @@ See the [film setup and commands](./tools/film/README.md) and
 - **Scale is workload-dependent.** Geometry, passes, lights, shadows, query density, uploads and
   GPU limits all affect throughput. There is no universal entity-count or frame-time guarantee.
 
-Planned capabilities are kept separate from the feature list in the
-[engine roadmap](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/roadmap.md).
-
 ## Examples and validation
 
 - [Interactive demos](https://nullgraph.dev/)
@@ -223,8 +220,6 @@ text GPU test page; see the validation guide for driving your own application.
 
 ## Contributing and license
 
-Maintainers and coding agents can start with
-[Working on NullGraph](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/work/README.md).
 Architecture notes are in the
 [design principles](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/design-principles.md).
 
