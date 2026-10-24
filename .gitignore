@@ -7,10 +7,6 @@ venv
 git_commit.sh
 git-commit.py
 docs/post-presets.md
-tools/agents/out
-tools/film/out
-test/spikes/films/out
-out
 firebase.json
 # 3D models are never committed (the user's rule, 2026-10-15): spikes and tests copy them in locally,
 # e.g. the Kenney assets of the test site into test/spikes/animated-models/models/.
@@ -35,3 +31,7 @@ docs/lineage-design-spec.md
 docs/lineage-sanctuary-design-spec.md
 docs/evolved-enemies-game-design.md
 docs/ai-live-film-studio-design.md
+
+# Generated output (films, agent runs, spike results, page drives): any folder named out, at any depth,
+# e.g. tools/film/out, tools/agents/out, test/spikes/*/out. Never committed.
+out/
