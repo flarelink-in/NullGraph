@@ -32,6 +32,13 @@ docs/lineage-sanctuary-design-spec.md
 docs/evolved-enemies-game-design.md
 docs/ai-live-film-studio-design.md
 
+# Local work kept out of the repository at the user's word (2026-10-25): the slime-mold film scene and
+# its test stay on this machine only.
+test/slime-mold.test.mjs
+tools/film/films/slime-mold.json
+tools/film/scenes/slime-mold.mjs
+tools/film/scenes/slime-mold/
+
 # Generated output (films, agent runs, spike results, page drives): any folder named out, at any depth,
 # e.g. tools/film/out, tools/agents/out, test/spikes/*/out. Never committed.
 out/
