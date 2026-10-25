@@ -28,6 +28,7 @@ async function build() {
                 'agents':'src/extras/agents/index.ts',
                 'inference':'src/extras/inference/index.ts',
                 'physics':'src/extras/physics/index.ts',
+                'film':'src/extras/film/index.ts',
             },
 
             outdir: 'dist', // NEW: Outputs to dist/index.js and dist/geometry.js
@@ -37,10 +38,11 @@ async function build() {
             // NEW: Only generate source maps in development to keep prod clean
             sourcemap: !isProd,
             minify: isProd,
-            external: ['gl-matrix'],
+            // mediabunny is an optional peer of null-graph/film, imported only when a film encodes.
+            external: ['gl-matrix', 'mediabunny'],
         });
 
-        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment + Picking + Text + Agents + Inference + Physics): ${isProd ? 'Production' : 'Development'} build complete.`);
+        console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment + Picking + Text + Agents + Inference + Physics + Film): ${isProd ? 'Production' : 'Development'} build complete.`);
     } catch (error) {
         console.error(' Build failed:', error);
         process.exit(1);

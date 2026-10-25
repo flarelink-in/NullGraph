@@ -12,6 +12,8 @@
 //   C6  headless resize: the screen texture follows engine.resize
 //   C7  limits: a created device gets the adapter's storage limits, unless autoNegotiate is off
 //   C8  a GPUProfiler whose device is destroyed during its read drops the read, and throws nothing
+//   C9  teardown: destroy() frees the engine's buffers and targets, never an adopted device or the
+//       app's shared buffer; an engine that made its device destroys it
 //
 // Two hosts, one file (test/gpu/harness-env.mjs): `npm run test:gpu` (Node/Dawn), or
 // `npm run dev:serve` → http://localhost:3000/test/core-gpu/. Both run headless (canvas null) —
@@ -376,6 +378,66 @@ function solidBatch(target, pass, rgba) {
             unhandled.length ? `unhandled: ${unhandled.map((e) => `${e?.name}: ${e?.message}`).join('; ')}`
                 : `read dropped; onUpdate called ${updates} times`);
     }
+}
+
+// ---------------------------------------------------------------------------
+// C9 — teardown (offline-films-browser-design.md §12): destroy() frees what the engine made, on a real
+// device. A film engine adopts the app's device, so afterwards the device and the app's own buffers must
+// still work, while the engine's buffers and targets refuse use. An engine that made its device loses it.
+// ---------------------------------------------------------------------------
+{
+    const adapter = await navigator.gpu.requestAdapter();
+    const app = await adapter.requestDevice();
+    const film = new NullGraph();
+    const r = await film.init(null, { device: app, width: 32, height: 32 });
+    const shared = app.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+    app.queue.writeBuffer(shared, 0, new Uint32Array([7, 8, 9, 10]));
+    const screenPass = film.createPass({ name: 'C9 screen', isMainScreenPass: true });
+    const plain = solidBatch(film, screenPass, [1, 0, 0, 1]);
+    // Indirect batches are allocated, never drawn (a draw needs geometry and filled arguments).
+    const unused = film.createPass({ name: 'C9 unused', isMainScreenPass: false });
+    const indirect = { shaderCode: GROUP0 + /* wgsl */ `
+        @vertex fn vs_main() -> @builtin(position) vec4<f32> { return vec4<f32>(touchGroup0(), 0.0, 0.5, 1.0); }
+        @fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`, strideFloats: 4, maxInstances: 4, isIndirect: true, targetFormat: 'rgba8unorm' };
+    const own = film.createBatch(unused, indirect);
+    const viaShared = film.createBatch(unused, { ...indirect, sharedSourceBuffer: shared });
+    film.render([screenPass]);
+    await app.queue.onSubmittedWorkDone();
+    const screen = film.screenTexture, camera = film.ctx.cameraUniformBuffer;
+    film.destroy();
+
+    /** Whether using `buffer` raises a validation error now (captured, so the run stays clean). */
+    const refused = async (use) => { app.pushErrorScope('validation'); use(); return (await app.popErrorScope()) !== null; };
+    const write = (buffer) => () => app.queue.writeBuffer(buffer, 0, new Uint32Array(1));
+    const engineOwn = { 'plain storage': plain.storageBuffer, 'indirect storage': own.storageBuffer, 'indirect args': own.indirectBuffer,
+        'indirect source': own.sourceStorageBuffer, 'shared-source storage': viaShared.storageBuffer, 'camera uniform': camera };
+    const alive = [];
+    for (const [name, buffer] of Object.entries(engineOwn)) if (!(await refused(write(buffer)))) alive.push(name);
+    const screenRefused = await refused(() => {
+        const out = app.createBuffer({ size: 256 * 32, usage: GPUBufferUsage.COPY_DST });
+        const enc = app.createCommandEncoder();
+        enc.copyTextureToBuffer({ texture: screen }, { buffer: out, bytesPerRow: 256 }, [32, 32]);
+        app.queue.submit([enc.finish()]);
+    });
+    // The device first: had destroy() taken it, every read below would reject instead of reporting.
+    const lost = await Promise.race([app.lost.then(info => `destroyed (${info.reason})`), new Promise(done => setTimeout(() => done('alive'), 50))]);
+    let sharedOk = false;
+    if (lost === 'alive') {
+        try { sharedOk = !(await refused(write(shared))) && (await readU32(shared, 4, app)).join() === '0,8,9,10'; } catch (e) { sharedOk = `read failed: ${e.name}`; }
+    }
+    const renderQuiet = lost === 'alive' && !(await refused(() => film.render([screenPass])));
+
+    const self = new NullGraph();
+    const s = await self.init(null, { width: 8, height: 8 });
+    const selfLost = s.success ? self.device.lost : Promise.resolve(null);
+    self.destroy();
+    const selfInfo = await Promise.race([selfLost, new Promise(done => setTimeout(() => done('timeout'), 2000))]);
+
+    check('C9: destroy() frees the engine\'s buffers and targets; the adopted device and the app\'s buffer keep working; an own device is destroyed',
+        r.success && alive.length === 0 && screenRefused && sharedOk === true && renderQuiet && lost === 'alive' && selfInfo?.reason === 'destroyed',
+        `still usable after destroy: ${alive.join(', ') || 'none'}; screen refused ${screenRefused}; app buffer ok ${sharedOk}; ` +
+        `render after destroy quiet ${renderQuiet}; adopted device ${lost}; own device ${selfInfo?.reason ?? selfInfo}`);
+    if (lost === 'alive') app.destroy();
 }
 
 await finish('All core GPU tests passed.');

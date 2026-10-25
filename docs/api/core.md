@@ -80,6 +80,17 @@ output.dispose();                                              // …then releas
   (subgroup sizes from `device.adapterInfo` where the browser exposes it); `powerPreference` and
   `autoNegotiate` are refused with a named error, and a missing `desiredFeatures` entry warns.
 - `engine.ctx.ownsDevice` is `false`, and NullGraph never destroys a device it adopted.
+- **`engine.destroy()` releases what the engine created, and only that.** That covers:
+  - its batches' own buffers — never a `sharedSourceBuffer`, geometry, or a `cameraBuffer` you passed;
+  - the texture manager's textures;
+  - the screen and depth targets and the camera uniform;
+  - the canvas's configuration;
+  - the device, only if the engine requested it.
+
+  `render()` then does nothing. Destroy extras first (`PostChain`, `LightSystem`, …): they own
+  their resources. Idempotent, and safe after a failed `init`; every release is attempted and
+  failures are thrown together. Destroying an engine's own device rejects reads still pending on
+  it, so await `device.queue.onSubmittedWorkDone()` first if something is reading back.
 - Pipelines and shader modules carry labels — a batch's `label` (default `"<pass> #<index>"`) and a
   compute stage's `name` — so a WebGPU validation error names what caused it.
 
@@ -289,6 +300,7 @@ Full signatures — the `Camera` methods, the WGSL camera struct, and every `Buf
 | `setComputePassBindGroup(stage, entries, group?)` | Bind custom resources to a compute stage. |
 | `updateCamera(camera)` | Upload the camera uniform block. |
 | `render(sequence?)` | Execute the pipeline. |
+| `destroy()` | Release what the engine created (batch buffers it allocated, textures, targets, camera uniform, canvas configuration; its device only if it requested it). `render()` does nothing afterwards. |
 
 **Engine properties:** `device`, `ctx` (readonly `WebGPUContext`), `capabilities` (readonly
 `GPUCapabilities`), `bufferManager`, `textureManager`, `width`, `height`, `isDestroyed`,

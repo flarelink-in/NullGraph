@@ -64,6 +64,9 @@ export class WebGPUContext {
      */
     public ownsDevice: boolean = true;
 
+    /** True after {@link destroy}, until the next {@link init}. */
+    public isDestroyed: boolean = false;
+
     /**
      * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
      * (environment-aerial-design.md §9.1). Opt in at {@link init} with `{ samplableDepth: true }`.
@@ -103,6 +106,7 @@ export class WebGPUContext {
         options: EngineInitOptions = {}
     ): Promise<void> {
         validateInitOptions(canvas, options);
+        this.isDestroyed = false;
 
         if (options.device) {
             this.adoptDevice(options.device, options.desiredFeatures);
@@ -154,13 +158,39 @@ export class WebGPUContext {
     }
 
     public resize(width: number, height: number): void {
-        // Only resize if the device exists (avoids errors during early resize events)
-        if (this.device) {
+        // Only resize if the device exists (avoids errors during early resize events), and never after
+        // destroy(): new targets would outlive the context that is meant to own them.
+        if (this.device && !this.isDestroyed) {
             this.width = width;
             this.height = height;
             if (this.isHeadless) this.setupScreenTexture(width, height);
             this.setupDepthTexture(width, height);
         }
+    }
+
+    /**
+     * Release what this context created: the screen and depth targets, the camera uniform, and the
+     * canvas's configuration. An adopted device is never destroyed — its owner still has work on it;
+     * a device this context requested is. Safe after an init that failed part-way, and idempotent.
+     * Every release is attempted; failures are thrown together afterwards.
+     *
+     * Destroying an owned device rejects every read still pending on it (`AbortError`): await
+     * `device.queue.onSubmittedWorkDone()` first if something is reading back.
+     */
+    public destroy(): void {
+        if (this.isDestroyed) return;
+        this.isDestroyed = true;
+        const errors: unknown[] = [];
+        const attempt = (release: () => void) => { try { release(); } catch (e) { errors.push(e); } };
+        attempt(() => this.screenTexture?.destroy());
+        attempt(() => this.depthTexture?.destroy());
+        attempt(() => this.cameraUniformBuffer?.destroy());
+        attempt(() => this.context?.unconfigure());
+        if (this.ownsDevice) attempt(() => this.device?.destroy());
+        this.screenTexture = undefined;
+        this.screenView = undefined;
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) throw new AggregateError(errors, `WebGPUContext.destroy: ${errors.length} releases failed.`);
     }
 
     /** Request an adapter and a device, negotiating optional features. The canvas-era path, unchanged. */

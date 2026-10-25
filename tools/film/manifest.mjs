@@ -1,7 +1,12 @@
 // D2.1 (docs/offline-films-design.md §5, §13): a film file, read and checked, and the plan it gives: frames,
 // steps, the warm-up and the segments. Pure: no node: imports, so the headless tests check every refusal.
+// The clock and the camera keyframes are null-graph/film's (D2.4, offline-films-browser-design.md §4.1,
+// §4.2): this file plans through them, so the browser's films and Node's cannot drift. Build first.
 
+import { planFilm as planTiming, readCamera } from '../../dist/film.js';
 import { readOverlays } from './overlay.mjs';
+
+export { readCamera };
 
 export const FILM_DEFAULTS = Object.freeze({
     warmupSeconds: 0,
@@ -17,24 +22,6 @@ const fail = message => { throw new Error(`film: ${message}`); };
 const whole = (value, what) => (Number.isInteger(value) && value > 0 ? value : fail(`${what} must be a whole number above zero; got ${JSON.stringify(value)}.`));
 const positive = (value, what) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fail(`${what} must be a number above zero; got ${JSON.stringify(value)}.`));
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-
-/** The camera keyframes, checked: `t` from 0 and rising; a target of three numbers; a distance above zero. */
-export function readCamera(keyframes) {
-    if (!Array.isArray(keyframes)) fail('camera must be a list of keyframes.');
-    let last = -Infinity;
-    return keyframes.map((k, i) => {
-        const at = `camera keyframe ${i}`;
-        if (!isObject(k)) fail(`${at} must be an object.`);
-        if (!(typeof k.t === 'number' && k.t >= 0 && k.t > last)) fail(`${at}: t must be at least 0 and above the keyframe before it; got ${JSON.stringify(k.t)}.`);
-        last = k.t;
-        if (!(Array.isArray(k.target) && k.target.length === 3 && k.target.every(Number.isFinite))) fail(`${at}: target must be three numbers.`);
-        positive(k.distance, `${at}: distance`);
-        for (const angle of ['azimuth', 'polar']) {
-            if (!Number.isFinite(k[angle])) fail(`${at}: ${angle} must be a number (radians).`);
-        }
-        return { t: k.t, target: [...k.target], distance: k.distance, azimuth: k.azimuth, polar: k.polar };
-    });
-}
 
 /**
  * A film file's object as a complete manifest, every default filled. `name` names it in errors and is
@@ -67,30 +54,11 @@ export function readManifest(json, name = 'film') {
     };
 }
 
-/** `seconds / step` as a whole number of steps, or a refusal naming `what`. */
-function steps(seconds, step, what) {
-    const n = Math.round(seconds / step);
-    if (Math.abs(n * step - seconds) > 1e-9 * Math.max(1, seconds)) fail(`${what} (${seconds} s) is not a whole number of steps of ${step} s.`);
-    return n;
-}
-
 /**
  * What a manifest asks of a scene whose step is `dt` seconds: the frames, steps per frame, warm-up steps,
  * and the segments (each `{ index, first, count }` in frames; the last may be shorter).
  */
 export function planFilm(manifest, { dt }) {
-    positive(dt, 'the scene\'s step dt');
     const { fps, seconds } = manifest.film;
-    const stepsPerFrame = steps(1 / fps, dt, `one frame at ${fps} fps`);
-    if (stepsPerFrame < 1) fail(`one frame at ${fps} fps must contain at least one step.`);
-    const frames = Math.round(seconds * fps);
-    if (Math.abs(frames - seconds * fps) > 1e-9 * Math.max(1, frames)) fail(`film.seconds (${seconds}) is not a whole number of frames at ${fps} fps.`);
-    const warmupSteps = steps(manifest.warmupSeconds, dt, 'warmupSeconds');
-    const perSegment = Math.round(manifest.segmentSeconds * fps);
-    if (perSegment < 1 || Math.abs(perSegment - manifest.segmentSeconds * fps) > 1e-9 * perSegment) {
-        fail(`segmentSeconds (${manifest.segmentSeconds}) is not a whole number of frames at ${fps} fps.`);
-    }
-    const segments = [];
-    for (let first = 0, index = 0; first < frames; first += perSegment, index++) segments.push({ index, first, count: Math.min(perSegment, frames - first) });
-    return { frames, stepsPerFrame, warmupSteps, perSegment, segments, dt };
+    return planTiming({ fps, seconds, warmupSeconds: manifest.warmupSeconds, segmentSeconds: manifest.segmentSeconds }, { dt });
 }

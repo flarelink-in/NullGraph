@@ -243,6 +243,7 @@ engine allocates. Reach for it when a custom compute stage or shader needs a sha
 | `ctx.cameraUniformBuffer` | `GPUBuffer` | The 432-byte global camera uniform — bind it into compute stages. |
 | `ctx.depthTexture` | `GPUTexture` | Engine depth attachment (`depth24plus`, `RENDER_ATTACHMENT` only — not samplable). |
 | `ctx.width` / `ctx.height` | `number` | Current drawing-buffer size (also `engine.width` / `engine.height`). |
+| `ctx.destroy()` / `ctx.isDestroyed` | method / `boolean` | Releases the targets, the camera uniform and the canvas configuration, and the device only when `ctx.ownsDevice`; `engine.destroy()` calls it. |
 
 > `ctx.depthTexture` is render-attachment only. For a **samplable** scene depth (e.g. SSAO), declare
 > `gbuffer.depth` on a [`PostChain`](./post.md), which allocates a separate sampled depth target.

@@ -54,6 +54,13 @@ function validateIndirectDispatch(config: ComputeStageConfig): void {
 }
 
 export class BatchManager {
+    /**
+     * The buffers this manager allocated for each live batch (offline-films-browser-design.md §12). A
+     * batch's own instance, indirect and source buffers are listed; a `sharedSourceBuffer`, geometry
+     * and a camera buffer are the caller's and never are, so clearing or destroying never frees them.
+     */
+    private owned = new Map<RenderBatch, GPUBuffer[]>();
+
     constructor(private ctx: WebGPUContext) {}
 
     /**
@@ -133,17 +140,26 @@ export class BatchManager {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         });
 
+        const owned = [batch.storageBuffer];
+        this.owned.set(batch, owned);
+
         // INDIRECT BREAKING CHANGE: We only create the buffers. No compute pipelines attached here.
         if (batch.isIndirect) {
             batch.indirectBuffer = this.ctx.device.createBuffer({
                 size: 5 * 4,
                 usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
+            owned.push(batch.indirectBuffer);
 
-            batch.sourceStorageBuffer = config.sharedSourceBuffer || this.ctx.device.createBuffer({
-                size: config.maxInstances * config.strideFloats * 4,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-            });
+            if (config.sharedSourceBuffer) {
+                batch.sourceStorageBuffer = config.sharedSourceBuffer;
+            } else {
+                batch.sourceStorageBuffer = this.ctx.device.createBuffer({
+                    size: config.maxInstances * config.strideFloats * 4,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+                });
+                owned.push(batch.sourceStorageBuffer);
+            }
         }
 
         // Render Bind Group (Group 0). The camera buffer is overridable per batch
@@ -216,10 +232,27 @@ export class BatchManager {
         });
     }
 
+    /** Remove the batch from its pass and destroy the buffers this manager allocated for it, and only those. */
     public clearBatch(pass: RenderPassNode, batch: RenderBatch): void {
         pass.removeBatch(batch);
-        if (batch.storageBuffer) batch.storageBuffer.destroy();
-        if (batch.indirectBuffer) batch.indirectBuffer.destroy();
+        for (const buffer of this.owned.get(batch) ?? []) buffer.destroy();
+        this.owned.delete(batch);
+    }
+
+    /**
+     * Destroy every buffer this manager allocated, for the batches still live (engine teardown). Every
+     * release is attempted; failures are thrown together afterwards.
+     */
+    public destroy(): void {
+        const errors: unknown[] = [];
+        for (const buffers of this.owned.values()) {
+            for (const buffer of buffers) {
+                try { buffer.destroy(); } catch (e) { errors.push(e); }
+            }
+        }
+        this.owned.clear();
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) throw new AggregateError(errors, `BatchManager.destroy: ${errors.length} releases failed.`);
     }
 
     public setBatchGeometry(batch: RenderBatch, vertexBuffer: GPUBuffer, indexBuffer: GPUBuffer, indexCount: number, format: GPUIndexFormat = 'uint16') {

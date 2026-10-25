@@ -10,9 +10,10 @@ exports deterministic MP4s in about 150 lines (`src/engine/exporter.ts`), and it
 list what is missing (`docs/null-graph-readiness.md`, gap 1).
 
 **Status:** draft 3, 2026-10-24 (reviewed against `src/core`, `tools/film`, `metaforge` and
-locally installed `mediabunny@1.61.3`). **Spike S1 measured 2026-10-24: results at the end
-("Spike S1 results"); the design body above is unchanged and its proposed changes wait for the
-user.** No library implementation yet.
+locally installed `mediabunny@1.61.3`). **Spike S1 measured 2026-10-24 ("Spike S1 results" at the
+end). Q1, Q3, Q6–Q8 decided 2026-10-25, Q9 parked (§16). Phase F1 built 2026-10-25 ("Phase F1
+results").** The design body above keeps its draft-3 text; where S1 and F1 refine it, the results
+sections say so.
 This revision makes the **export session lifecycle**, not a scene abstraction, the baseline;
 adds ownership, cancellation, partial-output and storage policies; and separates measured facts
 from spike hypotheses. Existing user decisions remain in §16; new recommendations are not
@@ -722,7 +723,7 @@ Failure-injection, cross-tab storage and package checks are release work, not po
 | Phase | Builds | Exit | Est. |
 |---|---|---|---|
 | **S1** (spike) | A throwaway page in `test/spikes/film-browser/`: Kerr at 1080p and 4K, 300 frames, four ways: canvas frames from the visible canvas (today's MetaForge), from an unattached main-thread `OffscreenCanvas`, from an `OffscreenCanvas` in a worker; readback frames (`FrameReadback` → `VideoFrame('RGBX')`). Each into `VideoSampleSource` (`sample.close()` in `finally`) → MP4 in memory. Also: OPFS `StreamTarget({ chunked: true })` + `Mp4OutputFormat({ fastStart: 'reserve' })` at 4K. | ms a frame for each way on both GPUs; whether the unattached canvas is paced; heap peak with memory against OPFS; `ffprobe` verifies `moov` before `mdat`. Decides Q1 and Q2 (§16). **Measured 2026-10-24: "Spike S1 results".** | ½ day |
-| **F1** | ownership-aware engine teardown (§12), pure `plan.ts`/`camera.ts`/`png.ts`, `probe.ts`, session state skeleton; build/export declarations and optional peer; Node pure-helper migration | B1, B2, B5 and dependency isolation portion of B8; core/Node film tests pass. B3/B4 wait for F2. | ½–1 day |
+| **F1** | ownership-aware engine teardown (§12), pure `plan.ts`/`camera.ts`/`png.ts`, `probe.ts`, session state skeleton; build/export declarations and optional peer; Node pure-helper migration | B1, B2, B5 and dependency isolation portion of B8; core/Node film tests pass. B3/B4 wait for F2. **Built 2026-10-25: "Phase F1 results".** | ½–1 day |
 | **F2** | session lifecycle, readback/sinks/guard/runner/report; memory/hash/none sinks, explicit task yields, deterministic reset and cancellation | B1–B8 applicable to memory; G1–G3, guard portion of G5, G6 and G9 on both GPUs | 1–2 days |
 | **F3** | storage/locks/IDs, OPFS and picked-file commit/abort, orphan cleanup, budget/quota failures, opt-in partial finalization and PNG sink | G4, storage portion of G5, G7–G9; 60 s 4K OPFS film | 1–2 days |
 | **F-MF** | MetaForge adapter against local build, packed artifact then proposed published release | three shapes × three sizes; frame counts/initial-state tests; repeated teardown and cancel/partial gates; preview resumes or reports recovery; package isolation passes | ½–1 day |
@@ -765,6 +766,18 @@ recommendation (Q5), not an implementation-order decision or a demo dependency.
 **Decided by the user, 2026-10-24:** Q2 as recommended (main thread first; F4 only if F2 shows
 the UI stuttering). Q4 as recommended (mediabunny an optional peer dependency). Q5 left for later.
 MetaForge is the hackathon entry. Q1 waits for S1; Q3 and Q6–Q8 are open.
+
+**Decided by the user, 2026-10-25,** after S1 ("you can choose recommended and start with next"):
+- **Q1** as S1 recommends: an offscreen canvas for video, readback for exact bytes (hashes, PNG,
+  tests).
+- **Q3** as S1 recommends: OPFS by default; memory only within a payload budget, sized knowing its
+  3× peak.
+- **Q6, Q7 and Q8** taken as recommended under the same instruction. Starting F1 follows Q5's
+  library-first for F1–F2.
+- **Q9 (rate control) parked:** "not sufficiently validated enough to take into consideration …
+  ask when we reach or are forced to make decision for it." Until then the sink keeps §4.4's
+  bitrate and `no-preference`, and S1's proposals 2 and 3 (achieved-bitrate warning, a
+  hardware-preference probe) wait with it.
 
 ## 17. Review evidence and remaining validation
 
@@ -999,3 +1012,77 @@ Offscreen way, GTX 1650, hardware QP 34 (71 Mbit/s):
 | Q1 | The default frame source. | **Offscreen canvas for video, readback for exact bytes** (hashes, PNG, tests), as provisionally proposed. Same speed (±20%); limited range; 40–150 MiB of renderer through a 4K film where readback holds 420–530 MiB; colour in the video equal to readback's. The pacing argument is withdrawn. |
 | Q3 | Automatic target and memory budget. | **OPFS by default** (+64 MiB flat at 4K for 30 s). A memory fallback within a payload budget, sized knowing the 3× peak. |
 | Q9 (new) | Rate control and encoder preference. | **Ask for constant QP on the hardware path when the browser supports it, else bitrate; always report the achieved bitrate.** QP 34 gave 68 Mbit/s for Kerr at 4K. The QP and its size bound need the F2/G2 measurements. Software VBR hits the bitrate on Kerr but holds 0.6–1.1 GiB of renderer memory at 4K, and overshoots on noise. |
+
+*2026-10-25: Q1 and Q3 decided as recommended; Q9 parked until a decision is forced (§16).*
+
+---
+
+## Phase F1 results — 2026-10-25
+
+**What was built** (Q1, Q3, Q6–Q8 as decided in §16; Q9 parked):
+
+- **`null-graph/film`** (`src/extras/film/`, `dist/film.js`, the `./film` export). mediabunny is an
+  optional peer dependency (`^1.61.3`) and an exact dev dependency (1.61.3).
+- **Engine teardown (§12):**
+  - `NullGraph.destroy()`, `WebGPUContext.destroy()` and `ctx.isDestroyed`;
+  - `BatchManager` records the buffers it allocates for each batch;
+  - `TextureManager.destroy()`.
+- **The Node film tool plans through the library:** `tools/film/manifest.mjs` plans with
+  `planFilm` and re-exports `readCamera`; `tools/film/camera.mjs` re-exports `cameraPath`, both
+  from `dist/film.js`. One source of truth, as §4.1 asked. `readManifest` stays in Node.
+
+**Where this refines §13's plan:**
+
+| Design (§13) | Built |
+|---|---|
+| `plan.ts`: `planFilm`, `readCamera`, `bitrateFor`, `predictBytes` | `plan.ts`: `planFilm`, `frameStamp` (§4.3's T(j) and D(j)), `bitrateFor`, `predictBytes`, `readFilm`. `readCamera` lives beside the path, in `camera.ts`. |
+| `planFilm(film, { dt })` | It takes `{ fps, seconds, warmupSeconds?, segmentSeconds? }`. Segments come back only when `segmentSeconds` is given (Node always gives it). Its refusals are the Node tool's, word for word: U1 passes unchanged against it. |
+| — | `output.ts`: `readOutput` (container, codecs per container, target, name, budget), `checkStorage`, `DEFAULT_CODECS` (Q7: MP4 is `['avc']`), `DEFAULT_MEMORY_BUDGET` (Q3: 256 MiB). |
+| `camera.ts`: optional `fov` | `fov` must be on every keyframe or on none; a mixed path is refused by name. `cameraPath` checks its keyframes itself. `fitAspect` and `containAspect` return copies, so a caller's view is never aliased (design-principles §6). |
+| `probe.ts` | The cheap probe as specified. Its global scope and mediabunny's namespace can be passed in, for tests and workers. Codecs come from `getEncodableVideoCodecs`, kept in the app's order. A size with no encoder lists only the sizes the probe actually tried (§8). |
+| `session.ts` | `FilmLifecycle` (§4.9's states; from `recording`, teardown goes through `stopping`) and `CleanupLedger` (releases last-first, attempts every release, returns the failures, runs releases registered late). `createFilmSession` is F2. |
+| — | `mediabunny.ts`: `MediabunnyLike`, structural, and `loadMediabunny`. `mediabunny-module.d.ts` declares the module as shorthand, so our own `tsc` never reads mediabunny's declarations (they reference `@types/dom-webcodecs`). |
+| `png.ts`: `encodePNG`, `snapshot` | `encodePNG` and `crc32`. `snapshot` needs readback and a workload: F2. |
+
+**Teardown.** `destroy()` releases what the engine allocated, never what the caller passed in.
+- **A leak, fixed:** `clearBatch` never destroyed the source buffer `createBatch` allocates for an
+  indirect batch with no `sharedSourceBuffer`. It does now. A shared source buffer is never
+  destroyed: TextSystem's and VisibilitySystem's.
+- **An own device goes with the engine; an adopted one is untouched.** `destroy()` is idempotent
+  and safe after a failed `init`. Afterwards `render()` and `resize()` do nothing, and failures are
+  thrown together, in an `AggregateError` when there are several.
+
+**Evidence:**
+
+- **Tests:**
+  - `test/film-browser.test.mjs`: 22 tests covering B1, B2, B3 (the rate rules), B5, the B6
+    skeleton, and B8 (isolation and the probe). It is now part of `npm run test:film` (51/51).
+  - `test/core-headless.test.mjs`: H9–H15, teardown on a mock device that records every release.
+  - `test/core-gpu`: C9, teardown on a real device.
+- **Watched failing:**
+  - All 18 mutations of the film entry were caught. F1 and F4 were also caught by the Node tool's
+    own U1 and U4, which now run through `dist/film.js`.
+  - 2 declaration leaks were caught: an `import type` of mediabunny in the emitted `.d.ts` fails
+    both the text scan and a bare consumer's `tsc`.
+  - 6 teardown mutations were caught by name, each by the H check written for it:
+    - M1 (the old leak) and M2 (a shared buffer counted as owned);
+    - M3 (an adopted device destroyed) and M4 (a resize after destroy);
+    - M5 (stopping at the first failure) and M6b (the context's own guard).
+
+    M1 and M3 were also caught on a real device. C9 now reports a destroyed adopted device by name
+    instead of crashing on its next read. M6, the engine's guard alone, is an equivalent mutation:
+    the managers clear their lists and the context guards itself.
+- **Runs:**
+  - Every headless suite passes, `test:agents` 149/149 included (its 21,495 B ceiling holds: no
+    core code is in `agents.js`).
+  - The core GPU suite passed 9/9 on Node/NVIDIA, Node/AMD and Chrome/AMD, with zero WebGPU errors.
+  - The film GPU suite passed 31/31 on Node/NVIDIA and Node/AMD.
+  - The film CLI integration test (resume, replay, detach) passed on Node/NVIDIA.
+- **Isolation:** `dist/film.js` imports mediabunny only dynamically. Copied to a folder with no
+  `node_modules`, it plans, builds paths and encodes PNGs. There its probe answers "mediabunny is not
+  installed" instead of throwing. The emitted declarations type-check in a consumer with
+  `types: []` and `skipLibCheck: false`.
+
+**Next: F2** (§14): `createFilmSession` on the lifecycle and ledger; `FrameReadback`; the video, hash
+and none sinks (memory target); the guard (S1's proposal 7, the stall re-measure, belongs here); the
+runner and the report; `snapshot`; `docs/api/film.md`. Rate control stays as §4.4 has it until Q9.

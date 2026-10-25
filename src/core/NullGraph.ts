@@ -107,6 +107,34 @@ export class NullGraph {
         return this.ctx.screenTexture;
     }
 
+    /**
+     * Release everything this engine created on the GPU, and stop rendering
+     * (offline-films-browser-design.md §12):
+     * - the buffers its batches allocated — never a `sharedSourceBuffer`, geometry or a camera buffer
+     *   the caller passed in;
+     * - the textures its texture manager made;
+     * - the screen and depth targets, the camera uniform, and the canvas's configuration;
+     * - the device, only if the engine requested it: an adopted device is its owner's.
+     *
+     * Passes and stages are forgotten, and `render()` does nothing afterwards. Extras own their own
+     * resources (PostChain, LightSystem, …): destroy them first. Idempotent, and safe after an init that
+     * failed part-way; every release is attempted, and failures are thrown together afterwards.
+     */
+    public destroy(): void {
+        if (this.isDestroyed) return;
+        this.isDestroyed = true;
+        const errors: unknown[] = [];
+        const attempt = (release: () => void) => { try { release(); } catch (e) { errors.push(e); } };
+        attempt(() => this.batchManager?.destroy());
+        attempt(() => this.textureManager?.destroy());
+        attempt(() => this.ctx.destroy());
+        this.passes = [];
+        this.batches = [];
+        this.computeStages = [];
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) throw new AggregateError(errors, `NullGraph.destroy: ${errors.length} releases failed.`);
+    }
+
     public clearPasses(): void {
         this.passes = [];
     }

@@ -200,6 +200,8 @@ var WebGPUContext = class {
    * still has work on it.
    */
   ownsDevice = true;
+  /** True after {@link destroy}, until the next {@link init}. */
+  isDestroyed = false;
   /**
    * Whether {@link depthTexture} carries `TEXTURE_BINDING` and can therefore be sampled
    * (environment-aerial-design.md §9.1). Opt in at {@link init} with `{ samplableDepth: true }`.
@@ -232,6 +234,7 @@ var WebGPUContext = class {
    */
   async init(canvas, options = {}) {
     validateInitOptions(canvas, options);
+    this.isDestroyed = false;
     if (options.device) {
       this.adoptDevice(options.device, options.desiredFeatures);
     } else {
@@ -270,12 +273,42 @@ var WebGPUContext = class {
     return this.screenView;
   }
   resize(width, height) {
-    if (this.device) {
+    if (this.device && !this.isDestroyed) {
       this.width = width;
       this.height = height;
       if (this.isHeadless) this.setupScreenTexture(width, height);
       this.setupDepthTexture(width, height);
     }
+  }
+  /**
+   * Release what this context created: the screen and depth targets, the camera uniform, and the
+   * canvas's configuration. An adopted device is never destroyed — its owner still has work on it;
+   * a device this context requested is. Safe after an init that failed part-way, and idempotent.
+   * Every release is attempted; failures are thrown together afterwards.
+   *
+   * Destroying an owned device rejects every read still pending on it (`AbortError`): await
+   * `device.queue.onSubmittedWorkDone()` first if something is reading back.
+   */
+  destroy() {
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    const errors = [];
+    const attempt = (release) => {
+      try {
+        release();
+      } catch (e) {
+        errors.push(e);
+      }
+    };
+    attempt(() => this.screenTexture?.destroy());
+    attempt(() => this.depthTexture?.destroy());
+    attempt(() => this.cameraUniformBuffer?.destroy());
+    attempt(() => this.context?.unconfigure());
+    if (this.ownsDevice) attempt(() => this.device?.destroy());
+    this.screenTexture = void 0;
+    this.screenView = void 0;
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, `WebGPUContext.destroy: ${errors.length} releases failed.`);
   }
   /** Request an adapter and a device, negotiating optional features. The canvas-era path, unchanged. */
   async requestDevice(options) {
@@ -460,6 +493,12 @@ var BatchManager = class {
     this.ctx = ctx;
   }
   /**
+   * The buffers this manager allocated for each live batch (offline-films-browser-design.md §12). A
+   * batch's own instance, indirect and source buffers are listed; a `sharedSourceBuffer`, geometry
+   * and a camera buffer are the caller's and never are, so clearing or destroying never frees them.
+   */
+  owned = /* @__PURE__ */ new Map();
+  /**
    * Creates a pure rendering batch. No hidden compute execution.
    */
   createBatch(pass, config) {
@@ -516,15 +555,23 @@ var BatchManager = class {
       size: config.maxInstances * config.strideFloats * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
     });
+    const owned = [batch.storageBuffer];
+    this.owned.set(batch, owned);
     if (batch.isIndirect) {
       batch.indirectBuffer = this.ctx.device.createBuffer({
         size: 5 * 4,
         usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
-      batch.sourceStorageBuffer = config.sharedSourceBuffer || this.ctx.device.createBuffer({
-        size: config.maxInstances * config.strideFloats * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-      });
+      owned.push(batch.indirectBuffer);
+      if (config.sharedSourceBuffer) {
+        batch.sourceStorageBuffer = config.sharedSourceBuffer;
+      } else {
+        batch.sourceStorageBuffer = this.ctx.device.createBuffer({
+          size: config.maxInstances * config.strideFloats * 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+        });
+        owned.push(batch.sourceStorageBuffer);
+      }
     }
     batch.bindGroup = this.ctx.device.createBindGroup({
       layout: batch.pipeline.getBindGroupLayout(0),
@@ -582,10 +629,30 @@ var BatchManager = class {
       entries
     });
   }
+  /** Remove the batch from its pass and destroy the buffers this manager allocated for it, and only those. */
   clearBatch(pass, batch) {
     pass.removeBatch(batch);
-    if (batch.storageBuffer) batch.storageBuffer.destroy();
-    if (batch.indirectBuffer) batch.indirectBuffer.destroy();
+    for (const buffer of this.owned.get(batch) ?? []) buffer.destroy();
+    this.owned.delete(batch);
+  }
+  /**
+   * Destroy every buffer this manager allocated, for the batches still live (engine teardown). Every
+   * release is attempted; failures are thrown together afterwards.
+   */
+  destroy() {
+    const errors = [];
+    for (const buffers of this.owned.values()) {
+      for (const buffer of buffers) {
+        try {
+          buffer.destroy();
+        } catch (e) {
+          errors.push(e);
+        }
+      }
+    }
+    this.owned.clear();
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, `BatchManager.destroy: ${errors.length} releases failed.`);
   }
   setBatchGeometry(batch, vertexBuffer, indexBuffer, indexCount, format = "uint16") {
     batch.vertexBuffer = vertexBuffer;
@@ -744,6 +811,8 @@ var TextureManager = class {
   textureCache = /* @__PURE__ */ new Map();
   samplerCache = /* @__PURE__ */ new Map();
   solidTextures = /* @__PURE__ */ new Map();
+  /** The textures behind {@link solidTextures}: a view cannot destroy its texture. */
+  solidTextureObjects = [];
   // A default sampler we can reuse for most standard 3D models
   defaultSampler;
   constructor(device) {
@@ -831,7 +900,18 @@ var TextureManager = class {
     );
     const view = tex.createView();
     this.solidTextures.set(key, view);
+    this.solidTextureObjects.push(tex);
     return view;
+  }
+  /**
+   * Destroy every texture this manager made: the loaded ones and the 1×1 solid ones (engine
+   * teardown). Views handed out before stop working. Samplers need no release.
+   */
+  destroy() {
+    this.clearCache();
+    for (const texture of this.solidTextureObjects) texture.destroy();
+    this.solidTextureObjects = [];
+    this.solidTextures.clear();
   }
   get fallbackWhite() {
     return this.getSolidTexture(255, 255, 255, 255);
@@ -919,6 +999,39 @@ var NullGraph = class {
    */
   get screenTexture() {
     return this.ctx.screenTexture;
+  }
+  /**
+   * Release everything this engine created on the GPU, and stop rendering
+   * (offline-films-browser-design.md §12):
+   * - the buffers its batches allocated — never a `sharedSourceBuffer`, geometry or a camera buffer
+   *   the caller passed in;
+   * - the textures its texture manager made;
+   * - the screen and depth targets, the camera uniform, and the canvas's configuration;
+   * - the device, only if the engine requested it: an adopted device is its owner's.
+   *
+   * Passes and stages are forgotten, and `render()` does nothing afterwards. Extras own their own
+   * resources (PostChain, LightSystem, …): destroy them first. Idempotent, and safe after an init that
+   * failed part-way; every release is attempted, and failures are thrown together afterwards.
+   */
+  destroy() {
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    const errors = [];
+    const attempt = (release) => {
+      try {
+        release();
+      } catch (e) {
+        errors.push(e);
+      }
+    };
+    attempt(() => this.batchManager?.destroy());
+    attempt(() => this.textureManager?.destroy());
+    attempt(() => this.ctx.destroy());
+    this.passes = [];
+    this.batches = [];
+    this.computeStages = [];
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, `NullGraph.destroy: ${errors.length} releases failed.`);
   }
   clearPasses() {
     this.passes = [];

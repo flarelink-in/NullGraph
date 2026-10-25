@@ -14,6 +14,8 @@ export class TextureManager {
     private textureCache: Map<string, GPUTexture> = new Map();
     private samplerCache: Map<string, GPUSampler> = new Map();
     private solidTextures: Map<string, GPUTextureView> = new Map();
+    /** The textures behind {@link solidTextures}: a view cannot destroy its texture. */
+    private solidTextureObjects: GPUTexture[] = [];
 
     // A default sampler we can reuse for most standard 3D models
     public defaultSampler: GPUSampler;
@@ -129,7 +131,19 @@ export class TextureManager {
 
         const view = tex.createView();
         this.solidTextures.set(key, view);
+        this.solidTextureObjects.push(tex);
         return view;
+    }
+
+    /**
+     * Destroy every texture this manager made: the loaded ones and the 1×1 solid ones (engine
+     * teardown). Views handed out before stop working. Samplers need no release.
+     */
+    public destroy(): void {
+        this.clearCache();
+        for (const texture of this.solidTextureObjects) texture.destroy();
+        this.solidTextureObjects = [];
+        this.solidTextures.clear();
     }
 
     public get fallbackWhite() { return this.getSolidTexture(255, 255, 255, 255); }

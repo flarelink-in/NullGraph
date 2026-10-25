@@ -79,6 +79,10 @@
     "./physics": {
       "types": "./dist/extras/physics/index.d.ts",
       "import": "./dist/physics.js"
+    },
+    "./film": {
+      "types": "./dist/extras/film/index.d.ts",
+      "import": "./dist/film.js"
     }
   },
   "scripts": {
@@ -146,7 +150,7 @@
     "spike:film-browser": "node test/spikes/film-browser/run.mjs",
     "film": "node tools/film/film.mjs",
     "film:check": "node tools/film/check.mjs",
-    "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs test/coevo-film.test.mjs test/film-overlay.test.mjs test/film-burn.test.mjs"
+    "test:film": "node --test --test-timeout=120000 test/film.test.mjs test/film-guard.test.mjs test/coevo-film.test.mjs test/film-overlay.test.mjs test/film-burn.test.mjs test/film-browser.test.mjs"
   },
   "dependencies": {
     "gl-matrix": "^3.4.4"
@@ -165,9 +169,13 @@
     "wgsl_reflect": "^1.5.0"
   },
   "peerDependencies": {
+    "mediabunny": "^1.61.3",
     "onnxruntime-web": "^1.29.0"
   },
   "peerDependenciesMeta": {
+    "mediabunny": {
+      "optional": true
+    },
     "onnxruntime-web": {
       "optional": true
     }
