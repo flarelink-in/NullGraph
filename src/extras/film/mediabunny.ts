@@ -12,11 +12,59 @@ export interface MediabunnyOutputFormatLike {
     getSupportedVideoCodecs(): string[];
 }
 
+/** A `VideoSample` over a WebCodecs `VideoFrame`; closing it closes the frame. */
+export interface MediabunnyVideoSampleLike {
+    close(): void;
+}
+
+/** An encoded packet, as `onEncodedPacket` sees it. */
+export interface MediabunnyEncodedPacketLike {
+    readonly byteLength: number;
+    readonly type: 'key' | 'delta';
+}
+
+/**
+ * A `VideoSampleSource`. `add` resolves once the encoder and the writer can take more (backpressure); it
+ * does not close the sample (1.61.3, `closeSample = false`), so the sink does.
+ */
+export interface MediabunnyVideoSourceLike {
+    add(sample: MediabunnyVideoSampleLike): Promise<void>;
+}
+
+export interface MediabunnyVideoSourceConfig {
+    readonly codec: string;
+    readonly quality: MediabunnyQuality;
+    readonly keyFrameInterval: number;
+    readonly latencyMode: 'quality';
+    readonly alpha: 'discard';
+    readonly hardwareAcceleration: 'no-preference';
+    /** Called once per candidate config before its support check: the last call is the one in use. */
+    readonly onEncoderConfig: (config: VideoEncoderConfig) => void;
+    readonly onEncodedPacket: (packet: MediabunnyEncodedPacketLike) => void;
+}
+
+export interface MediabunnyOutputLike {
+    readonly state: string;
+    addVideoTrack(source: MediabunnyVideoSourceLike, metadata: { readonly frameRate: number; readonly maximumPacketCount: number }): void;
+    start(): Promise<void>;
+    finalize(): Promise<void>;
+    cancel(): Promise<void>;
+}
+
+/** A `BufferTarget`: the whole file in memory, `buffer` set once the output is finalized. */
+export interface MediabunnyBufferTargetLike {
+    readonly buffer: ArrayBuffer | null;
+}
+
 /** The members of `import * as mediabunny from 'mediabunny'` (1.61.x) that null-graph/film uses. */
 export interface MediabunnyLike {
     readonly Quality: new (options: { readonly bitrate: number }) => MediabunnyQuality;
-    readonly Mp4OutputFormat: new (options?: object) => MediabunnyOutputFormatLike;
+    readonly Mp4OutputFormat: new (options?: { readonly fastStart?: false | 'in-memory' | 'reserve' }) => MediabunnyOutputFormatLike;
     readonly WebMOutputFormat: new (options?: object) => MediabunnyOutputFormatLike;
+    readonly BufferTarget: new () => MediabunnyBufferTargetLike;
+    readonly Output: new (options: { readonly format: MediabunnyOutputFormatLike; readonly target: MediabunnyBufferTargetLike }) => MediabunnyOutputLike;
+    readonly VideoSample: new (frame: VideoFrame) => MediabunnyVideoSampleLike;
+    readonly VideoSampleSource: new (config: MediabunnyVideoSourceConfig) => MediabunnyVideoSourceLike;
     /**
      * The codecs of `codecs` this browser's WebCodecs can encode at this size, rate and quality, in their
      * order. It takes no hardware preference (1.61.3): the sink's default, `no-preference`, is what it asks.
@@ -33,8 +81,8 @@ export interface MediabunnyLike {
 export async function loadMediabunny(injected?: MediabunnyLike): Promise<MediabunnyLike> {
     if (injected) return injected;
     try {
-        // A literal specifier, so the app's bundler finds the package; mediabunny-module.d.ts keeps
-        // TypeScript from reading mediabunny's own declarations.
+        // A literal specifier, so the app's bundler finds the package; modules.d.ts keeps TypeScript from
+        // reading mediabunny's own declarations.
         return (await import('mediabunny')) as unknown as MediabunnyLike;
     } catch {
         throw new Error('film: mediabunny is not installed; install mediabunny to encode video in the browser.');

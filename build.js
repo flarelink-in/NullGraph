@@ -39,7 +39,9 @@ async function build() {
             sourcemap: !isProd,
             minify: isProd,
             // mediabunny is an optional peer of null-graph/film, imported only when a film encodes.
-            external: ['gl-matrix', 'mediabunny'],
+            // null-graph/film imports the package's own core at run time, so a film's engine is the
+            // app's core rather than a second copy bundled into film.js.
+            external: ['gl-matrix', 'mediabunny', 'null-graph'],
         });
 
         console.log(` NullGraph (Core + Geometry + Loaders + Materials + Profiler + Debug-UI + Cameras + Lights + Post + Visibility + Shadows + Environment + Picking + Text + Agents + Inference + Physics + Film): ${isProd ? 'Production' : 'Development'} build complete.`);

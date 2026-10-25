@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>NullGraph film G tests (D2.4 F2)</title>
+<style>
+    body { margin: 8px; background: #111; color: #ddd; font: 12px ui-monospace, monospace; }
+    canvas { display: block; width: 320px; height: auto; background: #000; }
+    pre { white-space: pre-wrap; }
+</style>
+<!-- No bundler: dist/film.js imports null-graph and mediabunny at run time, as an app's would, through this map.
+     The Kerr scene imports ../../../dist/index.js itself, which is the same module as "null-graph" here. -->
+<script type="importmap">
+{
+    "imports": {
+        "null-graph": "/dist/index.js",
+        "null-graph/film": "/dist/film.js",
+        "gl-matrix": "/node_modules/gl-matrix/esm/index.js",
+        "mediabunny": "/node_modules/mediabunny/dist/bundles/mediabunny.mjs",
+        "node:crypto": "/test/film-browser-gpu/crypto-shim.js"
+    }
+}
+</script>
+<!-- The app's preview (G9) draws here; films never touch it. -->
+<canvas id="preview" width="640" height="360"></canvas>
+<pre id="log"></pre>
+<script type="module" src="./page.js"></script>

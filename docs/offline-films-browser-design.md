@@ -12,8 +12,10 @@ list what is missing (`docs/null-graph-readiness.md`, gap 1).
 **Status:** draft 3, 2026-10-24 (reviewed against `src/core`, `tools/film`, `metaforge` and
 locally installed `mediabunny@1.61.3`). **Spike S1 measured 2026-10-24 ("Spike S1 results" at the
 end). Q1, Q3, Q6–Q8 decided 2026-10-25, Q9 parked (§16). Phase F1 built 2026-10-25 ("Phase F1
-results").** The design body above keeps its draft-3 text; where S1 and F1 refine it, the results
-sections say so.
+results"). F2 implementation reviewed 2026-10-25 ("F1/F2 review"), then completed the same day:
+its exit gate passed on both GPUs, six defects found by the G suite fixed, and Q5 and Q10 decided
+as recommended ("Phase F2 results" at the end; §16).** The design body above
+keeps its draft-3 text; where results refine it, those sections say so.
 This revision makes the **export session lifecycle**, not a scene abstraction, the baseline;
 adds ownership, cancellation, partial-output and storage policies; and separates measured facts
 from spike hypotheses. Existing user decisions remain in §16; new recommendations are not
@@ -620,8 +622,10 @@ The studio's export dialog keeps its UI. It gains: the probe's reasons for missi
 - **B8:** capability levels, container/codec intersection, target fallback without silent memory
   escalation; emitted declarations and pure-helper import without mediabunny installed.
 
-**Browser** (`test/film-browser-gpu/`, run in Chrome through `npm run drive`, on the AMD iGPU and,
-with `--force_high_performance_gpu`, on the GTX 1650):
+**Browser** (`test/film-browser-gpu/`, run in Chrome on the AMD iGPU and, with
+`--force_high_performance_gpu`, on the GTX 1650; built in F2 with a runner of its own,
+`npm run test:film:browser`, since `npm run drive` cannot pick a GPU, receive files or freeze a page:
+"Phase F2 results"):
 - **G1 (P1):** Kerr plus a stateless callback workload, recorded twice with the hash sink: every
   frame hash equal. Track owned create/destroy calls across repeated exports; no growth in retained
   app references. Do not claim exact physical VRAM reclamation from JavaScript measurements.
@@ -724,7 +728,7 @@ Failure-injection, cross-tab storage and package checks are release work, not po
 |---|---|---|---|
 | **S1** (spike) | A throwaway page in `test/spikes/film-browser/`: Kerr at 1080p and 4K, 300 frames, four ways: canvas frames from the visible canvas (today's MetaForge), from an unattached main-thread `OffscreenCanvas`, from an `OffscreenCanvas` in a worker; readback frames (`FrameReadback` → `VideoFrame('RGBX')`). Each into `VideoSampleSource` (`sample.close()` in `finally`) → MP4 in memory. Also: OPFS `StreamTarget({ chunked: true })` + `Mp4OutputFormat({ fastStart: 'reserve' })` at 4K. | ms a frame for each way on both GPUs; whether the unattached canvas is paced; heap peak with memory against OPFS; `ffprobe` verifies `moov` before `mdat`. Decides Q1 and Q2 (§16). **Measured 2026-10-24: "Spike S1 results".** | ½ day |
 | **F1** | ownership-aware engine teardown (§12), pure `plan.ts`/`camera.ts`/`png.ts`, `probe.ts`, session state skeleton; build/export declarations and optional peer; Node pure-helper migration | B1, B2, B5 and dependency isolation portion of B8; core/Node film tests pass. B3/B4 wait for F2. **Built 2026-10-25: "Phase F1 results".** | ½–1 day |
-| **F2** | session lifecycle, readback/sinks/guard/runner/report; memory/hash/none sinks, explicit task yields, deterministic reset and cancellation | B1–B8 applicable to memory; G1–G3, guard portion of G5, G6 and G9 on both GPUs | 1–2 days |
+| **F2** | session lifecycle, readback/sinks/guard/runner/report; memory/hash/none sinks, explicit task yields, deterministic reset and cancellation | B1–B8 applicable to memory; G1–G3, guard portion of G5, G6 and G9 on both GPUs. **Passed 2026-10-25: "Phase F2 results".** | 1–2 days |
 | **F3** | storage/locks/IDs, OPFS and picked-file commit/abort, orphan cleanup, budget/quota failures, opt-in partial finalization and PNG sink | G4, storage portion of G5, G7–G9; 60 s 4K OPFS film | 1–2 days |
 | **F-MF** | MetaForge adapter against local build, packed artifact then proposed published release | three shapes × three sizes; frame counts/initial-state tests; repeated teardown and cancel/partial gates; preview resumes or reports recovery; package isolation passes | ½–1 day |
 | **F4** (if needed) | The worker: `worker.ts`, `recordFilmInWorker`, scene modules importable in a worker | the G tests pass in the worker; the UI's frame rate during export measured against F2 | 1 day |
@@ -758,10 +762,11 @@ recommendation (Q5), not an implementation-order decision or a demo dependency.
 | Q2 | Worker in the first slice (F4), or main thread with a separate target? | **Main thread first.** The separate target already fixes the compositor problem; the worker costs a second device and scene modules. Build F4 only if F2 shows the UI stuttering. *(Decided 2026-10-24: main thread first.)* |
 | Q3 | Automatic target and memory budget. | **Prefer writable OPFS**, otherwise permit memory only within configurable predicted/runtime payload budget (proposed 256 MiB). No unlimited fallback and no resolution-only rule. This does not cap total export RAM. |
 | Q4 | mediabunny as an optional peer dependency of the library. | **Yes**, loaded via dynamic `await import('mediabunny')` with local structural types, as with `onnxruntime-web`. *(Decided 2026-10-24: yes.)* |
-| Q5 | Library first, then MetaForge (this order), or build in MetaForge and lift into the library afterwards? | **Library first** for F1–F2, since the pieces already exist in two places (Node tool, MetaForge) and a third copy would drift. If the hackathon days are tight, keep MetaForge's exporter and land the library after the submission. *(Left for later.)* |
+| Q5 | Library first, then MetaForge (this order), or build in MetaForge and lift into the library afterwards? | **Library first** for F1–F2, since the pieces already exist in two places (Node tool, MetaForge) and a third copy would drift. If the hackathon days are tight, keep MetaForge's exporter and land the library after the submission. *(Decided 2026-10-25: library first; F1–F2 complete.)* |
 | Q6 | Should `fitAspect` and `containAspect` (MetaForge's vertical and square framing) live in the library? | **Yes**, small and general; the test site needs the same framing for Shorts. |
 | Q7 | Default container and codec order. | **MP4/H.264**; VP9/AV1 fallback only when the app opts in and exposes the selected codec/compatibility distinction. WebM when requested; intersect codecs with container support. |
 | Q8 | Release `null-graph@1.2.0` during the hackathon? | **Only after F-MF, lifecycle and packed-package gates pass**; never release solely to meet the calendar. |
+| Q10 (new, F2) | One fenced operation passes the 1.5 s stop with nothing to explain it: no page freeze (those are now excused, "Phase F2 results"). S1 saw the AMD iGPU stall for 0.4–2.0 s under light work in a real window. Stop at once, or measure once more first? | **Measure once more when the slow operation is an outlier**: the calibrated operation was under a quarter of the stop, and only this one is over it. Go on if the next fenced operation is under the stop; stop if it is over too. The cost: on a GPU that really did become that slow, one more operation of that size is submitted. *(Decided 2026-10-25: as recommended.)* |
 
 **Decided by the user, 2026-10-24:** Q2 as recommended (main thread first; F4 only if F2 shows
 the UI stuttering). Q4 as recommended (mediabunny an optional peer dependency). Q5 left for later.
@@ -778,6 +783,10 @@ MetaForge is the hackathon entry. Q1 waits for S1; Q3 and Q6–Q8 are open.
   ask when we reach or are forced to make decision for it." Until then the sink keeps §4.4's
   bitrate and `no-preference`, and S1's proposals 2 and 3 (achieved-bitrate warning, a
   hardware-preference probe) wait with it.
+- **Q5 and Q10** decided as recommended after F2 review ("choose best recommendations and commit"):
+  library-first stands with F1–F2 complete; when a fenced operation exceeds the stop without a page
+  freeze, the guard measures once more if its calibrated operation was under a quarter of the stop,
+  continuing when the next fenced operation returns under the stop and stopping if it is over too.
 
 ## 17. Review evidence and remaining validation
 
@@ -1086,3 +1095,193 @@ Offscreen way, GTX 1650, hardware QP 34 (71 Mbit/s):
 **Next: F2** (§14): `createFilmSession` on the lifecycle and ledger; `FrameReadback`; the video, hash
 and none sinks (memory target); the guard (S1's proposal 7, the stall re-measure, belongs here); the
 runner and the report; `snapshot`; `docs/api/film.md`. Rate control stays as §4.4 has it until Q9.
+
+---
+
+## F1/F2 review — 2026-10-25
+
+**Scope:** committed F1 plus the existing, uncommitted F2 implementation. F1's pure helpers,
+ownership-aware teardown and dependency isolation remain intact. F2 now implements the session,
+readback, memory video sink, hash/measurement modes, guard, managed runner and snapshots.
+API documentation is in `docs/api/film.md`. This records implementation progress, **not a claim
+that F2 has passed §14's browser/GPU exit gate**.
+
+**Defects reproduced and corrected:**
+
+1. Cancelling the last waiting export removed the per-device queue tail before its predecessor
+   finished, allowing a third export to overlap shared-device scopes. The tail now survives until
+   the entire chain settles.
+2. A stop before a queued add began could take an illegal recording → disposing transition;
+   an in-flight encoder failure could also invalidate the earlier finalization decision. Terminal
+   policy and transitions are now resolved after queued adds settle.
+3. Aborts during asynchronous session setup were missed by a listener installed afterwards.
+   The signal is rechecked and the newly acquired muxer is discarded.
+4. Encoded packets produced during final flush could pass the last add's memory-budget check.
+   Finalization rechecks the payload budget before constructing a result Blob.
+5. Partial readback construction leaked staging buffers when a later allocation threw. Every
+   successfully allocated buffer is now released on constructor failure.
+6. Failed muxer track/start setup now cancels locally before any session ledger can own it.
+   Mapping rejections are observed immediately while remaining visible to the eventual reader.
+7. F1 camera parsing now rejects infinite keyframe times. Task yielding closes both message ports.
+
+**Evidence:** the first five regression tests were run against the original F2 implementation
+and all five failed. After fixes and additional setup/map/camera regressions, `npm run test:film`
+passes 87/87; core compute/headless suites pass. Build and TypeScript declarations pass, including
+the film suite's optional-dependency and bare-consumer isolation checks. The existing real-device
+core harness passes 9/9 under Node/Dawn with zero uncaptured WebGPU errors.
+
+`node test/film-browser-smoke.mjs` adds real-device coverage of the actual F2 runner: two
+identical readback/hash films verify W + s × (j + 1), padded rows and deterministic reset; an
+odd-sized snapshot round-trips its PNG. It passes on NVIDIA Turing under Node/Dawn with no
+uncaptured GPU errors. This smoke deliberately does **not** use WebCodecs stand-ins or claim
+to test encoding.
+
+**Still open before declaring F2 complete:**
+
+- The managed runner's browser G1–G3, guard G5, G6 and G9 gates on both GPUs. S1 predates this
+  runner and is not a substitute; stand-in muxer files are test JSON, not decodable video evidence.
+- Browser cancellation/finalization races and real device loss, codec-specific colour/timing
+  tolerances, sustained memory behavior and UI responsiveness.
+- Current terminal policy is first-call-wins: cancellation once finalization has started joins
+  that outcome rather than interrupting it. This limitation is documented, not a passed G9 gate.
+- F2 accepts `auto` but resolves it to budgeted memory. OPFS/picked files, stream commit/abort,
+  cross-tab locks and PNG sequences remain F3; callers wanting no ambiguity should select memory.
+- The guard stops on a measured over-limit operation without S1's proposed re-measure. First
+  full-size compilation remains an explicitly unqualified risk, not reset prevention.
+- Q9 remains parked: no quantizer, hardware-preference policy or low-achieved-bitrate warning
+  is adopted by this review.
+
+---
+
+## Phase F2 results — 2026-10-25
+
+**What F2 is** (§14): the code the F1/F2 review left, the browser G suite it lacked, and the fixes that
+suite forced.
+
+- **The library:**
+  - `recordFilm` and `snapshot` (`record.ts`);
+  - `createFilmSession` and its `FilmSession` (`session.ts`);
+  - `FrameReadback` (`readback.ts`), the memory video sink and `sha256` (`sinks.ts`);
+  - `calibrateFilm` and the runtime stop (`guard.ts`), and the workload contract (`workload.ts`).
+
+  `docs/api/film.md` documents them.
+- **The G suite:** `npm run test:film:browser` (`test/film-browser-gpu/`). It runs the managed runner
+  in Chrome on each GPU and reads every film back with ffprobe and ffmpeg.
+  - The page loads `dist/film.js` through an import map, as an app with no bundler would.
+  - `dist/film.js` imports `null-graph` and `mediabunny` at run time.
+  - It has 12 cases (below).
+
+**Where this departs from the design:**
+
+| Design | Built |
+|---|---|
+| §10: the G tests run "through `npm run drive`" | A runner of their own, modelled on S1's. `drive-page.mjs` can pick no GPU, receive no files and freeze no page. |
+| §4.5, §6: `target: 'auto'` prefers OPFS | `auto` resolves to budgeted memory until F3, and the report says `memory`. OPFS and picked files refuse rather than pretend to stream. |
+| §4.7: every measured operation is judged, and stops at once | An operation measured across a page freeze is not judged, nor is a batch with a freeze in it taken for congestion (defect 6; §4.9 asks a frozen film to go on). When a fenced operation exceeds the stop without a freeze, it is measured once more if its calibrated operation was under a quarter of the stop (Q10). |
+| §4.9: the first terminal request wins | Still so, with one addition: `session.abandon(error)` interrupts a wait on an encoder that will never answer, even inside a `finish()` (defect 5). |
+| §6: `fromFilmScene` | Not built. The G tests adapt the Node Kerr scene by hand (`workloads.js`, a dozen lines). The adapter belongs to F-MF. |
+
+### Defects the G suite found
+
+Each was fixed and watched failing first: the G case before its fix, and a headless test written for
+it (the mutation list below).
+
+1. **Every recorded film's engine stayed alive** for as long as the app's device did.
+   - Cause: each film added a reaction to `device.lost`. A reaction cannot be removed, and it kept
+     the film's scope, engine included.
+   - Seen: G1's garbage-collection check failed for every film. The snapshot passed: it has no such
+     reaction.
+   - Fix: one watcher per device, which holds a small record and nothing else.
+2. **A failed or cancelled film's engine stayed alive** while the app kept the error.
+   - Cause: until an error's stack is first read, V8 keeps each frame's function, and the scope that
+     function closes over.
+   - Seen: G5's stopped and refused films, and G9's cancel during the warm-up.
+   - Fix: the runner reads the stack (and its causes') before it rethrows.
+3. **A cancel at the moment finalizing was reported was ignored**, and the film completed. The runner
+   now checks the signal before it asks the session to finish. A cancel that comes during the muxer's
+   finalize still joins it (§4.9: the first terminal request wins). G9 tests both.
+4. **On readback, a lost device was reported as its symptom.** The message was "Failed to execute
+   'mapAsync' … unmapped before mapping was resolved", and a partial was kept.
+   - Cause: `mapAsync` rejected before `device.lost` settled.
+   - Fix: a failure raised by the platform (a `DOMException`) waits up to 100 ms for the loss. The
+     wait is timed, so a hidden page's throttled timers cannot stretch it.
+5. **A real GPU-process crash hung the film for ever.** It was found by crashing Chrome's GPU process
+   mid-film (DevTools' `Browser.crashGpuProcess`).
+   - The device was lost (`unknown`). mediabunny's `add` then waited on Chrome's hardware encoder,
+     which lived in the crashed process: still waiting at 20 s.
+   - Fix, in three parts:
+     - a discard now cancels the encoder before it waits for the frames in flight;
+     - `session.abandon(error)` gives up any wait on the encoder or the muxer;
+     - the runner calls it when its device is lost and the encoder is still silent 2 s later
+       (`LOST_ENCODER_GRACE_MS`).
+   - Now the film ends 2.0 s after the loss, in §8's words, and the app recovers on a new device.
+6. **A page freeze could stop a film.** A frozen page runs no task, so an operation measured across a
+   freeze timed the freeze, not the GPU.
+   - On AMD a 1 s freeze switched fencing to every operation.
+   - A 2 s freeze while every operation was fenced would have stopped the film.
+   - Fix: the runner's operations, calibration's rounds and the congestion signal no longer judge a
+     measurement that spans Page Lifecycle's `freeze` and `resume`. A frozen calibration round is
+     measured again.
+   - `report.guard.unjudged` counts such operations.
+
+From the review of the code: frames queued behind an add when a cancel came were still encoded. They are
+now closed unencoded.
+
+### The G suite, on both GPUs
+
+Headless Chrome 155. The AMD Radeon iGPU (GCN-5) is Chrome's default. The GTX 1650 (Turing) runs
+through `--force_high_performance_gpu`, and every case checks that each adapter it was given was the
+GPU asked for. The final run passed all 12 cases on both: 305 checks each, 610 in all.
+
+| Case | What it showed (AMD / GTX 1650) |
+|---|---|
+| G1-pattern | The pattern at 1366×768, its rows padded from 5,464 to 5,632 bytes: every read-back frame is exactly the pattern's bytes, bar code included, and a second film hashes the same. A 333×187 snapshot has the exact bytes, and its PNG decodes to them. After each film nothing is left on the device (buffers, textures and query sets made, less those destroyed), and its engine is collected (a WeakRef, after GC). |
+| G1-kerr | Kerr (1,048,576 particles) at 1080p, 60 frames, three times: equal hashes, 60 distinct frames. 38–41 / 8.3–8.6 ms a frame with hashing. Rebuilt after calibration each time (no `reset()`). Nothing left behind; no engine kept. |
+| G2 | The 1280×720 pattern through each source and codec, decoded with the stream's own matrix and range. Worst channel error at a patch centre: 2 for H.264 from canvas (limited range), 3 for H.264 from readback (full range), and the same for VP9. The additive glow at alpha 0 survives as opaque colour on both sources. Each file has the same byte size on both GPUs: one encoder serves both runs, as S1 found. |
+| G3 | The 640×360 pattern at 24, 25, 30 (VP9) and 60 fps, from both sources: exactly J packets and J decoded frames; every timestamp on its tick (time base 1/fps for MP4, 1/1000 for WebM); a key frame every 2 s; `moov` before `mdat`. The bar code of decoded frame k reads k in every frame. |
+| G3-kerr-4k | Kerr at 4K, 2 s: 120 packets, 121.7 / 36.0 ms a frame. On AMD the first 8-frame batch, slowed by the encoder's start-up (long tasks of 64–442 ms around frame 0), switched fencing to every operation at frame 8. Achieved 9.2 Mbit/s against the 79.6 asked: S1's finding; Q9 stays parked. |
+| G5 | The guard, with injected wall time (JavaScript waits, never GPU work): a 60 ms step is refused by a 50 ms limit; one 350 ms step stops a film fenced every operation when calibrated ≥ stop / 4 (160 ms, a 300 ms stop); when calibrated < stop / 4 (160 ms, an 800 ms stop), one 850 ms outlier step is measured once more and completes when the next step returns to 160 ms, while a second 850 ms step stops at frame 4 (Q10); 8 frames of 40 ms steps (320 ms) do not stop a film fenced every 8 frames (a 250 ms stop); 160 ms steps after a fast calibration switch fencing at frame 8 and complete (worst step 175 ms); a 1.2 s first step is recorded as `firstMs`, disclosed, and not judged. Each message is §8's. |
+| G6 | Kerr at 1080p, 120 frames: the frames each source handed the encoder (0, 60, 119) are the same image byte for byte in RGB. The decoded films agree at 32.0–32.4 dB PSNR at worst, 33.1–33.2 dB on average. 44–45 / 11–12 ms a frame. |
+| G9-cancel | Cancelled while building, calibrating, resetting, warming up, recording, and while the encoder held a frame: an AbortError, the report "cancelled", nothing kept or left behind. Latency 0.4–6.5 ms. It was 115–125 ms while the app's own factory finished its 100 ms, and 157–166 ms while a test encoder held its frame for 150 ms. A film waiting its turn ends in 0.1 ms. A cancel during the muxer's finalize joins it, and the film completes. |
+| G9-responsive | Kerr at 1080p for 3 s beside the app's preview, paused and then restored: rAF 16.7 / 16.8 ms p50 / p90 headless, and the same in a real window. The long tasks (58–157 ms) all fall while the workload is built and rebuilt: Kerr fills its particles in JavaScript. None fall while recording. The preview resumes on its own canvas at its own size. |
+| G9-background | Kerr hidden behind another tab: 41.1 against 41.0 / 10.4 against 9.9 ms a frame (hidden against visible). A 1 s freeze held the film for 1.0 s, and its hashes equal an undisturbed film's. A 2 s freeze while every operation was fenced: one operation unjudged, and the film completes. |
+| G9-lost | `device.destroy()` at frame 30, from each source: "film: GPU device lost at frame 30/31 (destroyed: …); partial file discarded", or kept with `keep-if-finalizable` (31 canvas frames, 29 readback, each decodable). The app rebuilds its preview on a new device and films again. |
+| G9-crash | Chrome's GPU process crashed at frame 30 (a real loss, not a TDR): "film: GPU device lost at frame 42–43 (unknown: A valid external Instance reference no longer exists); partial file discarded", 2.0 s after the loss. A new device films again. |
+
+**Other runs:**
+- `npm run test:film` passes 95/95. Its new headless tests:
+  - G1: no engine kept alive by a made, failed or cancelled film, under Node's own GC; one loss
+    watcher per device.
+  - G9: a loss after its symptom; a lost device's dead encoder, in `add` and in `finalize`;
+    measurements across a freeze.
+  - B6: `abandon()`; a cancel that cancels the encoder first; frames queued before a cancel.
+- `npm run test:core` passes.
+- `node test/film-browser-smoke.mjs` passes on Node/Dawn on both adapters (`NG_DAWN_FLAGS=adapter=AMD`
+  or `adapter=NVIDIA`).
+- **Watched failing:** 15 mutations of the fixes, each caught by the test written for it (a hang fails
+  by the test timeout).
+
+### Still open
+
+- **Q10 (§16), decided as recommended:** when a fenced operation exceeds the stop without a page freeze,
+  the runner measures once more if its calibrated operation was under a quarter of the stop, continuing
+  when the next fenced operation returns under the stop and stopping if it is over too.
+  - G3-kerr-4k shows why it matters: a 4K film on the AMD iGPU is fenced every operation from frame 8,
+    while its calibrated step (~40 ms) and draw (~80 ms) are well under `stopMs / 4` (375 ms). A single
+    desktop stall like S1's is now re-measured rather than ending the export immediately.
+- **Phase F3:** OPFS and picked files, locks, orphans, PNG sequences, and G4, G7 and G8. Also the
+  storage half of G5, and its 60 s 4K film.
+- **Not tested, by design:** a real TDR. The GPU-process crash covers the same consequence for the
+  film: the device and the encoder both gone.
+- **Known, and documented:**
+  - A partial film from the readback source ends one frame early: the frame being read is dropped.
+  - The two sources tag colour range differently: canvas films are limited range, readback films full
+    range. Both decode correctly with their tags. A player that ignores the full-range flag would lift
+    the blacks of readback films, so video defaults to the canvas source (Q1).
+  - A workload's step should not wait on timers. In a hidden page they fire at most once a second, and
+    the guard reads that as a slow operation. G9-background's first attempt, a 10 ms timer a step, was
+    stopped this way. Work itself does not slow when the page is hidden.
+  - The Node tool's scenes free their passes but keep their batch buffers until their engine goes. A
+    scene without `reset()` therefore holds two copies of its GPU data while the film runs (Kerr: about
+    32 MB more).
+- **Not run:** Firefox and Safari; other machines; MetaForge's own scenes (F-MF).

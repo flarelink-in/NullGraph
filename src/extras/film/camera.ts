@@ -36,7 +36,7 @@ export function readCamera(keyframes: unknown): CameraKeyframe[] {
     return keyframes.map((k: unknown, i: number) => {
         const at = `camera keyframe ${i}`;
         if (!isObject(k)) fail(`${at} must be an object.`);
-        if (!(typeof k.t === 'number' && k.t >= 0 && k.t > last)) fail(`${at}: t must be at least 0 and above the keyframe before it; got ${JSON.stringify(k.t)}.`);
+        if (!(typeof k.t === 'number' && Number.isFinite(k.t) && k.t >= 0 && k.t > last)) fail(`${at}: t must be at least 0 and above the keyframe before it; got ${JSON.stringify(k.t)}.`);
         last = k.t;
         const target = k.target;
         if (!(Array.isArray(target) && target.length === 3 && target.every(Number.isFinite))) fail(`${at}: target must be three numbers.`);

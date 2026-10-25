@@ -135,6 +135,18 @@ async function encodableCodecs(
         reasons.push((error as Error).message);
         return [];
     }
+    return chooseCodecs(mb, width, height, fps, container, requested, bitrate, reasons);
+}
+
+/**
+ * Of the app's codecs, those the container holds and WebCodecs can encode at this size, rate and bitrate,
+ * in the app's order. The probe and the video sink choose the same way. When none is left, `reasons` gets a
+ * refusal naming the smaller sizes, from a fixed ladder, that were probed and do have an encoder (§8).
+ */
+export async function chooseCodecs(
+    mb: MediabunnyLike, width: number, height: number, fps: number,
+    container: FilmContainer, requested: readonly FilmCodec[], bitrate: number | undefined, reasons: string[],
+): Promise<FilmCodec[]> {
     const held = (container === 'mp4' ? new mb.Mp4OutputFormat() : new mb.WebMOutputFormat()).getSupportedVideoCodecs();
     const candidates = requested.filter(c => held.includes(c));
     for (const c of requested) if (!held.includes(c)) reasons.push(`film: this mediabunny's ${container} cannot hold ${c}.`);
