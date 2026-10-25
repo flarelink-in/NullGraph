@@ -260,9 +260,198 @@ export class FakeVideoFrame {
         FakeVideoFrame.made.push(this);
     }
 
+    /** One tightly packed plane of 4-byte pixels, as `data` holds it. */
+    allocationSize() {
+        if (this.closes) throw new DOMException('allocationSize() on a closed VideoFrame.', 'InvalidStateError');
+        return this.data.length;
+    }
+
+    async copyTo(destination) {
+        if (this.closes) throw new DOMException('copyTo() on a closed VideoFrame.', 'InvalidStateError');
+        new Uint8Array(destination.buffer ?? destination, destination.byteOffset ?? 0).set(this.data);
+        return [{ offset: 0, stride: this.codedWidth * 4 }];
+    }
+
     close() {
         this.closes++;
     }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// F3: OPFS, Web Locks and the storage estimate
+// ---------------------------------------------------------------------------------------------------
+
+/** A chunk as a FileSystemWritableFileStream takes it: bytes, a string, or { type: 'write' | 'truncate', … }. */
+function chunkOf(chunk, at) {
+    if (typeof chunk === 'string') return { position: at, bytes: new TextEncoder().encode(chunk) };
+    if (ArrayBuffer.isView(chunk)) return { position: at, bytes: new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength) };
+    if (chunk instanceof ArrayBuffer) return { position: at, bytes: new Uint8Array(chunk) };
+    if (chunk?.type === 'truncate') return { truncate: chunk.size };
+    if (chunk?.type === 'write') return chunkOf(chunk.data, chunk.position ?? at);
+    throw new TypeError('The stand-in writable takes bytes, a string or a { type } chunk.');
+}
+
+/**
+ * OPFS as storage.ts uses it. A file's writable is a real WritableStream: its writes go to a swap copy that
+ * close() commits and abort() drops, as Chrome's .crswap does; a write past `quotaBytes` (committed bytes and
+ * swap growth together) rejects with QuotaExceededError and errors the stream. A folder holding an open
+ * writable cannot be removed (NoModificationAllowedError, as in Chrome). `refuse(name, errorName)` makes that
+ * file's createWritable reject; `failWrite(name, n)` makes its nth whole-file write (a manifest) reject;
+ * `fs.onWritable(name)`, when set, runs as a writable is opened.
+ */
+export function fakeOPFS({ quotaBytes = Infinity } = {}) {
+    const fs = { used: 0, quotaBytes, refused: new Map(), failWrites: new Map(), writes: new Map(), onWritable: null };
+    const sizeOf = node => (node.kind === 'file' ? node.data.length : [...node.children.values()].reduce((n, c) => n + sizeOf(c), 0));
+    const openIn = node => (node.kind === 'file' ? node.open > 0 : [...node.children.values()].some(openIn));
+    const file = name => {
+        const node = {
+            kind: 'file', name, data: new Uint8Array(0), open: 0,
+            async getFile() { return new Blob([node.data]); },
+            async createWritable() {
+                const refused = fs.refused.get(name);
+                if (refused) throw new DOMException(`The stand-in OPFS refused a writable for "${name}".`, refused);
+                fs.onWritable?.(name);
+                node.open++;
+                let swap = new Uint8Array(64);
+                let size = 0;
+                let settled = false;
+                const settle = () => { if (!settled) { settled = true; node.open--; } };
+                const stream = new WritableStream({
+                    write(raw) {
+                        const c = chunkOf(raw, size);
+                        if (c.truncate !== undefined) { size = Math.min(size, c.truncate); return; }
+                        const end = c.position + c.bytes.length;
+                        if (fs.used + Math.max(0, end - node.data.length) > fs.quotaBytes) {
+                            // The stream errors, and Chrome drops its swap file with it: the file is free again.
+                            settle();
+                            throw new DOMException('The operation failed because it would cause the application to exceed its storage quota.', 'QuotaExceededError');
+                        }
+                        if (end > swap.length) { const grown = new Uint8Array(Math.max(end, swap.length * 2)); grown.set(swap.subarray(0, size)); swap = grown; }
+                        swap.set(c.bytes, c.position);
+                        size = Math.max(size, end);
+                    },
+                    close() {
+                        const n = (fs.writes.get(name) ?? 0) + 1;
+                        fs.writes.set(name, n);
+                        if (fs.failWrites.get(name) === n) {
+                            settle();
+                            throw new DOMException(`The stand-in OPFS failed to commit "${name}".`, 'InvalidStateError');
+                        }
+                        fs.used += size - node.data.length;
+                        node.data = swap.slice(0, size);
+                        settle();
+                    },
+                    abort() { settle(); },
+                });
+                // FileSystemWritableFileStream's own write(): a writer taken for the one write.
+                stream.write = async chunk => {
+                    const writer = stream.getWriter();
+                    try { await writer.write(chunk); } finally { writer.releaseLock(); }
+                };
+                return stream;
+            },
+        };
+        return node;
+    };
+    const dir = name => {
+        const node = {
+            kind: 'directory', name, children: new Map(),
+            async getDirectoryHandle(child, { create = false } = {}) {
+                let c = node.children.get(child);
+                if (c && c.kind !== 'directory') throw new DOMException(`"${child}" is a file.`, 'TypeMismatchError');
+                if (!c) {
+                    if (!create) throw new DOMException(`No folder "${child}".`, 'NotFoundError');
+                    c = dir(child);
+                    node.children.set(child, c);
+                }
+                return c;
+            },
+            async getFileHandle(child, { create = false } = {}) {
+                let c = node.children.get(child);
+                if (c && c.kind !== 'file') throw new DOMException(`"${child}" is a folder.`, 'TypeMismatchError');
+                if (!c) {
+                    if (!create) throw new DOMException(`No file "${child}".`, 'NotFoundError');
+                    c = file(child);
+                    node.children.set(child, c);
+                }
+                return c;
+            },
+            async removeEntry(child, { recursive = false } = {}) {
+                const c = node.children.get(child);
+                if (!c) throw new DOMException(`No entry "${child}".`, 'NotFoundError');
+                if (c.kind === 'directory' && c.children.size && !recursive) throw new DOMException(`"${child}" is not empty.`, 'InvalidModificationError');
+                if (openIn(c)) throw new DOMException('An attempt was made to modify an object where modifications are not allowed.', 'NoModificationAllowedError');
+                fs.used -= sizeOf(c);
+                node.children.delete(child);
+            },
+            async *entries() { for (const entry of [...node.children]) yield entry; },
+            async *keys() { for (const key of [...node.children.keys()]) yield key; },
+        };
+        return node;
+    };
+    const root = dir('');
+    return {
+        root, fs,
+        refuse(name, errorName = 'NotAllowedError') { fs.refused.set(name, errorName); },
+        failWrite(name, n) { fs.failWrites.set(name, n); },
+        /** The tree under `path` (folder names joined by '/') as { name: size | subtree }. */
+        async tree(node = root) {
+            const out = {};
+            for (const [name, c] of node.children) out[name] = c.kind === 'file' ? c.data.length : await this.tree(c);
+            return out;
+        },
+        async folder(...names) {
+            let node = root;
+            for (const name of names) node = node.children.get(name);
+            return node ?? null;
+        },
+    };
+}
+
+/**
+ * Web Locks: exclusive locks, `ifAvailable`, and `query()`. `holdElsewhere(name)` holds a lock as another tab
+ * would, and returns its release: what closing that tab does.
+ */
+export function fakeLocks() {
+    const held = new Set();
+    const waiting = [];
+    const release = name => {
+        held.delete(name);
+        const i = waiting.findIndex(w => w.name === name);
+        if (i >= 0) waiting.splice(i, 1)[0].wake();
+    };
+    return {
+        held,
+        async request(name, options, callback) {
+            if (typeof options === 'function') { callback = options; options = {}; }
+            if (held.has(name)) {
+                if (options.ifAvailable) return callback(null);
+                await new Promise(wake => waiting.push({ name, wake }));
+            }
+            held.add(name);
+            try {
+                return await callback({ name, mode: options.mode ?? 'exclusive' });
+            } finally {
+                release(name);
+            }
+        },
+        async query() { return { held: [...held].map(name => ({ name, mode: 'exclusive' })), pending: waiting.map(w => ({ name: w.name, mode: 'exclusive' })) }; },
+        holdElsewhere(name) {
+            held.add(name);
+            return () => release(name);
+        },
+    };
+}
+
+/** Put OPFS, Web Locks and a storage estimate on the stand-in navigator; `locks: null` leaves Web Locks out. */
+export function installStorage({ opfs = fakeOPFS(), locks = fakeLocks(), quota = 1e10 } = {}) {
+    const estimate = { quota, usage: 0 };
+    globalThis.navigator.storage = {
+        getDirectory: async () => opfs.root,
+        estimate: async () => ({ quota: estimate.quota, usage: opfs.fs.used + estimate.usage }),
+    };
+    if (locks) globalThis.navigator.locks = locks;
+    return { opfs, locks, estimate };
 }
 
 /** Install the stand-in VideoFrame and OffscreenCanvas (and navigator.gpu's preferred format); returns an uninstall. */
@@ -288,7 +477,8 @@ export function installWebCodecs({ canvas = true } = {}) {
 
 /**
  * mediabunny's output side. `failAddAt`: the add of that frame rejects (the encoder fails). `failWrapAt`:
- * wrapping that frame in a VideoSample throws. `failFinalize`: finalize rejects. `packetBytes`: each
+ * wrapping that frame in a VideoSample throws. `failFinalize`: finalize rejects before its target is finalized,
+ * and closes the target in its finally, as 1.61.3's does (an encoder failing at its flush). `packetBytes`: each
  * frame's packet size. `addMs`: each add's wait (backpressure). `encodable`: what getEncodableVideoCodecs finds.
  * `hangAddAt` / `hangFinalize`: that add, or finalize, never returns, as with an encoder lost with Chrome's GPU
  * process (G9-crash), and cancelling the output does not release it; `onHang` runs as the hang begins.
@@ -349,7 +539,18 @@ export function fakeMediabunny({
                 await new Promise(() => {});
             }
             if (j >= failAddAt && failAddAt >= 0) throw new Error('EncodingError: the stand-in encoder failed.');
+            // A write the stream refused surfaces at the next add, as mediabunny's muxer error does (1.61.3).
+            if (this.output?.writeError) throw this.output.writeError;
             this.config.onEncodedPacket({ byteLength: packetBytes, type: j % 120 === 0 ? 'key' : 'delta' });
+            this.output?.writePacket(packetBytes);
+        }
+    }
+    /** mediabunny's StreamTarget: positioned writes to `writable`, closed on finalize and on cancel (1.61.3). */
+    class StreamTarget {
+        constructor(writable, options = {}) {
+            if (!(writable instanceof WritableStream)) throw new TypeError('StreamTarget requires a WritableStream instance.');
+            this.writable = writable;
+            this.options = options;
         }
     }
     class Output {
@@ -359,6 +560,9 @@ export function fakeMediabunny({
             this.state = 'pending';
             this.tracks = [];
             this.canceled = new Promise(resolve => { this.onCanceled = resolve; });
+            this.writer = null;
+            this.offset = 0;
+            this.writeError = null;
             log.outputs.push(this);
         }
 
@@ -366,28 +570,64 @@ export function fakeMediabunny({
             source.output = this;
             this.tracks.push({ source, options });
         }
-        async start() { this.state = 'started'; }
+        async start() {
+            if (this.target instanceof StreamTarget) this.writer = this.target.writable.getWriter();
+            this.state = 'started';
+        }
+        /** A packet's bytes, written as the StreamTarget would, its error kept for the next add. */
+        writePacket(bytes) {
+            if (!this.writer) return;
+            const position = this.offset;
+            this.offset += bytes;
+            void this.writer.write({ type: 'write', position, data: new Uint8Array(bytes) }).catch(error => { this.writeError ??= error; });
+        }
         async finalize() {
-            if (failFinalize) throw new Error('The stand-in muxer could not finalize.');
+            this.state = 'finalizing';
             if (hangFinalize) {
-                this.state = 'finalizing';
                 onHang();
                 await new Promise(() => {});
             }
-            this.state = 'finalized';
-            const added = this.tracks[0]?.source.added ?? [];
-            this.target.buffer = new TextEncoder().encode(JSON.stringify(added.map(f => [f.timestamp, f.duration, f.steps]))).buffer;
+            let closed = false;
+            try {
+                // As an encoder failing at its flush: before the target is finalized, its stream still open.
+                if (failFinalize) throw new Error('The stand-in muxer could not finalize.');
+                const added = this.tracks[0]?.source.added ?? [];
+                const summary = new TextEncoder().encode(JSON.stringify(added.map(f => [f.timestamp, f.duration, f.steps])));
+                if (this.writer) {
+                    // The file holds the summary alone, as the memory target's buffer does: written over the packets.
+                    await this.writer.ready;
+                    if (this.writeError) throw this.writeError;
+                    await this.writer.write({ type: 'write', position: 0, data: summary });
+                    await this.writer.write({ type: 'truncate', size: summary.length });
+                    closed = true;
+                    await this.writer.close();
+                } else {
+                    this.target.buffer = summary.buffer;
+                }
+                this.state = 'finalized';
+            } catch (error) {
+                this.state = 'canceled';
+                throw error;
+            } finally {
+                // As 1.61.3's finally: a target not finalized is closed whatever happened, which on a file's
+                // writable would commit what it holds.
+                if (this.writer && !closed) await this.writer.close().catch(() => {});
+            }
         }
 
-        async cancel() {
-            // As mediabunny 1.61.3: an output already finalizing cannot be cancelled.
-            if (this.state === 'finalizing') return;
+        cancel() {
+            // As mediabunny 1.61.3: a second cancel returns the first; an output finalizing or finalized is not cancelled.
+            if (this.state === 'canceled') return this.cancelling ?? Promise.resolve();
+            if (this.state === 'finalizing' || this.state === 'finalized') return Promise.resolve();
             this.state = 'canceled';
             this.onCanceled();
+            // And it closes its StreamTarget's writer, which on a file's writable would commit it. On a stream a
+            // refused write has errored, that close fails, and so does the cancel.
+            return this.cancelling = (async () => { if (this.writer) await this.writer.close(); })();
         }
     }
     return {
-        Quality, Mp4OutputFormat, WebMOutputFormat, BufferTarget, Output, VideoSample, VideoSampleSource,
+        Quality, Mp4OutputFormat, WebMOutputFormat, BufferTarget, StreamTarget, Output, VideoSample, VideoSampleSource,
         async getEncodableVideoCodecs(codecs) { return encodable.filter(c => codecs.includes(c)); },
         log,
     };

@@ -62,18 +62,23 @@ async function film(options) {
 const describe = run => (run.error ? `${run.error.name}: ${run.error.message}` : run.result?.status);
 const summary = run => run.report && {
     status: run.report.status, source: run.report.source, sourceReason: run.report.sourceReason, codec: run.report.output?.codec ?? null,
+    target: run.report.output?.target ?? null, targetReason: run.report.output?.targetReason ?? null, storage: run.report.storage,
     encoderConfig: run.report.encoderConfig, frames: run.report.frames, bytes: run.report.bytes, achievedBitrate: run.report.achievedBitrate,
     timings: run.report.timings, guard: run.report.guard, gpuErrors: run.report.gpuErrors, deviceLost: run.report.deviceLost,
     failure: run.report.failure, cleanupErrors: run.report.cleanupErrors, wallMs: run.ms,
 };
 
-/** Upload a made film for run.mjs, with what it should hold. */
+/**
+ * Upload a made film for run.mjs, with what it should hold, then let its storage go: a film in OPFS is the
+ * page's to remove (page.js fails a case that leaves one behind).
+ */
 async function keep(env, id, run, expected) {
     if (!run.result?.file) return null;
     const ext = run.result.file.type === 'video/webm' ? 'webm' : 'mp4';
     const file = `${id}.${ext}`;
     await env.upload(file, run.result.file);
-    return { file, ...expected, codec: run.result.codec, source: run.report?.source, encoderConfig: run.report?.encoderConfig };
+    await run.result.dispose();
+    return { file, ...expected, codec: run.result.codec, source: run.report?.source, encoderConfig: run.report?.encoderConfig, target: run.result.target };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -104,7 +109,7 @@ async function g1Pattern(env) {
     await env.upload('G1-pattern-snapshot.png', shot.png);
     await s.settled('snapshot', work.log.engines);
     env.check('no uncaptured WebGPU error', s.uncaptured.length === 0, s.uncaptured);
-    return { reports: [summary(a), summary(b)], png: { file: 'G1-pattern-snapshot.png', width: 333, height: 187, frame: 0 } };
+    return { reports: [summary(a), summary(b)], pngs: [{ file: 'G1-pattern-snapshot.png', width: 333, height: 187, frame: 0 }] };
 }
 
 async function g1Kerr(env) {
@@ -135,19 +140,24 @@ async function g1Kerr(env) {
 // G2 and G3: the pattern through each source and codec, and the timeline
 // ---------------------------------------------------------------------------------------------------
 
-/** Films of the pattern, uploaded for run.mjs: `[id, source, container, width, height, fps, seconds]`. */
+/**
+ * Films of the pattern, uploaded for run.mjs: `[id, source, container, width, height, fps, seconds, target]`. The
+ * target defaults to `auto`, which films to OPFS here; G3 asks for memory for some, so both muxer layouts are read.
+ */
 async function patternFilms(env, list) {
     const s = await setup(env);
     const videos = [];
     const reports = [];
-    for (const [id, source, container, width, height, fps, seconds] of list) {
+    for (const [id, source, container, width, height, fps, seconds, target = 'auto'] of list) {
         const work = patternWorkload({ dt: 1 / fps });
         const run = await film({
             device: s.device, createWorkload: work.create, source, film: { width, height, fps, seconds },
-            output: { container, ...(container === 'webm' ? { codecs: ['vp9'] } : {}), name: `${id}.${container}` },
+            output: { container, target, ...(container === 'webm' ? { codecs: ['vp9'] } : {}), name: `${id}.${container}` },
         });
         env.check(`${id}: films`, run.result?.status === 'completed', describe(run));
         env.check(`${id}: from the ${source} source`, run.report?.source === source, run.report?.sourceReason);
+        const where = target === 'auto' ? 'opfs' : target;
+        env.check(`${id}: to ${where}`, run.result?.target === where, run.report?.output?.targetReason);
         const J = Math.round(fps * seconds);
         env.check(`${id}: ${J} frames accepted and encoded`, run.report?.frames.accepted === J && run.report?.frames.encoded === J, run.report?.frames);
         reports.push({ id, ...summary(run) });
@@ -167,14 +177,15 @@ const g2 = env => patternFilms(env, [
 ]);
 
 const g3 = env => patternFilms(env, [
-    ['G3-canvas-24fps', 'canvas', 'mp4', 640, 360, 24, 3],
-    ['G3-canvas-60fps', 'canvas', 'mp4', 640, 360, 60, 3],
-    ['G3-readback-60fps', 'readback', 'mp4', 640, 360, 60, 3],
-    ['G3-readback-25fps', 'readback', 'mp4', 640, 360, 25, 3],
-    ['G3-canvas-30fps-vp9', 'canvas', 'webm', 640, 360, 30, 3],
+    ['G3-canvas-24fps', 'canvas', 'mp4', 640, 360, 24, 3, 'memory'],
+    ['G3-canvas-60fps', 'canvas', 'mp4', 640, 360, 60, 3, 'opfs'],
+    ['G3-readback-60fps', 'readback', 'mp4', 640, 360, 60, 3, 'memory'],
+    ['G3-readback-25fps', 'readback', 'mp4', 640, 360, 25, 3, 'opfs'],
+    ['G3-canvas-30fps-vp9', 'canvas', 'webm', 640, 360, 30, 3, 'memory'],
+    ['G3-readback-30fps-vp9', 'readback', 'webm', 640, 360, 30, 3, 'opfs'],
 ]);
 
-/** Kerr at 4K through the managed runner, into memory: the file, the guard's fencing, the encoder's start-up. */
+/** Kerr at 4K through the managed runner, to OPFS (`auto`'s target here): the file, the guard's fencing, the encoder's start-up. */
 async function g3Kerr4k(env) {
     const s = await setup(env);
     const work = kerrWorkload();
@@ -309,6 +320,7 @@ async function g9Cancel(env) {
         // abort() made the signal's reason, a DOMException whose unread stack keeps the frames it was made in
         // (here, inside a step) alive. It is the app's, as the controller is: read it, as a logged error would be.
         void controller.signal.reason?.stack;
+        await run.result?.dispose(); // a film the cancel joined (during finalize) completed: the app removes it
         await s.settled(key, work.log.engines);
         return { run, latencyMs };
     };
@@ -361,9 +373,11 @@ async function g9Cancel(env) {
     const r = await running;
     env.check('a film waiting for its turn is cancelled at once, before the running one ends', w.error?.name === 'AbortError' && waitMs < 100 && r.result?.status === 'completed', { waiting: describe(w), waitMs, running: describe(r) });
     results.waiting = { outcome: describe(w), latencyMs: waitMs };
+    await r.result?.dispose();
     await s.settled('after the cancels');
     const after = await film({ device: s.device, createWorkload: patternWorkload({ dt: 1 / 30 }).create, film: { ...size, fps: 30, seconds: 1 } });
     env.check('the device films normally after every cancel', after.result?.status === 'completed', describe(after));
+    await after.result?.dispose();
     env.check('no uncaptured WebGPU error', s.uncaptured.length === 0, s.uncaptured);
     return { results };
 }
@@ -487,6 +501,7 @@ async function g9Lost(env) {
         rebuilt.stop();
         const again = await film({ device: fresh.device, createWorkload: kerrWorkload({ count: 65536 }).create, camera: orbit, source, film: { width: 640, height: 360, fps: 60, seconds: 0.5 } });
         env.check(`${key}: after recovery on a new device, the preview draws and a film completes`, rebuilt.frames > 0 && again.result?.status === 'completed', describe(again));
+        await again.result?.dispose();
         rebuilt.destroy();
         await fresh.settled(`${key}, recovered`);
         env.check(`${key}: no uncaptured WebGPU error on the new device`, fresh.uncaptured.length === 0, fresh.uncaptured);
@@ -540,6 +555,7 @@ async function g9Crash(env) {
     if (fresh) {
         const again = await film({ device: fresh.device, createWorkload: kerrWorkload({ count: 65536 }).create, camera: orbit, film: { width: 640, height: 360, fps: 60, seconds: 1 } });
         env.check('on the new device a film completes', again.result?.status === 'completed', describe(again));
+        await again.result?.dispose();
         await fresh.settled('recovered');
     }
     return { outcome, videos: video ? [video] : [] };
@@ -621,3 +637,6 @@ export const CASES = {
     'G9-responsive': g9Responsive,
     'G9-lost': g9Lost,
 };
+
+// The helpers the storage cases (storage-cases.js) share.
+export { describe, film, keep, setup, startPreview, summary };

@@ -4,13 +4,15 @@
 
 import { fail, isObject, whole } from './util';
 
-export type FilmContainer = 'mp4' | 'webm';
-export type FilmCodec = 'avc' | 'hevc' | 'vp8' | 'vp9' | 'av1';
+/** `'png'`: a PNG sequence, one exact RGBA8 file a frame, in OPFS (phase F3), not a video. */
+export type FilmContainer = 'mp4' | 'webm' | 'png';
+export type FilmCodec = 'avc' | 'hevc' | 'vp8' | 'vp9' | 'av1' | 'png';
 
 /** The codecs each container can hold; an app's list is refused for any other. */
 export const CONTAINER_CODECS: Readonly<Record<FilmContainer, readonly FilmCodec[]>> = {
     mp4: ['avc', 'hevc', 'vp9', 'av1'],
     webm: ['vp8', 'vp9', 'av1'],
+    png: ['png'],
 };
 
 /**
@@ -20,6 +22,14 @@ export const CONTAINER_CODECS: Readonly<Record<FilmContainer, readonly FilmCodec
 export const DEFAULT_CODECS: Readonly<Record<FilmContainer, readonly FilmCodec[]>> = {
     mp4: ['avc'],
     webm: ['vp9', 'av1'],
+    png: ['png'],
+};
+
+/** A container's file type, and the extension its payload gets in OPFS. */
+export const CONTAINER_TYPES: Readonly<Record<FilmContainer, { readonly mimeType: string; readonly extension: string }>> = {
+    mp4: { mimeType: 'video/mp4', extension: 'mp4' },
+    webm: { mimeType: 'video/webm', extension: 'webm' },
+    png: { mimeType: 'image/png', extension: 'png' },
 };
 
 /** Q3 (decided 2026-10-25): the in-memory fallback's encoded-payload budget, unless the app sets one. */
@@ -27,7 +37,8 @@ export const DEFAULT_MEMORY_BUDGET = 256 * 1024 * 1024;
 
 /**
  * Where the file goes (§4.5): `'auto'` prefers writable OPFS and falls back to memory only within the
- * budget; `{ file }` is a handle the app obtained from the save picker in a user gesture.
+ * budget; `{ file }` is a handle the app obtained from the save picker in a user gesture. A PNG sequence
+ * goes to OPFS only (`'auto'` or `'opfs'`).
  */
 export type FilmTarget = 'auto' | 'memory' | 'opfs' | { readonly file: FileSystemFileHandle };
 
@@ -35,10 +46,10 @@ export interface FilmOutputOptions {
     readonly container?: FilmContainer;
     /** In preference order; default `DEFAULT_CODECS[container]`. */
     readonly codecs?: readonly FilmCodec[];
-    /** Bits a second; default `bitrateFor(width, height, fps)`. */
+    /** Bits a second; default `bitrateFor(width, height, fps)`. Not for a PNG sequence. */
     readonly bitrate?: number;
     readonly target?: FilmTarget;
-    /** The download name: metadata, never an internal path. Default `film.<container>`. */
+    /** The download name: metadata, never an internal path. Default `film.<container>`, or `film-frames` for PNG. */
     readonly name?: string;
     readonly memoryBudgetBytes?: number;
 }
@@ -57,7 +68,7 @@ export interface FilmOutput {
 export function readOutput(output: unknown = {}): FilmOutput {
     if (!isObject(output)) fail('output must be an object.');
     const container = output.container ?? 'mp4';
-    if (container !== 'mp4' && container !== 'webm') fail(`output.container must be "mp4" or "webm"; got ${JSON.stringify(container)}.`);
+    if (container !== 'mp4' && container !== 'webm' && container !== 'png') fail(`output.container must be "mp4", "webm" or "png"; got ${JSON.stringify(container)}.`);
     const codecs = output.codecs ?? DEFAULT_CODECS[container];
     if (!Array.isArray(codecs) || codecs.length === 0) fail('output.codecs must be a non-empty list, in preference order.');
     for (const codec of codecs) {
@@ -66,12 +77,16 @@ export function readOutput(output: unknown = {}): FilmOutput {
         }
     }
     const bitrate = output.bitrate === undefined ? undefined : whole(output.bitrate, 'output.bitrate (bits a second)');
+    if (container === 'png' && bitrate !== undefined) fail('output.bitrate is a video\'s: a PNG sequence is lossless and takes none.');
     const target = output.target ?? 'auto';
     const isFile = isObject(target) && isObject(target.file) && typeof (target.file as { createWritable?: unknown }).createWritable === 'function';
     if (target !== 'auto' && target !== 'memory' && target !== 'opfs' && !isFile) {
         fail('output.target must be "auto", "memory", "opfs" or { file } with a FileSystemFileHandle from the save picker.');
     }
-    const name = output.name ?? `film.${container}`;
+    if (container === 'png' && target !== 'auto' && target !== 'opfs') {
+        fail('a PNG sequence is written to OPFS, a file a frame: output.target must be "auto" or "opfs" for container "png".');
+    }
+    const name = output.name ?? (container === 'png' ? 'film-frames' : `film.${container}`);
     if (typeof name !== 'string' || !name.trim()) fail('output.name must be a non-empty file name.');
     const memoryBudgetBytes = whole(output.memoryBudgetBytes ?? DEFAULT_MEMORY_BUDGET, 'output.memoryBudgetBytes');
     return { container, codecs: [...codecs], bitrate, target: target as FilmTarget, name, memoryBudgetBytes };

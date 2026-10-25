@@ -56,13 +56,20 @@ export interface MediabunnyBufferTargetLike {
     readonly buffer: ArrayBuffer | null;
 }
 
+/**
+ * A `StreamTarget` over a WritableStream: positioned writes, `{ type: 'write', position, data }`, in 16 MiB
+ * chunks when `chunked` (at most two held at once, 1.61.3), and the stream closed on finalize and on cancel.
+ */
+export type MediabunnyStreamTargetLike = object;
+
 /** The members of `import * as mediabunny from 'mediabunny'` (1.61.x) that null-graph/film uses. */
 export interface MediabunnyLike {
     readonly Quality: new (options: { readonly bitrate: number }) => MediabunnyQuality;
     readonly Mp4OutputFormat: new (options?: { readonly fastStart?: false | 'in-memory' | 'reserve' }) => MediabunnyOutputFormatLike;
     readonly WebMOutputFormat: new (options?: object) => MediabunnyOutputFormatLike;
     readonly BufferTarget: new () => MediabunnyBufferTargetLike;
-    readonly Output: new (options: { readonly format: MediabunnyOutputFormatLike; readonly target: MediabunnyBufferTargetLike }) => MediabunnyOutputLike;
+    readonly StreamTarget: new (writable: WritableStream, options?: { readonly chunked?: boolean; readonly chunkSize?: number }) => MediabunnyStreamTargetLike;
+    readonly Output: new (options: { readonly format: MediabunnyOutputFormatLike; readonly target: MediabunnyBufferTargetLike | MediabunnyStreamTargetLike }) => MediabunnyOutputLike;
     readonly VideoSample: new (frame: VideoFrame) => MediabunnyVideoSampleLike;
     readonly VideoSampleSource: new (config: MediabunnyVideoSourceConfig) => MediabunnyVideoSourceLike;
     /**

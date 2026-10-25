@@ -3,7 +3,21 @@
 // It logs "[g] done" or "[g] failed: …" and leaves the result in globalThis.__FILM_G__ for run.mjs: the
 // case's own checks, what it measured, and the files it uploaded for run.mjs to read back.
 
-import { CASES } from './cases.js';
+import { listFilms, removeFilm } from 'null-graph/film';
+import { CASES as FILM_CASES } from './cases.js';
+import { STORAGE_CASES } from './storage-cases.js';
+
+const CASES = { ...FILM_CASES, ...STORAGE_CASES };
+
+/**
+ * What a case left in OPFS (a film it kept, or one a discard failed to remove), then removed, so the next
+ * case starts clean. A film another tab is writing now is listed, and left to that tab.
+ */
+async function sweepFilms() {
+    const left = await listFilms().catch(() => []);
+    for (const film of left) await removeFilm(film.exportId).catch(() => {});
+    return left.map(film => ({ exportId: film.exportId, status: film.status, live: film.live, name: film.name }));
+}
 
 const logEl = document.querySelector('#log');
 const log = (line, level = 'log') => {
@@ -42,9 +56,10 @@ try {
     if (!run) throw new Error(`unknown case ${name}; cases: ${Object.keys(CASES).join(', ')}`);
     log(`${name}: ${navigator.userAgent}`);
     const result = await run({ requestDevice, upload, log, check, gc: () => globalThis.gc?.() });
-    globalThis.__FILM_G__ = { ok: true, case: name, checks, ...result, adapters, browser: navigator.userAgent };
+    const leftoverFilms = await sweepFilms();
+    globalThis.__FILM_G__ = { ok: true, case: name, checks, ...result, adapters, leftoverFilms, browser: navigator.userAgent };
     log('done');
 } catch (e) {
-    globalThis.__FILM_G__ = { ok: false, case: name, checks, error: String(e?.stack ?? e), adapters, browser: navigator.userAgent };
+    globalThis.__FILM_G__ = { ok: false, case: name, checks, error: String(e?.stack ?? e), adapters, leftoverFilms: await sweepFilms(), browser: navigator.userAgent };
     log(`failed: ${e?.message ?? e}`, 'error');
 }

@@ -14,8 +14,11 @@ locally installed `mediabunny@1.61.3`). **Spike S1 measured 2026-10-24 ("Spike S
 end). Q1, Q3, Q6–Q8 decided 2026-10-25, Q9 parked (§16). Phase F1 built 2026-10-25 ("Phase F1
 results"). F2 implementation reviewed 2026-10-25 ("F1/F2 review"), then completed the same day:
 its exit gate passed on both GPUs, six defects found by the G suite fixed, and Q5 and Q10 decided
-as recommended ("Phase F2 results" at the end; §16).** The design body above
-keeps its draft-3 text; where results refine it, those sections say so.
+as recommended ("Phase F2 results" at the end; §16). Phase F3, storage, built 2026-10-25; a review
+then found and fixed seven defects, and its exit gate passed on both GPUs, the 60 s 4K OPFS film
+included ("Phase F3 results").** The body retains the draft-3 proposal and API sketches; later
+decision/result sections supersede those sketches. For the implemented F1–F3 API, use
+[`api/film.md`](./api/film.md). Current status: F1–F3 complete; F-MF, publication and F4 remain gated.
 This revision makes the **export session lifecycle**, not a scene abstraction, the baseline;
 adds ownership, cancellation, partial-output and storage policies; and separates measured facts
 from spike hypotheses. Existing user decisions remain in §16; new recommendations are not
@@ -170,7 +173,7 @@ omitted). Optional to use.
 
 Two, chosen by probe (§5), never both in one film:
 
-**A. Canvas frames (provisional video default, Q1).** The film engine draws into its own
+**A. Canvas frames (video default, Q1 decided 2026-10-25).** The film engine draws into its own
 `OffscreenCanvas` (never the visible one). Immediately after render, construct a raw
 `VideoFrame(offscreenCanvas, { timestamp: T(j), duration: D(j) })` and wrap it in `VideoSample`.
 This avoids the pinned canvas constructor's seconds-to-microseconds truncation round-trip
@@ -187,8 +190,8 @@ and must be measured, not guaranteed.
   Use the same values for canvas and readback; do not independently truncate every duration.
   Container timebases may rescale them; tests allow one container timebase tick.
 - *Whether an unattached `OffscreenCanvas` on the main thread is paced by anything* is spike S1's
-  question (§14). If it is, the canvas source goes to the worker (F4) and the main-thread variant is
-  dropped.
+  question (§14). S1 found no pacing difference on this machine; the compositor-pacing rationale
+  was withdrawn. Other browsers and machines still need measurement before any general claim.
 
 **B. Readback frames.** The film engine is headless (`init(null, { device, width, height })`) and
 draws into `screenTexture` (`rgba8unorm`). Each frame is copied into one of three staging buffers
@@ -467,7 +470,7 @@ an unrecoverable error overrides success. Teardown always runs before the operat
 const support = await probeFilm({ device, width: 3840, height: 2160, fps: 60 });
 // {
 //   ok: true,                         // configuration-supported, not an end-to-end guarantee
-//   codecs: ['avc', 'vp9'],           // encodable at this size & bitrate, in preference order
+//   codecs: ['avc'],                  // default MP4 list; VP9 needs an explicit opt-in
 //   sources: { canvas: { api: true, operational: 'untested' }, readback: { api: true } },
 //   targets: { memory: true, opfs: { api: true, writable: 'untested' }, picker: { api: true } },
 //   worker: true,                      // F4
@@ -540,8 +543,8 @@ crosses the boundary; the borrowed main-thread device is replaced by a worker-ow
 ## 7. Threads
 
 **F1–F3: the main thread, a separate target.** The film engine and its `OffscreenCanvas` (or
-headless texture) live on the main thread beside the app. The visible canvas is not involved, so
-compositor pacing is a spike hypothesis, not yet a guarantee. The loop explicitly yields tasks
+headless texture) live on the main thread beside the app. The visible canvas is not involved;
+S1 measured no compositor-pacing advantage from this isolation. The loop explicitly yields tasks
 after capture (§4.9); GPU/encoder awaits alone do not prove UI responsiveness. Long synchronous
 application callbacks can still block the main thread and are a reason to choose F4.
 
@@ -567,6 +570,12 @@ that caused it, and the way out:
 | Odd width or height | `film: width and height must be even for video encoding (yuv420p); got <W>×<H>.` |
 | Non-whole steps or frames | `film: one frame at <fps> fps (<1/fps> s) is not a whole number of steps of <dt> s.` / `film: film.seconds (<s>) is not a whole number of frames at <fps> fps.` |
 | Storage short | `film: not enough storage in OPFS — <need> MB needed, <avail> MB available.` |
+| OPFS full mid-film (F3) | `film: OPFS ran out of room at frame <j> (QuotaExceededError: …); free some storage, or film shorter or at a lower bitrate.` |
+| OPFS not writable, asked for (F3) | `film: OPFS could not be written here (<error>).` (through `auto`: memory within its budget, the reason in `targetReason`) |
+| Picked file refused (F3) | `film: the chosen file "<name>" may not be written (NotAllowedError: …); ask for write permission in a user gesture (handle.requestPermission({ mode: 'readwrite' })) and try again.` |
+| Film not marked complete (F3) | `film: the film was written but could not be marked complete in OPFS (<error>); it was removed.` |
+| Removing a live film (F3) | `film: the film "<id>" is being written now (its lock is held); stop or cancel that film first.` |
+| Cleanup without Web Locks (F3) | `film: Web Locks (navigator.locks) are not available here, so a film being written in another tab cannot be told from an abandoned one; nothing was removed.` |
 | Calibration over 1 s limit | `film: a <step\|draw> at <W>×<H> took <ms> ms, over the 1,000 ms per-submission limit (Windows resets a GPU busy for ~2 s). Try a smaller size, fewer particles, or a faster GPU.` |
 | Runtime submission over 1.5 s | `film: submission at frame <j> took <ms> ms, over the 1,500 ms safety stop.` |
 | Out of GPU memory / validation error | `film: GPU <out-of-memory\|validation> error while building or filming the scene: <message>.` |
@@ -621,11 +630,19 @@ The studio's export dialog keeps its UI. It gains: the probe's reasons for missi
   timestamp/duration quantization and safe-integer limits; frame limits and memory budget stop.
 - **B8:** capability levels, container/codec intersection, target fallback without silent memory
   escalation; emitted declarations and pure-helper import without mediabunny installed.
+- **B9 (added in F3, `test/film-storage.test.mjs`):** storage on stand-ins for OPFS, Web Locks and
+  mediabunny's `StreamTarget`. It covers:
+  - target choice and its refusals;
+  - commit only after finalize, and the manifest marked after it;
+  - a discard that aborts and removes only its own folder;
+  - partials; quota and manifest failures;
+  - `listFilms`, `cleanupFilms` and `removeFilm` with live and dead writers;
+  - picked files, PNG sequences, and the probe's operational check.
 
 **Browser** (`test/film-browser-gpu/`, run in Chrome on the AMD iGPU and, with
 `--force_high_performance_gpu`, on the GTX 1650; built in F2 with a runner of its own,
 `npm run test:film:browser`, since `npm run drive` cannot pick a GPU, receive files or freeze a page:
-"Phase F2 results"):
+"Phase F2 results"; F3's storage cases in `storage-cases.js`: "Phase F3 results"):
 - **G1 (P1):** Kerr plus a stateless callback workload, recorded twice with the hash sink: every
   frame hash equal. Track owned create/destroy calls across repeated exports; no growth in retained
   app references. Do not claim exact physical VRAM reclamation from JavaScript measurements.
@@ -682,7 +699,8 @@ swap channels, skip a step, omit `sample.close()`).
   (`OffscreenCanvas`) and source B (`FrameReadback` → `VideoFrame`) share one sink implementation.
 - **Release:** proposed `null-graph@1.2.0` only after F-MF and package-isolation/lifecycle gates.
   Run build, core/film tests, declaration consumer checks and `npm pack --dry-run`; test the packed
-  artifact in MetaForge before publishing. A date is not a release gate (Q8 remains open).
+  artifact in MetaForge before publishing. A date is not a release gate (Q8 decided as recommended;
+  publication remains gated on F-MF).
 
 ## 12. Engine touchpoints
 
@@ -715,7 +733,8 @@ pixel estimate at 3840×2160, not measured VRAM. Snapshot and video use the same
 | `src/extras/film/record.ts` | `recordFilm`, the loop, error scopes, the report |
 | `src/extras/film/worker.ts` | F4: `recordFilmInWorker` and the worker body |
 | `test/film-browser.test.mjs` | B1–B8 |
-| `test/film-browser-gpu/` | G1–G9, a page and its runner |
+| `test/film-storage.test.mjs` | B9 (F3: storage on stand-ins) |
+| `test/film-browser-gpu/` | G1–G9, a page and its runner (`storage-cases.js`: F3's G2-png, G4, G5-storage, G7, G8) |
 | `tools/film/manifest.mjs`, `camera.mjs` | re-export `planFilm`, `readCamera`, `cameraPath` from `dist/film.js` (one source of truth) |
 
 ## 14. Build order
@@ -729,16 +748,16 @@ Failure-injection, cross-tab storage and package checks are release work, not po
 | **S1** (spike) | A throwaway page in `test/spikes/film-browser/`: Kerr at 1080p and 4K, 300 frames, four ways: canvas frames from the visible canvas (today's MetaForge), from an unattached main-thread `OffscreenCanvas`, from an `OffscreenCanvas` in a worker; readback frames (`FrameReadback` → `VideoFrame('RGBX')`). Each into `VideoSampleSource` (`sample.close()` in `finally`) → MP4 in memory. Also: OPFS `StreamTarget({ chunked: true })` + `Mp4OutputFormat({ fastStart: 'reserve' })` at 4K. | ms a frame for each way on both GPUs; whether the unattached canvas is paced; heap peak with memory against OPFS; `ffprobe` verifies `moov` before `mdat`. Decides Q1 and Q2 (§16). **Measured 2026-10-24: "Spike S1 results".** | ½ day |
 | **F1** | ownership-aware engine teardown (§12), pure `plan.ts`/`camera.ts`/`png.ts`, `probe.ts`, session state skeleton; build/export declarations and optional peer; Node pure-helper migration | B1, B2, B5 and dependency isolation portion of B8; core/Node film tests pass. B3/B4 wait for F2. **Built 2026-10-25: "Phase F1 results".** | ½–1 day |
 | **F2** | session lifecycle, readback/sinks/guard/runner/report; memory/hash/none sinks, explicit task yields, deterministic reset and cancellation | B1–B8 applicable to memory; G1–G3, guard portion of G5, G6 and G9 on both GPUs. **Passed 2026-10-25: "Phase F2 results".** | 1–2 days |
-| **F3** | storage/locks/IDs, OPFS and picked-file commit/abort, orphan cleanup, budget/quota failures, opt-in partial finalization and PNG sink | G4, storage portion of G5, G7–G9; 60 s 4K OPFS film | 1–2 days |
+| **F3** | storage/locks/IDs, OPFS and picked-file commit/abort, orphan cleanup, budget/quota failures, opt-in partial finalization and PNG sink | G4, storage portion of G5, G7–G9; 60 s 4K OPFS film. **Passed 2026-10-25: "Phase F3 results".** | 1–2 days |
 | **F-MF** | MetaForge adapter against local build, packed artifact then proposed published release | three shapes × three sizes; frame counts/initial-state tests; repeated teardown and cancel/partial gates; preview resumes or reports recovery; package isolation passes | ½–1 day |
 | **F4** (if needed) | The worker: `worker.ts`, `recordFilmInWorker`, scene modules importable in a worker | the G tests pass in the worker; the UI's frame rate during export measured against F2 | 1 day |
 | **F5** (later) | The test site: a Record setting on the demo pages; Herd & Wolves as a film scene in the browser | a Herd & Wolves film from the site, read by eye against the Node film | ½ day |
 
-**For the hackathon:** finish/review the design before Monday 2026-10-26, 21:30 IST. S1 is the
-first implementation gate, not evidence already obtained. F1–F3 and F-MF need several engineering
-days plus measured validation; do not compress them into a quiet hour or a single performance day.
-MetaForge retains its existing exporter until the replacement passes. Library-first remains a
-recommendation (Q5), not an implementation-order decision or a demo dependency.
+**For the hackathon:** finish/review the design before Monday 2026-10-26, 21:30 IST. As of
+2026-10-25, S1 and F1–F3 have passed their measured gates (results below); F-MF has not.
+The effort estimates above are planning estimates, not elapsed-time claims or delivery promises.
+MetaForge retains its existing exporter until the replacement passes F-MF. Library-first was
+decided in Q5; it does not make library publication a demo dependency.
 
 ## 15. Deferred
 
@@ -931,7 +950,8 @@ Offscreen way, GTX 1650, hardware QP 34 (71 Mbit/s):
 
 - **The memory target peaked at about 3× its payload.** mediabunny's buffer doubles as it grows,
   finalize slices it, and the `Blob` is one more copy. OPFS stayed at +64 MiB: two 16 MiB chunks
-  and overhead, whatever the length.
+  and overhead in this measured 30 s run. This is not a duration-independent memory bound:
+  mux metadata can grow with frame count (§4.5). F3's 60 s run is additional measured evidence.
 - **About 130 MiB of page JS is frames in flight** in both targets (`measureUserAgentSpecificMemory`
   counts in-flight 4K `VideoFrame`s). It is not the payload.
 - **Each way's own cost, through a 4K film** (renderer median, small payloads): 40–150 MiB with a
@@ -1285,3 +1305,168 @@ GPU asked for. The final run passed all 12 cases on both: 305 checks each, 610 i
     scene without `reset()` therefore holds two copies of its GPU data while the film runs (Kerr: about
     32 MB more).
 - **Not run:** Firefox and Safari; other machines; MetaForge's own scenes (F-MF).
+
+---
+
+## Phase F3 results — 2026-10-25
+
+**What F3 is** (§14): where a film goes when it does not stay in memory, and what is left when it is
+discarded.
+
+- **The library:**
+  - **`storage.ts`:** a film in OPFS is `null-graph-films/<exportId>/`, its payload beside its manifest,
+    `film.json`. The module also holds picked files, the `FileStreamGate` (it commits only when the sink
+    says the muxer has finalized, and otherwise aborts), the per-film Web Lock, and what the app sees:
+    `listFilms`, `cleanupFilms`, `removeFilm`.
+  - **`session.ts`:** §4.5's selection policy, made before frame 0 and never changed. The payload is
+    committed first and the manifest marked after it. Results carry a `File`, an `exportId` or a PNG
+    `sequence`.
+  - **`sinks.ts`:** the video sink streams through mediabunny's `StreamTarget` (chunked, MP4 with
+    `fastStart: 'reserve'`), and `createPngSink` writes one exact file a frame.
+  - **`output.ts`** gains `container: 'png'`; **`probe.ts`** gains `operational: true` and
+    `targets.locks`.
+
+  `docs/api/film.md` documents them.
+- **Tests:**
+  - **B9** (`test/film-storage.test.mjs`, 18 tests) runs on stand-ins for OPFS (swap-then-commit
+    writables, quota, Chrome's no-remove-while-open rule), Web Locks (another tab's lock included) and
+    a `StreamTarget` closed as 1.61.3 closes it: on cancel, and in the `finally` of a failed finalize.
+  - **The browser cases** are in `storage-cases.js`: G2-png, G4, G4-long, G5-storage, G7 (with its other
+    tab, G7-peer) and G8.
+  - **Every G case now fails if it leaves anything in OPFS**, and an MP4's top-level boxes are checked
+    for its target.
+
+**Where this departs from the design:**
+
+| Design | Built |
+|---|---|
+| §4.8: the report is also written "beside an OPFS file as `<name>.json`" | Inside the film's own folder, in its manifest, `film.json`. The download name is metadata, never a path (§4.5), and one file holds both the status and the report. |
+| §4.5: "renaming `.part` is optional" | No rename. Completion is the manifest's status, written after the payload's commit. A manifest that cannot be written removes the film: unmarked, it would look abandoned to every later cleanup. |
+| §10 G4: JS memory "against documented duration/size baselines" | The film is its own baseline: JS memory sampled every second of film, its last third against its first. |
+| §6: PNG frames by `snapshot` | `snapshot` is unchanged. A PNG sequence is `output: { container: 'png' }`, in OPFS only, read back. |
+
+### What building it found
+
+1. **F2's result kept its whole session alive.** Its `dispose` closure was made inside the session, so
+   while the app kept a result, it kept the sink and mediabunny's in-memory buffer too: an in-memory
+   film held twice. The result is now made outside the session; B9 checks this with Node's GC
+   (watched failing, mutation S10).
+2. **mediabunny's `StreamTarget` writes nothing until a 16 MiB chunk fills** (`chunked: true`). A small
+   film reaches its file only at finalize, so G8 sizes its quota failure to fall after the first chunk.
+3. **Chrome shows a writable's swap file, `film.mp4.crswap`, beside the payload**, which reads empty
+   until committed. G4 checks both mid-film.
+4. **A folder holding an open writable cannot be removed** (`NoModificationAllowedError`), so a discard
+   aborts its writable before it removes the folder.
+5. **A write over quota errors the stream, but frees the file**: its swap file goes with the error, and
+   its folder can be removed. The stand-in OPFS first kept the file locked; an exploration in Chrome
+   showed otherwise, and the stand-in now does as Chrome does.
+6. **DevTools' quota override limits writes but not `navigator.storage.estimate()`.** So the
+   preflight passes and the writes fail mid-film: the case §4.5 warns of ("an estimate, not a
+   reservation"), and how G8 tests it.
+
+### Completing it: what a review found
+
+Before the G suite ran, the F3 code was reviewed against mediabunny 1.61.3's source. The review found
+seven defects, each fixed. Each fix's test was watched failing first: in B9 against the code before
+the fix, and the first and sixth in Chrome too (G8, on AMD).
+
+1. **A finalize that failed could commit the half-made film.**
+   - Cause: mediabunny's `Output.finalize` closes every target it has not finalized in its `finally`,
+     and the gate committed any close it had not been told to discard.
+   - Seen in Chrome: an encoder failing at its flush (G8's new case) emptied a picked file that had
+     held "what was here", and the report said `committed: true`. In OPFS the folder was removed
+     anyway.
+   - Fix: the muxer's close commits nothing. The sink commits the file once `finalize()` has
+     resolved, and anything else aborts it.
+2. **`cleanupFilms` could remove a film that had just completed.** It read every manifest first, then
+   asked for each film's lock, so a writer that marked its film complete and let go in between lost
+   it. The manifest is now read again under the lock.
+3. **A storage estimate that failed turned OPFS off:** through `auto`, the film went to memory. A failed
+   estimate now counts as no estimate, as it does in the probe.
+4. **A PNG frame whose file could not be created or opened** failed in the browser's words; now in
+   §8's.
+5. **The probe's test write took no lock,** though §4.5 asks every writer under `null-graph-films/` to
+   hold one, so a cleanup in another tab could take its folder mid-write. It now holds its folder's
+   lock.
+6. **A refused write was reported twice.** mediabunny's cancel cannot close the errored stream ("Cannot
+   close a ERRORED writable stream"), and that came back as a cleanup error. The sink no longer reports
+   it.
+7. **The PNG size bound** for the storage check left out each row's filter byte.
+
+### The G suite, on both GPUs
+
+Headless Chrome 155, as in F2: the AMD Radeon iGPU (GCN-5), and the GTX 1650 (Turing) through
+`--force_high_performance_gpu`, every adapter checked. The final run passed all 17 cases on both: 422
+checks each, 844 in all. G4-long, F3's exit film, ran on its own (`--long`) and passed its 15 checks on
+both. Every case now also fails if it leaves anything in OPFS.
+
+| Case | What it showed (AMD / GTX 1650) |
+|---|---|
+| G2-png | The 640×360 pattern as a 30-frame PNG sequence in OPFS, from the readback source (PNG frames need exact bytes). Frames 0, 15 and 29 decode to the pattern's exact bytes, alpha included. Listed `completed`, 30 frames: 220,306 bytes, against the storage check's worst-case bound of 27.7 MB. |
+| G4 | Kerr at 4K for 10 s to OPFS: 600 packets and 600 decoded frames, `ftyp moov free mdat`, 9.6 MiB at 8.1 Mbit/s, 112.8 / 28.3 ms a frame. Mid-film the film is listed live and `writing`, its payload reads 0 bytes, and its writes wait in `film.mp4.crswap`. The page's JS memory (`measureUserAgentSpecificMemory`, 10 samples) was 191.4 MiB in the first third and 181.1 in the last on AMD; 180.8 and 181.0 on the GTX 1650. There, one 204 ms calibration draw (the others took 12 ms) set fencing to every operation: conservative, and no slower. |
+| G4-long | F3's exit film: Kerr at 4K for 60 s to OPFS. 3,600 packets and 3,600 decoded frames, a key frame every 2 s (30), `ftyp moov free mdat` (113,860 bytes of reserved room left free), 57.7 MiB at 8.0 Mbit/s. 109.0 / 27.9 ms a frame: 6 min 32 s / 1 min 40 s of recording. JS memory over 60 samples: 181.1 → 181.3 MiB on AMD, 211.1 → 213.0 MiB on the GTX 1650, flat while the file grew. On AMD the encoder's start-up switched fencing to every operation at frame 8, as in F2's G3-kerr-4k; the worst fenced draw took 154 ms. |
+| G5-storage | A film is kept first. Then three films to OPFS: one cancelled at frame 20, one whose workload fails at step 30, and one whose muxer fails at finalize. Each ends in its error with `committed: false`, its folder gone, no swap file left. Only the kept film's `film.json` and `film.mp4` remain, its file whole. |
+| G7 | Two tabs. While the other tab writes a film, it is listed live and `writing`; `cleanupFilms` keeps it ("being written now"); `removeFilm` refuses it; and this tab makes a film of the same name, a film of its own. Both complete: one name, two ids. Cleanup keeps both completed films, and `dispose`, twice, removes this tab's alone. Then the other tab starts a 20 s film and is closed mid-film. Its film is left `writing`, no longer live, and cleanup removes it while keeping the completed one. Nothing is left. |
+| G8 | A picked file refused at write time is refused in §8's words. One written holds 60 decodable frames, `ftyp moov free mdat`, and stays after `dispose`. One holding "what was here", whose encoder fails at its flush inside mediabunny's finalize, ends "video encoder failed at frame 60" with `committed: false`, and still holds "what was here". OPFS running out of room after the first 16 MiB chunk ends "OPFS ran out of room at frame 456 / 458": nothing is kept, even with `keep-if-finalizable`, and no cleanup error repeats the write's. The encoder failing at frame 19 and the muxer at finalize keep nothing. A lost device (`destroy()` at frame 30): with `keep-if-finalizable`, a 31-frame partial is committed, listed `partial`, and decodes; without it, nothing is kept. |
+| F2's cases | G1, G2, G3, G3-kerr-4k, G5, G6 and G9, as in F2, now through OPFS wherever `auto` chooses it: every film except G1's hashes and the three G3 films asked into memory. G3's MP4s show both layouts, `ftyp moov mdat` in memory and `ftyp moov free mdat` in OPFS, and its WebM through OPFS decodes all 90 frames. G6's canvas and readback films agree at 32.4 / 32.0 dB PSNR at worst. G9-lost's kept partials (31 canvas frames, 29 readback) are committed to OPFS and decode. |
+
+### An unplanned test: the laptop slept mid-film
+
+The first full run met a real suspend. 0.4 s into G4's recording on AMD, Windows logged "Critical
+Battery Trigger Met" (17:27:41) and slept. It resumed at 17:59:14, when the charger was connected:
+31.3 min.
+- **The film survived.** The guard saw one fenced draw of 1,892,695 ms. The calibrated draw (95 ms)
+  was under a quarter of the stop, so the guard measured once more (Q10); the next draw came back
+  under the stop, and the film completed: 600 frames, every G4 check passing.
+- **The runner did not.** Both of its DevTools sockets were closed across the suspend, and a call
+  waiting on one never answered. Now every call times out after 60 s, a lost connection fails its
+  case, and a new Chrome starts for the next case.
+- **Not a guarantee:** a sleep can lose the device too, and a film whose calibrated operation is over
+  a quarter of the stop would be stopped there.
+
+**Other runs:**
+- `npm run test:film` passes 113/113 (B9's 18 among them), and `npm run test:core` passes.
+- **Watched failing:** 21 mutations of the storage guarantees, run on the final bundle against B9:
+  - S1–S15, first run when F3 was built:
+    - a discarded gate that commits; a failed open that leaves its folder; an unmarked film kept;
+    - a discard that leaves its folder; cleanup that ignores live writers, or removes completed films;
+    - `auto` that never falls back to memory; `'opfs'` that silently does;
+    - a sink that cancels before discarding its gate; a result that keeps its session;
+    - a PNG that loses its alpha; a writer without its lock; no storage check;
+    - a probe that leaves its folder; a picked file emptied on discard.
+  - S16–S21, the review's fixes:
+    - the muxer's close that commits; cleanup that trusts its listing;
+    - a failed estimate that turns OPFS off; a refused PNG entry in the browser's words;
+    - a probe without its lock; a dead stream's cancel reported as a cleanup error.
+  - 20 are caught. S9 is now an equivalent mutation: the muxer's close commits nothing, so the order
+    of discard and cancel cannot change the outcome.
+  - In Chrome, G8's two new checks failed against the old gate and cancel (AMD).
+
+### Still open
+
+- **Not built, by design:** zipped PNG sequences (§15), resume (D2.5), a worker (F4).
+- **Eviction:** OPFS is best-effort storage. Persistence (`navigator.storage.persist()`) is the app's
+  decision; the library never promises a film survives eviction or a cleared site.
+- **A discarded picked file keeps what it held**, and one the picker had just made stays, empty: the
+  user's file is never deleted (§4.5).
+- **4K films are small on this laptop:** the hardware path delivered 8.0–8.1 Mbit/s for Kerr at 4K
+  against the 79.6 asked, in every run. That is S1's finding; rate control stays parked (Q9).
+- **Not run:** Firefox and Safari; a real `showSaveFilePicker` handle (G8 writes through an OPFS file's
+  handle, the same `FileSystemFileHandle` interface, and denies one through a proxy); MetaForge's scenes
+  (F-MF).
+- **Next:** F-MF, MetaForge's adapter (with `fromFilmScene`), or F4 if the UI needs the worker (§14).
+
+### Follow-up review — 2026-10-25
+
+- Reconciled stale main-body status with S1's measurements and the Q1, Q5 and Q8 decisions; pointed
+  API consumers to `docs/api/film.md` rather than treating draft sketches as implemented signatures.
+  Removed the unsupported claim that OPFS memory stays bounded regardless of film length.
+- Found one additional storage defect: the exported `openOpfsExport` accepted an existing export id
+  after its writer released its lock, overwriting the retained film's manifest and payload. It now
+  checks for the existing directory under the writer's lock and refuses before taking ownership of
+  it, so failure cleanup cannot remove that film. The regression test failed before the fix and
+  passes afterwards; ordinary managed sessions still generate fresh random ids.
+- Fresh validation: IDE build and `npm run build:lib`; `npm run test:film` **114/114**;
+  `npm run test:core`; `npm pack --dry-run`; JavaScript syntax checks; and G2-png, G5-storage,
+  G7 and G8 on both GPUs, **64 checks per GPU, 128 total**. The full 17-case and 60 s 4K runs
+  above were checked against their saved summaries, not rerun in this follow-up.

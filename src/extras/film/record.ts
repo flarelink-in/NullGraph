@@ -259,11 +259,12 @@ async function canvasFails(device: GPUDevice, width: number, height: number): Pr
     return why ?? (error ? `the canvas check raised a GPU validation error (${clause(error.message)})` : null);
 }
 
+/** `exact`: why the film needs exact bytes (hashes, a PNG sequence), or null when a video alone is made. */
 async function chooseSource(
-    device: GPUDevice, wanted: FilmSourceChoice, hashes: boolean, video: boolean, width: number, height: number,
+    device: GPUDevice, wanted: FilmSourceChoice, exact: string | null, video: boolean, width: number, height: number,
 ): Promise<{ readonly source: FilmSource; readonly reason: string }> {
-    if (!video && !hashes) return { source: 'none', reason: 'no video and no hashes: frames are drawn and measured, never captured' };
-    if (hashes) return { source: 'readback', reason: 'hashes need exact bytes' };
+    if (!video && !exact) return { source: 'none', reason: 'no video and no hashes: frames are drawn and measured, never captured' };
+    if (exact) return { source: 'readback', reason: exact };
     if (wanted === 'readback') return { source: 'readback', reason: 'asked for' };
     const why = await canvasFails(device, width, height);
     if (!why) return { source: 'canvas', reason: wanted === 'canvas' ? 'asked for' : 'an offscreen canvas works here (Q1)' };
@@ -284,8 +285,10 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
     if (!device || typeof device.createBuffer !== 'function') fail('recordFilm: device must be the app\'s GPUDevice; the film\'s engine adopts it.');
     if (typeof o.createWorkload !== 'function') fail('recordFilm: createWorkload must be a function that resolves to the workload (§4.6).');
     const film = readFilm(o.film);
-    const video = o.output !== false;
-    if (video) readOutput(o.output ?? {});
+    const output = o.output === false ? null : readOutput(o.output ?? {});
+    // A PNG sequence is frames, each the read-back bytes exactly; a video is what the encoder makes of them.
+    const png = output?.container === 'png';
+    const video = !!output && !png;
     const camera = o.camera ?? null;
     if (camera !== null && typeof camera !== 'function') fail('camera must be (seconds) => view, such as cameraPath(keyframes), or omitted.');
     const keepPartial = o.partial ?? 'discard';
@@ -295,6 +298,8 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
     const wanted = o.source ?? 'auto';
     if (wanted !== 'auto' && wanted !== 'canvas' && wanted !== 'readback') fail(`source must be "auto", "canvas" or "readback"; got ${JSON.stringify(wanted)}.`);
     if (hashes && wanted === 'canvas') fail('hashes need exact bytes, and canvas frames are not exact (§4.3): use source "readback" or "auto".');
+    if (png && wanted === 'canvas') fail('a PNG sequence needs exact bytes, and canvas frames are not exact (§4.3): use source "readback" or "auto".');
+    const exact = hashes ? 'hashes need exact bytes' : png ? 'PNG frames need exact bytes' : null;
     const yieldEvery = o.yieldEveryMs ?? 8;
     if (!(yieldEvery >= 0)) fail(`yieldEveryMs must be a number of milliseconds, 0 or more; got ${JSON.stringify(o.yieldEveryMs)}.`);
     const signal = o.signal ?? new AbortController().signal;
@@ -305,7 +310,8 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
     let session: FilmSession;
     try {
         checkAbort();
-        session = await FilmSession.open({ film: o.film, output: video ? o.output ?? {} : false, mediabunny: o.mediabunny });
+        // The manifest of a film committed to OPFS keeps the runner's side of the report too (§4.8).
+        session = await FilmSession.open({ film: o.film, output: output ? o.output ?? {} : false, mediabunny: o.mediabunny, annotate: () => annotation() });
     } catch (error) {
         leave();
         throw error;
@@ -360,6 +366,28 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
             observerErrors.push(describe(error));
         }
     };
+    /** The runner's side of the report (§4.8): the final report's, and what a committed film's manifest keeps. */
+    const annotation = (): Omit<FilmReport, keyof FilmSessionReport> => {
+        const info = (device as { adapterInfo?: GPUAdapterInfo }).adapterInfo;
+        return {
+            source, sourceReason,
+            browser: typeof navigator !== 'undefined' ? navigator.userAgent ?? null : null,
+            adapter: info ? { vendor: info.vendor, architecture: info.architecture, description: info.description } : null,
+            plan: plan && { frames: plan.frames, stepsPerFrame: plan.stepsPerFrame, warmupSteps: plan.warmupSteps, dt: plan.dt },
+            workload: workloadInfo,
+            provenance: o.provenance ?? null,
+            guard: {
+                calibration, fencing: perOperation ? 'every operation' : 'every 8 frames', switchedAt,
+                worstStepMs: worstStepMs === null ? null : round(worstStepMs), worstDrawMs: worstDrawMs === null ? null : round(worstDrawMs),
+                unjudged,
+            },
+            timings: { ...timings },
+            hashes: hashes ? [...hashList] : null,
+            gpuErrors: gpuErrors.map(e => `${e.kind}: ${e.message}`),
+            deviceLost: lost,
+            observerErrors: [...observerErrors],
+        };
+    };
     // §4.7: an uncaptured error or a lost device stops the film before its next submission. A loss is the
     // film's from the moment the film starts watching until it has torn down.
     const noteLoss = () => { if (!lost && loss.info) lost = lostWords(loss.info); };
@@ -384,7 +412,7 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
         const freezes = watchFreezes();
         session.ledger.defer('page lifecycle listeners', () => freezes.stop());
         checkHealth();
-        ({ source, reason: sourceReason } = await chooseSource(device, wanted, hashes, video, film.width, film.height));
+        ({ source, reason: sourceReason } = await chooseSource(device, wanted, exact, video, film.width, film.height));
         checkAbort();
 
         // Construction and calibration run inside error scopes (§4.6), popped below or in the finally.
@@ -529,12 +557,13 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
             const { frame, bytes } = await reader.take();
             handed++;
             if (hashes) hashList[frame] = await sha256(bytes);
-            if (!video) {
+            if (!output) {
                 session.noteFrame();
                 return;
             }
+            // A video ignores alpha ('RGBX', as ffmpeg's yuv420p does); a PNG keeps every byte ('RGBA').
             await session.add(new VideoFrame(bytes, {
-                format: 'RGBX', codedWidth: film.width, codedHeight: film.height, timestamp: stamp.timestampUs, duration: stamp.durationUs,
+                format: png ? 'RGBA' : 'RGBX', codedWidth: film.width, codedHeight: film.height, timestamp: stamp.timestampUs, duration: stamp.durationUs,
             }));
         };
         recordingStart = now();
@@ -616,26 +645,10 @@ export async function recordFilm(o: RecordFilmOptions): Promise<FilmResult<FilmR
         }
     }
     const sessionReport = session.report();
-    const info = (device as { adapterInfo?: GPUAdapterInfo }).adapterInfo;
     const report: FilmReport = {
         ...sessionReport,
         failure: primary && !isAbort(primary) ? describe(primary) : sessionReport.failure,
-        source, sourceReason,
-        browser: typeof navigator !== 'undefined' ? navigator.userAgent ?? null : null,
-        adapter: info ? { vendor: info.vendor, architecture: info.architecture, description: info.description } : null,
-        plan: plan && { frames: plan.frames, stepsPerFrame: plan.stepsPerFrame, warmupSteps: plan.warmupSteps, dt: plan.dt },
-        workload: workloadInfo,
-        provenance: o.provenance ?? null,
-        guard: {
-            calibration, fencing: perOperation ? 'every operation' : 'every 8 frames', switchedAt,
-            worstStepMs: worstStepMs === null ? null : round(worstStepMs), worstDrawMs: worstDrawMs === null ? null : round(worstDrawMs),
-            unjudged,
-        },
-        timings,
-        hashes: hashes ? hashList : null,
-        gpuErrors: gpuErrors.map(e => `${e.kind}: ${e.message}`),
-        deviceLost: lost,
-        observerErrors,
+        ...annotation(),
     };
     try { o.onReport?.(report); } catch { /* isolated (§4.8): the report's observer never changes the film's outcome */ }
     if (result) return { ...result, report };

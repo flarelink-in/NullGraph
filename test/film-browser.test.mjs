@@ -166,7 +166,13 @@ test('B2: readOutput — the decided defaults (Q3, Q7), and refusals naming the 
     const handle = { createWritable: async () => ({}) };
     assert.equal(readOutput({ target: { file: handle } }).target.file, handle, 'a picked file handle is accepted as it is');
     const refuses = (output, pattern) => assert.throws(() => readOutput(output), pattern);
-    refuses({ container: 'avi' }, /output\.container must be "mp4" or "webm"; got "avi"/);
+    refuses({ container: 'avi' }, /output\.container must be "mp4", "webm" or "png"; got "avi"/);
+    // F3: a PNG sequence, lossless and in OPFS only.
+    assert.deepEqual(readOutput({ container: 'png' }), { container: 'png', codecs: ['png'], bitrate: undefined, target: 'auto', name: 'film-frames', memoryBudgetBytes: DEFAULT_MEMORY_BUDGET });
+    refuses({ container: 'png', target: 'memory' }, /a PNG sequence is written to OPFS, a file a frame: output\.target must be "auto" or "opfs" for container "png"/);
+    refuses({ container: 'png', target: { file: handle } }, /output\.target must be "auto" or "opfs" for container "png"/);
+    refuses({ container: 'png', bitrate: 8e6 }, /output\.bitrate is a video's: a PNG sequence is lossless and takes none/);
+    refuses({ container: 'png', codecs: ['avc'] }, /output\.codecs: png cannot hold "avc"; it holds png/);
     refuses({ codecs: ['h264'] }, /output\.codecs: mp4 cannot hold "h264"; it holds avc, hevc, vp9, av1/);
     refuses({ container: 'webm', codecs: ['avc'] }, /output\.codecs: webm cannot hold "avc"; it holds vp8, vp9, av1/);
     refuses({ codecs: [] }, /output\.codecs must be a non-empty list, in preference order/);
@@ -419,14 +425,14 @@ test('B8: probe — an empty scope says what is missing, and nothing is claimed'
     assert.equal(support.ok, false);
     assert.deepEqual(support.codecs, []);
     assert.deepEqual(support.sources, { canvas: { api: false, operational: 'untested' }, readback: { api: false } });
-    assert.deepEqual(support.targets, { memory: true, opfs: { api: false, writable: 'untested' }, picker: { api: false } });
+    assert.deepEqual(support.targets, { memory: true, opfs: { api: false, writable: 'untested' }, picker: { api: false }, locks: false });
     assert.equal(support.worker, false);
     assert.equal(support.storage, null);
-    for (const words of ['WebGPU is not available', 'VideoFrame is not available', 'VideoEncoder is not available', 'OPFS (navigator.storage.getDirectory) is not available']) {
+    for (const words of ['WebGPU is not available', 'VideoFrame is not available', 'VideoEncoder is not available', 'OPFS (navigator.storage.getDirectory) is not available', 'Web Locks are not available']) {
         assert.ok(support.reasons.some(r => r.includes(words)), `no reason says "${words}": ${support.reasons.join(' | ')}`);
     }
     await assert.rejects(probeFilm({ width: 1921, height: 1080, fps: 60, scope: {} }), /width and height must be even for video encoding \(yuv420p\); got 1921×1080/);
-    await assert.rejects(probeFilm({ width: 1920, height: 1080, fps: 60, container: 'avi', scope: {} }), /output\.container must be "mp4" or "webm"/);
+    await assert.rejects(probeFilm({ width: 1920, height: 1080, fps: 60, container: 'avi', scope: {} }), /output\.container must be "mp4", "webm" or "png"/);
 });
 
 test('B8: probe — codecs are the app\'s, held by the container and encodable here, in the app\'s order', async () => {
@@ -1320,17 +1326,22 @@ f2('B7: hashes are SHA-256 of each frame\'s exact bytes, equal run to run; a fil
 });
 
 f2('B7: the memory budget refuses a film predicted over it before frame 0, and stops one that grows past it', async () => {
-    const predicted = await film({ output: { bitrate: 8e6, memoryBudgetBytes: 1048576 }, film: { ...SMALL, seconds: 2 } });
+    // Asked for memory: the sink refuses the prediction. Through auto with no OPFS: both reasons (never a silent escalation).
+    const predicted = await film({ output: { bitrate: 8e6, memoryBudgetBytes: 1048576, target: 'memory' }, film: { ...SMALL, seconds: 2 } });
     assert.equal(predicted.error?.message, 'film: a 2 s film at 8.0 Mbit/s is expected to take 2.3 MB, over the in-memory budget of 1.0 MB; ' +
-        'raise output.memoryBudgetBytes or shorten the film (OPFS streaming is phase F3).');
+        'raise output.memoryBudgetBytes, shorten the film, or film to OPFS.');
     assert.equal(predicted.report, null);
     assert.equal(predicted.device.log.buffers.length, 0, 'a refused film made something first');
+    const auto = await film({ output: { bitrate: 8e6, memoryBudgetBytes: 1048576 }, film: { ...SMALL, seconds: 2 } });
+    assert.equal(auto.error?.message, 'film: OPFS (navigator.storage.getDirectory) is not available here; and in memory the film\'s predicted 2.3 MB ' +
+        'is over its budget of 1.0 MB (raise output.memoryBudgetBytes, or shorten the film).');
     const grown = await film({ output: { memoryBudgetBytes: 1048576 }, mb: { packetBytes: 400000 } });
-    assert.equal(grown.error?.message, 'film: the film passed its in-memory budget of 1.0 MB at 3 frames (1.2 MB encoded); raise output.memoryBudgetBytes or shorten the film.');
+    assert.equal(grown.error?.message, 'film: the film passed its in-memory budget of 1.0 MB at 3 frames (1.2 MB encoded); raise output.memoryBudgetBytes, shorten the film, or film to OPFS.');
     assert.equal(grown.report.status, 'failed');
     released(grown, 'over budget');
+    // Asked for OPFS where there is none: refused, never moved to memory.
     const opfs = await film({ output: { target: 'opfs' } });
-    assert.match(opfs.error?.message, /OPFS and picked-file targets arrive in phase F3/);
+    assert.equal(opfs.error?.message, 'film: OPFS (navigator.storage.getDirectory) is not available here.');
 });
 
 // --- Q1: the frame source, and the report -------------------------------------------------------------------
@@ -1365,7 +1376,12 @@ f2('§4.8: the report says what was made, how, on what, and when each state bega
     assert.deepEqual(report.frames, { planned: 6, accepted: 6, encoded: 6, keyFrames: 1 });
     assert.deepEqual([report.bytes, report.achievedBitrate], [6000, Math.round(6000 * 8 / (6 / 60))]);
     assert.deepEqual(report.encoderConfig, { codec: 'avc1.640028', width: 64, height: 36, hardwareAcceleration: 'no-preference' });
-    assert.deepEqual(report.output, { container: 'mp4', codecs: ['avc'], codec: 'avc', bitrate: bitrateFor(64, 36, 60), target: 'memory', memoryBudgetBytes: DEFAULT_MEMORY_BUDGET, name: 'film.mp4' });
+    assert.deepEqual(report.output, {
+        container: 'mp4', codecs: ['avc'], codec: 'avc', bitrate: bitrateFor(64, 36, 60), target: 'memory',
+        targetReason: 'memory, within its 268.4 MB budget, because OPFS (navigator.storage.getDirectory) is not available here',
+        memoryBudgetBytes: DEFAULT_MEMORY_BUDGET, name: 'film.mp4',
+    });
+    assert.equal(report.storage, null, 'a film in memory has no storage');
     assert.deepEqual(report.adapter, { vendor: 'stand-in', architecture: 'test', description: 'the film stand-in device' });
     assert.equal(report.browser, 'film stand-in');
     assert.deepEqual(report.provenance, { scene: 'counter', commit: 'abc123' });
@@ -1391,7 +1407,8 @@ f2('B2: recordFilm refuses, by name and before anything is made, options it cann
     await refuses({ camera: 'orbit' }, /camera must be \(seconds\) => view, such as cameraPath\(keyframes\), or omitted/);
     await refuses({ yieldEveryMs: -1 }, /yieldEveryMs must be a number of milliseconds, 0 or more; got -1/);
     await refuses({ guard: { limitMs: 2000 } }, /guard limits may only be lowered/);
-    await refuses({ output: { container: 'avi' } }, /output\.container must be "mp4" or "webm"/);
+    await refuses({ output: { container: 'avi' } }, /output\.container must be "mp4", "webm" or "png"/);
+    await refuses({ output: { container: 'png' }, source: 'canvas' }, /^Error: film: a PNG sequence needs exact bytes, and canvas frames are not exact \(§4\.3\): use source "readback" or "auto"\.$/);
     assert.equal(device.log.buffers.length + device.log.listeners, 0, 'a refusal made something first');
     // A workload that is not one is refused once built, and released.
     const shapeless = await film({ workload: {}, createWorkload: async () => ({ dt: 1 / 60 }) });

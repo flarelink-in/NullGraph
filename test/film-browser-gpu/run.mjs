@@ -1,21 +1,25 @@
-// F2's browser G tests (docs/offline-films-browser-design.md §10, §14): null-graph/film's managed runner in
-// Chrome, on each GPU, read back with ffprobe and ffmpeg. A suite: it exits 1 when any check fails.
+// The browser G tests of F2 and F3 (docs/offline-films-browser-design.md §10, §14): null-graph/film's managed
+// runner in Chrome, on each GPU, read back with ffprobe and ffmpeg. A suite: it exits 1 when any check fails.
 //
-//   npm run test:film:browser -- [--gpu amd,nvidia] [--only G1-pattern,G2,…] [--headed] [--keep]
+//   npm run test:film:browser -- [--gpu amd,nvidia] [--only G1-pattern,G2,…] [--long] [--headed] [--keep]
 //        [--timeout 300] [--out dir] [--chrome path]
 //
 // Run `npm run build:lib` first: the page loads dist/film.js and dist/index.js through an import map, as an
-// app without a bundler would. Cases (cases.js): G1-pattern, G1-kerr, G2, G3, G3-kerr-4k, G5, G6, G9-cancel,
-// G9-responsive, G9-background, G9-lost, G9-crash. For each GPU this starts its own Chrome (headless unless
-// --headed; the GTX 1650 through --force_high_performance_gpu, since Chrome on Windows ignores powerPreference;
-// --expose-gc so a case can tell whether a film's engine was kept alive), serves the repository with COOP/COEP
-// and a PUT endpoint the page uploads its films to, and loads index.html once per case. A page asks for what
-// it cannot do itself (hide its tab, freeze, crash the GPU process) by logging "[g] action <name>" (act()).
-// Then, for every uploaded film:
+// app without a bundler would. Cases: G1-pattern, G1-kerr, G2, G3, G3-kerr-4k, G5, G6, G9-cancel, G9-responsive,
+// G9-background, G9-lost, G9-crash (cases.js, F2); G2-png, G4, G5-storage, G7 (with its other tab, G7-peer) and
+// G8 (storage-cases.js, F3); G4-long, a 60 s 4K film, only when named or with --long. For each GPU this starts its
+// own Chrome (headless unless --headed; the GTX 1650 through --force_high_performance_gpu, since Chrome on Windows
+// ignores powerPreference; --expose-gc so a case can tell whether a film's engine was kept alive), serves the
+// repository with COOP/COEP and a PUT endpoint the page uploads its films to, and loads index.html once per case.
+// A page asks for what it cannot do itself (hide its tab, freeze, crash the GPU process, run out of quota, open
+// and close another tab) by logging "[g] action <name>" (act()). Every case must leave nothing in OPFS. A DevTools
+// call that does not answer in 60 s fails; a Chrome whose DevTools connection is lost (a system sleep closes it)
+// fails its case and is replaced for the next. Then, for every uploaded film:
 //   - ffprobe: J packets and J decoded frames, each timestamp within one container tick of j / fps, a key frame
-//     every 2 s, H.264 or VP9 4:2:0 at the film's size, and in an MP4 moov before mdat;
+//     every 2 s, H.264 or VP9 4:2:0 at the film's size, and an MP4's top-level boxes as its target makes them
+//     (memory: ftyp moov mdat; OPFS or a picked file: ftyp moov free mdat);
 //   - the pattern's: the bar code of every decoded frame (frame k shows k) and the colour of every patch,
-//     decoded with the stream's own matrix and range, against the pattern's bytes;
+//     decoded with the stream's own matrix and range, against the pattern's bytes; and its PNGs, exactly;
 //   - G6's pair: PSNR, frame by frame, between the canvas film and the readback film.
 // Results: <out>/results.json and <out>/summary.md. The films are deleted once read unless --keep.
 
@@ -42,9 +46,12 @@ const option = (name, fallback) => {
 };
 const list = (name, fallback) => option(name, fallback).split(',').map(s => s.trim()).filter(Boolean);
 
-const ALL = ['G1-pattern', 'G1-kerr', 'G2', 'G3', 'G3-kerr-4k', 'G5', 'G6', 'G9-cancel', 'G9-responsive', 'G9-background', 'G9-lost', 'G9-crash'];
+const ALL = ['G1-pattern', 'G1-kerr', 'G2', 'G2-png', 'G3', 'G3-kerr-4k', 'G4', 'G4-long', 'G5', 'G5-storage', 'G6', 'G7', 'G8', 'G9-cancel', 'G9-responsive',
+    'G9-background', 'G9-lost', 'G9-crash'];
+/** G4-long (a 60 s 4K film: minutes on the iGPU) runs when named, or with --long. */
+const LONG = flag('long');
 const GPUS = list('gpu', 'amd,nvidia');
-const ONLY = list('only', ALL.join(','));
+const ONLY = list('only', ALL.filter(c => c !== 'G4-long' || LONG).join(','));
 const HEADED = flag('headed');
 const KEEP = flag('keep');
 const TIMEOUT_MS = Number(option('timeout', 300)) * 1000;
@@ -107,6 +114,8 @@ async function openChrome(gpu) {
         ...(HEADED ? ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'] : ['--headless=new']),
         '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--enable-unsafe-webgpu', '--no-first-run',
         '--no-default-browser-check', '--disable-extensions', '--window-size=1440,900', '--js-flags=--expose-gc',
+        // performance.memory unquantized, and measureUserAgentSpecificMemory() answering at once (G4, as in S1).
+        '--enable-precise-memory-info', '--enable-blink-features=ForceEagerMeasureMemory',
         // A finished case's page would otherwise wait in the back/forward cache, holding its memory (S1).
         '--disable-features=BackForwardCache',
         ...(gpu === 'nvidia' ? ['--force_high_performance_gpu'] : []), 'about:blank',
@@ -142,6 +151,8 @@ async function openChrome(gpu) {
     const browser = await connect(`ws://127.0.0.1:${port}${browserPath}`, () => {});
     return {
         pid: proc.pid, lines, send: page.send, browser: browser.send, targetId: target.id,
+        /** Both DevTools sockets are open: a system sleep can close them, and then this Chrome is no use to the run. */
+        alive: () => !page.closed && !browser.closed,
         async close() {
             page.close();
             browser.close();
@@ -152,11 +163,36 @@ async function openChrome(gpu) {
     };
 }
 
+/** A DevTools call that has not answered in this long has been lost: every call the runner makes answers in seconds. */
+const CDP_TIMEOUT_MS = 60_000;
+
+/**
+ * A DevTools connection. Every call answers, fails, or times out: when the socket closes (a system sleep closed
+ * both of the runner's on 2026-10-25), the calls waiting on it fail at once, and later ones at the call.
+ */
 async function connect(url, onEvent) {
     const ws = new WebSocket(url);
     await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error(`DevTools WebSocket ${url} failed`)); });
     let nextId = 1;
     const pending = new Map();
+    const conn = {
+        closed: false,
+        send: (method, params = {}) => new Promise((ok, fail) => {
+            if (conn.closed) { fail(new Error(`DevTools socket closed; ${method} not sent`)); return; }
+            const id = nextId++;
+            const timer = setTimeout(() => { pending.delete(id); fail(new Error(`DevTools did not answer ${method} in ${CDP_TIMEOUT_MS / 1000} s`)); }, CDP_TIMEOUT_MS);
+            pending.set(id, { ok: value => { clearTimeout(timer); ok(value); }, fail: error => { clearTimeout(timer); fail(error); } });
+            ws.send(JSON.stringify({ id, method, params }));
+        }),
+        close: () => { try { ws.close(); } catch { /* gone */ } },
+    };
+    const drop = why => {
+        conn.closed = true;
+        for (const { fail } of pending.values()) fail(new Error(`DevTools socket closed (${why}) before it answered`));
+        pending.clear();
+    };
+    ws.onclose = ev => drop(`code ${ev.code}`);
+    ws.onerror = () => drop('error');
     ws.onmessage = ev => {
         const m = JSON.parse(ev.data);
         if (m.id && pending.has(m.id)) {
@@ -167,14 +203,7 @@ async function connect(url, onEvent) {
             onEvent(m);
         }
     };
-    return {
-        send: (method, params = {}) => new Promise((ok, fail) => {
-            const id = nextId++;
-            pending.set(id, { ok, fail });
-            ws.send(JSON.stringify({ id, method, params }));
-        }),
-        close: () => { try { ws.close(); } catch { /* gone */ } },
-    };
+    return conn;
 }
 
 /**
@@ -184,6 +213,9 @@ async function connect(url, onEvent) {
  * - hide / show: put a blank tab in front of the page, then bring the page back and close the blank tab.
  * - freeze [ms]: freeze the page (no task of its runs) for ms (default 1000), then thaw it; the page cannot ask
  *   to be thawed.
+ * - quota [bytes]: override this origin's storage quota (0 restores it): how G8 runs OPFS out of room.
+ * - open-peer <case> / close-peer: a second tab of this origin running that case, in the background (G7's other
+ *   writer: it reports over a BroadcastChannel, its console unread), and closing it, as a user would.
  */
 async function act(chrome, action, arg) {
     if (action === 'gpucrash') {
@@ -195,6 +227,14 @@ async function act(chrome, action, arg) {
         await chrome.browser('Target.activateTarget', { targetId: chrome.targetId });
         if (chrome.blank) await chrome.browser('Target.closeTarget', { targetId: chrome.blank });
         chrome.blank = null;
+    } else if (action === 'quota') {
+        await chrome.send('Storage.overrideQuotaForOrigin', { origin, ...(Number(arg) ? { quotaSize: Number(arg) } : {}) });
+    } else if (action === 'open-peer') {
+        const url = `${origin}/test/film-browser-gpu/index.html?case=${encodeURIComponent(arg)}`;
+        chrome.peer = (await chrome.browser('Target.createTarget', { url, background: true })).targetId;
+    } else if (action === 'close-peer') {
+        if (chrome.peer) await chrome.browser('Target.closeTarget', { targetId: chrome.peer });
+        chrome.peer = null;
     } else if (action === 'freeze') {
         await chrome.send('Page.setWebLifecycleState', { state: 'frozen' });
         await sleep(Number(arg ?? 1000));
@@ -301,6 +341,19 @@ function pairPSNR(a, b, colorA, colorB) {
     return { frames: values.length, min: Math.min(...values), mean: finite.length ? finite.reduce((x, y) => x + y, 0) / finite.length : Infinity };
 }
 
+/**
+ * An MP4's top-level boxes, in order, as its target makes them (§4.5): in memory `ftyp moov mdat`
+ * (fastStart in-memory); written to OPFS or a picked file `ftyp moov free mdat`, the index reserved at the
+ * front for J packets and its unused room left as a free box (fastStart reserve).
+ */
+function boxOrder(v, p, add) {
+    if (v.container !== 'mp4') return;
+    const reserve = v.target === 'opfs' || v.target === 'file';
+    const want = reserve ? ['ftyp', 'moov', 'free', 'mdat'] : ['ftyp', 'moov', 'mdat'];
+    const got = p.boxes.map(b => b.split(':')[0]);
+    add(`boxes ${want.join(' ')}: moov first (${v.target ?? 'memory'}, fastStart ${reserve ? 'reserve' : 'in-memory'})`, JSON.stringify(got) === JSON.stringify(want), p.boxes);
+}
+
 /** The checks of one uploaded film, against what the page said it should hold. */
 function checkVideo(dir, v, checks) {
     const path = join(dir, v.file);
@@ -312,6 +365,7 @@ function checkVideo(dir, v, checks) {
     const facts = { codec: p.codec, profile: p.profile, pixFmt: p.pixFmt, color: p.color, timeBase: p.timeBase.join('/'), boxes: p.boxes, bytes: p.bytes };
     if (v.partial) {
         add(`a kept partial decodes to its ${v.frames} frames`, p.packets.length === v.frames && p.decodedFrames === v.frames, { packets: p.packets.length, decoded: p.decodedFrames });
+        boxOrder(v, p, add);
         return { ...p, facts };
     }
     const J = v.frames;
@@ -328,7 +382,7 @@ function checkVideo(dir, v, checks) {
     const wantKeys = Math.ceil(J / (2 * v.fps));
     const spacing = keys.slice(1).map((k, i) => Math.round((k - keys[i]) * num / den * 1000) / 1000);
     add(`a key frame every 2 s (${wantKeys})`, keys.length === wantKeys && keys[0] === 0 && spacing.every(s => Math.abs(s - 2) < 0.02), { keys: keys.length, spacing });
-    if (v.container === 'mp4') add('moov before mdat (fastStart in-memory)', p.moovBeforeMdat === true, p.boxes);
+    boxOrder(v, p, add);
     if (v.pattern) {
         const codes = barcodes(path, v.width, v.height, p.color);
         const wrong = codes.indices ? codes.indices.map((k, j) => (k === j ? null : [j, k])).filter(Boolean) : null;
@@ -358,35 +412,50 @@ console.log(`film G: ${ONLY.length} case(s) on ${GPUS.join(', ')}${HEADED ? ' (h
 for (const gpu of GPUS) {
     uploadDir = join(OUT, gpu);
     mkdirSync(uploadDir, { recursive: true });
-    const chrome = await openChrome(gpu);
+    let chrome = await openChrome(gpu);
     console.log(`\n== ${gpu}: Chrome pid ${chrome.pid}`);
     for (const name of ONLY) {
+        // A Chrome whose DevTools connection was lost (a system sleep closes it) is replaced before the next case.
+        if (!chrome.alive()) {
+            await chrome.close();
+            chrome = await openChrome(gpu);
+            console.log(`== ${gpu}: DevTools connection lost; Chrome restarted, pid ${chrome.pid}`);
+        }
         const from = chrome.lines.length;
         const t0 = Date.now();
-        await chrome.send('Page.navigate', { url: `${origin}/test/film-browser-gpu/index.html?case=${encodeURIComponent(name)}` });
+        let lost = null;
+        await chrome.send('Page.navigate', { url: `${origin}/test/film-browser-gpu/index.html?case=${encodeURIComponent(name)}` }).catch(e => { lost = e.message; });
         let finished = false;
         let seen = from;
         const actions = [];
-        for (const deadline = t0 + TIMEOUT_MS; !finished && Date.now() < deadline;) {
+        for (const deadline = t0 + TIMEOUT_MS; !finished && !lost && Date.now() < deadline;) {
             for (; seen < chrome.lines.length; seen++) {
-                const [, action, arg] = /^\[g\] action (\w+)(?: (\d+))?/.exec(chrome.lines[seen].text) ?? [];
+                const [, action, arg] = /^\[g\] action ([\w-]+)(?: (\S+))?/.exec(chrome.lines[seen].text) ?? [];
                 if (action) actions.push(await act(chrome, action, arg).then(() => `${action}: ok`, e => `${action}: ${e.message}`));
             }
             finished = chrome.lines.slice(from).some(l => /^\[g\] (done|failed)/.test(l.text));
-            if (!finished) await sleep(100);
+            if (!chrome.alive()) lost = 'DevTools socket closed';
+            if (!finished && !lost) await sleep(100);
         }
         let result = null;
-        try {
-            const { result: r } = await chrome.send('Runtime.evaluate', { expression: 'JSON.stringify(globalThis.__FILM_G__ ?? null)', returnByValue: true });
-            result = JSON.parse(r.value ?? 'null');
-        } catch (e) { result = { ok: false, error: `could not read the result: ${e.message}` }; }
-        if (!finished) result = { ...(result ?? {}), ok: false, error: `timed out after ${TIMEOUT_MS / 1000} s` };
+        if (lost) {
+            result = { ok: false, error: `the runner lost Chrome's DevTools connection (${lost}); a system sleep closes it` };
+        } else {
+            try {
+                const { result: r } = await chrome.send('Runtime.evaluate', { expression: 'JSON.stringify(globalThis.__FILM_G__ ?? null)', returnByValue: true });
+                result = JSON.parse(r.value ?? 'null');
+            } catch (e) { result = { ok: false, error: `could not read the result: ${e.message}` }; }
+            if (!finished) result = { ...(result ?? {}), ok: false, error: `timed out after ${TIMEOUT_MS / 1000} s` };
+        }
         const log = chrome.lines.slice(from).map(l => `[${((l.t - t0) / 1000).toFixed(1)}s ${l.kind}] ${l.text}`);
         const checks = [...(result?.checks ?? [])];
         if (!result?.ok) checks.push({ name: 'the case ran to its end', ok: false, detail: result?.error ?? 'no result' });
         // Chrome picks the GPU, not the page: every adapter the case was given must be the one asked for.
         const vendors = [...new Set((result?.adapters ?? []).map(a => a.vendor))];
         checks.push({ name: `every adapter was the ${gpu} GPU`, ok: vendors.length === 1 && vendors[0] === gpu, detail: result?.adapters?.[0] ?? null });
+        // Every film a case made it removed (a kept one after reading it back): what is left in OPFS leaked.
+        checks.push({ name: 'nothing left in OPFS', ok: (result?.leftoverFilms ?? []).length === 0, detail: result?.leftoverFilms ?? null });
+        if (chrome.peer) await act(chrome, 'close-peer').catch(() => {});
         const files = {};
         for (const v of result?.videos ?? []) files[v.file] = checkVideo(uploadDir, v, checks);
         for (const pair of result?.pairs ?? []) {
@@ -396,11 +465,12 @@ for (const gpu of GPUS) {
             files[`${pair.a}~${pair.b}`] = psnr;
             checks.push({ name: `${pair.a} against ${pair.b}: every decoded frame within ${PAIR_MIN_PSNR_DB} dB PSNR`, ok: !psnr.error && psnr.frames === a.frames && psnr.min >= PAIR_MIN_PSNR_DB, detail: psnr });
         }
-        if (result?.png) {
-            const path = join(uploadDir, result.png.file);
-            const want = patternFrame(result.png.width, result.png.height, result.png.frame);
+        // PNGs of the pattern (a snapshot, a sequence's frames): each must decode to the pattern's bytes exactly.
+        for (const png of result?.pngs ?? []) {
+            const path = join(uploadDir, png.file);
+            const want = patternFrame(png.width, png.height, png.frame);
             const got = existsSync(path) ? readPNG(readFileSync(path)) : null;
-            checks.push({ name: 'snapshot PNG decodes to the pattern\'s exact bytes', ok: !!got && got.width === result.png.width && Buffer.compare(Buffer.from(got.rgba), Buffer.from(want)) === 0 });
+            checks.push({ name: `${png.file} decodes to the pattern's exact bytes (frame ${png.frame})`, ok: !!got && got.width === png.width && got.height === png.height && Buffer.compare(Buffer.from(got.rgba), Buffer.from(want)) === 0 });
         }
         const errors = log.filter(l => /\b(exception|error)\]/.test(l) && !/\[g\] (FAIL|failed)/.test(l));
         const entry = { gpu, case: name, ms: Date.now() - t0, ok: checks.length > 0 && checks.every(c => c.ok), checks, result, files, actions, log, consoleErrors: errors };
@@ -412,7 +482,7 @@ for (const gpu of GPUS) {
         await chrome.send('Page.navigate', { url: 'about:blank' }).catch(() => {});
         await sleep(1000);
         if (!KEEP) {
-            for (const f of [...(result?.videos ?? []).map(v => v.file), result?.png?.file].filter(Boolean)) {
+            for (const f of [...(result?.videos ?? []).map(v => v.file), ...(result?.pngs ?? []).map(p => p.file)].filter(Boolean)) {
                 const p = join(uploadDir, f);
                 if (existsSync(p)) unlinkSync(p);
             }
