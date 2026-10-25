@@ -143,6 +143,7 @@
     "spike:animated-models": "node test/gpu/run-harness.mjs test/spikes/animated-models/run.js __ANIM_SPIKE_RESULTS__",
     "spike:skinned-models": "node test/gpu/run-harness.mjs test/spikes/skinned-models/run.js __SKIN_SPIKE_RESULTS__",
     "spike:films": "node test/gpu/run-harness.mjs test/spikes/films/run.js __FILM_SPIKE_RESULTS__",
+    "spike:film-browser": "node test/spikes/film-browser/run.mjs",
     "film": "node tools/film/film.mjs",
     "film:check": "node tools/film/check.mjs",
     "test:film": "node --test test/film.test.mjs test/film-guard.test.mjs test/coevo-film.test.mjs test/film-overlay.test.mjs test/film-burn.test.mjs"
@@ -155,6 +156,7 @@
     "concurrently": "^9.2.1",
     "esbuild": "^0.27.4",
     "express": "^5.2.1",
+    "mediabunny": "1.61.3",
     "onnxruntime-web": "1.29.0",
     "rimraf": "^6.1.3",
     "serve": "^14.2.6",

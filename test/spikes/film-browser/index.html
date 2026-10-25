@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>NullGraph spike S1: browser film export</title>
+<style>
+    body { margin: 8px; background: #111; color: #ddd; font: 12px ui-monospace, monospace; }
+    canvas { display: block; width: 480px; height: auto; background: #000; }
+    pre { white-space: pre-wrap; }
+</style>
+<!-- The visible way draws here; the others leave it alone. -->
+<canvas id="visible" width="2" height="2"></canvas>
+<pre id="log"></pre>
+<!-- run.mjs bundles page.js and worker.js into out/bundle/ (esbuild); open this page through it. -->
+<script type="module" src="./out/bundle/page.js"></script>
