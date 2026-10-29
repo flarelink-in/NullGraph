@@ -1,6 +1,6 @@
 # NullGraph agent guide
 
-Target manifest version: **1.1.1**. This is an application guide, not an engine design spec.
+Target manifest version: **1.2.0**. This is an application guide, not an engine design spec.
 Start small; fetch only the API pages needed by the task. The 50k-token budget is a ceiling,
 not a reason to fill context. The initial quick path does not require the full documentation tree.
 
@@ -22,7 +22,7 @@ There are three access modes:
    is not installed. You may build an application using public APIs, but must not claim
    that `npm run render` exists in the application's package.
 
-The intended release anchor is **v1.1.1**. A manifest bump is not a published tag or npm release.
+The intended release anchor is **v1.2.0**. A manifest bump is not a published tag or npm release.
 Until the tag is published, use a provided checkout or a known commit. For released packages,
 match the kit's tag to the installed version; do not silently combine old packages with branch-head docs.
 

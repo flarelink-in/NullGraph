@@ -1,6 +1,6 @@
 # NullGraph agent routing
 
-> Target manifest: null-graph 1.1.1. Read the guide's quick path first; deeper references are optional.
+> Target manifest: null-graph 1.2.0. Read the guide's quick path first; deeper references are optional.
 
 ## Required entry reads
 - [Guide](guide.md): scene construction, deterministic starters, and safe adaptation.

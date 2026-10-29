@@ -1,6 +1,6 @@
 # NullGraph
 
-> Repository-side agent kit for manifest version 1.1.1. This file is an index, not an executable module.
+> Repository-side agent kit for manifest version 1.2.0. This file is an index, not an executable module.
 > Start with the guide. Follow only the links relevant to the task.
 
 ## Start here
@@ -11,7 +11,7 @@
 ## Delivery
 The npm package ships the engine, declarations, and README, not this kit or the render harness.
 An agent must be given this repository or explicitly fetch its entry point; npm install alone
-does not load instructions into an agent. Publication of the v1.1.1 tag remains a release step.
+does not load instructions into an agent. Publication of the v1.2.0 tag remains a release step.
 
 ## Avoid as default context
 Design specs, roadmaps, and maintainer handoffs are not application API guides. Do not infer

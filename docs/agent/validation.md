@@ -80,8 +80,8 @@ Do not call an implementation session its own independent baseline. Preserve fai
 ## Release checklist
 
 1. Review and commit the intended library changes; exclude unrelated frontend work.
-2. Confirm package manifest 1.1.1 and run the kit and GPU checks against a fresh build.
-3. Create and publish `v1.1.1` from that reviewed commit. Do not tag a dirty tree as if it includes it.
+2. Confirm package manifest 1.2.0 and run the kit and GPU checks against a fresh build.
+3. Create and publish `v1.2.0` from that reviewed commit. Do not tag a dirty tree as if it includes it.
 4. Verify the tagged root index, nested guide and example text can be fetched anonymously.
 5. Add verified tag-specific URLs to the package README before publication. Until then its
    branch URL is explicitly development-only, not a version-matching guarantee.

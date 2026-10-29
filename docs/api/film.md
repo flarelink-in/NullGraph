@@ -6,7 +6,7 @@
   the user picked, PNG sequences, Web Locks, and the films an app lists, cleans up and removes.
 - **Tested:** the browser G suite passed on an AMD iGPU and an NVIDIA GPU in Chrome
   ([validation](#validation-and-limits)).
-- **Later phases:** a worker (F4), and MetaForge's adapter (F-MF).
+- **Later phases:** a worker (F4), application integration validation (outside this repository).
 
 The design and its measurements: `docs/offline-films-browser-design.md` ("Phase F2 results",
 "Phase F3 results").

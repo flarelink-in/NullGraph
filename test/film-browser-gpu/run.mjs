@@ -108,6 +108,12 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 // Chrome over the DevTools protocol
 // ---------------------------------------------------------------------------------------------------
 
+/** A Chrome that did not close (its DevTools gone with a system sleep, say): the browser and every child process. */
+function killTree(proc) {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F']);
+    else try { proc.kill('SIGKILL'); } catch { /* gone */ }
+}
+
 async function openChrome(gpu) {
     const profile = mkdtempSync(join(tmpdir(), 'nullgraph-film-g-'));
     const args = [
@@ -154,11 +160,15 @@ async function openChrome(gpu) {
         /** Both DevTools sockets are open: a system sleep can close them, and then this Chrome is no use to the run. */
         alive: () => !page.closed && !browser.closed,
         async close() {
+            // Browser.close ends the browser with its GPU, renderer and utility processes. Killing the browser
+            // process alone leaves those running on Windows: 120 of them, 3.8 GB, had piled up on 2026-10-25.
+            await browser.send('Browser.close').catch(() => {});
             page.close();
             browser.close();
-            try { proc.kill(); } catch { /* gone */ }
-            await sleep(1000);
-            try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { /* best effort */ }
+            for (let i = 0; i < 30 && proc.exitCode === null; i++) await sleep(100);
+            if (proc.exitCode === null) killTree(proc);
+            await sleep(500);
+            try { rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 }); } catch { /* best effort: crashpad may outlive the browser by a few seconds */ }
         },
     };
 }

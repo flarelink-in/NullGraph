@@ -22,9 +22,9 @@ test('agent entry documents have valid local links', () => {
     assert.ok(count >= 20, 'routing documents should actually link to the kit and references');
 });
 
-test('manifest and entry documents identify version 1.1.1 without shipping the kit', () => {
+test('manifest and entry documents identify version 1.2.0 without shipping the kit', () => {
     const pkg = JSON.parse(read('package.json'));
-    assert.equal(pkg.version, '1.1.1');
+    assert.equal(pkg.version, '1.2.0');
     assert.deepEqual(pkg.files, ['dist']);
     for (const doc of docs.slice(0, 3)) assert.ok(read(doc).includes(pkg.version), doc);
 });

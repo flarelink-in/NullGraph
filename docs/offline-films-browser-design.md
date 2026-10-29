@@ -3,13 +3,11 @@
 **Parent:** [`offline-films-design.md`](./offline-films-design.md) §17, phase D2.4 ("Browser export:
 its own design").
 
-**Asked by the user** (2026-10-24): design specs for offline rendering in browsers and the related
-web stack, with build steps, ready before the Meta hackathon (kickoff Mon 2026-10-26, 21:30 IST).
-MetaForge Studio (`D:\orion-realms\metaforge`) is the first user and the reference: it already
-exports deterministic MP4s in about 150 lines (`src/engine/exporter.ts`), and its readiness notes
-list what is missing (`docs/null-graph-readiness.md`, gap 1).
+**Asked by the user** (2026-10-24): design specifications for offline rendering in browsers
+and the related web stack, with implementation and validation gates. Application-specific
+adoption plans and original project references are maintained separately in the notes repository.
 
-**Status:** draft 3, 2026-10-24 (reviewed against `src/core`, `tools/film`, `metaforge` and
+**Status:** draft 3, 2026-10-24 (reviewed against `src/core`, `tools/film` and
 locally installed `mediabunny@1.61.3`). **Spike S1 measured 2026-10-24 ("Spike S1 results" at the
 end). Q1, Q3, Q6–Q8 decided 2026-10-25, Q9 parked (§16). Phase F1 built 2026-10-25 ("Phase F1
 results"). F2 implementation reviewed 2026-10-25 ("F1/F2 review"), then completed the same day:
@@ -18,12 +16,11 @@ as recommended ("Phase F2 results" at the end; §16). Phase F3, storage, built 2
 then found and fixed seven defects, and its exit gate passed on both GPUs, the 60 s 4K OPFS film
 included ("Phase F3 results").** The body retains the draft-3 proposal and API sketches; later
 decision/result sections supersede those sketches. For the implemented F1–F3 API, use
-[`api/film.md`](./api/film.md). Current status: F1–F3 complete; F-MF, publication and F4 remain gated.
+[`api/film.md`](./api/film.md). Current status: F1–F3 complete; application validation, publication and F4 remain gated.
 This revision makes the **export session lifecycle**, not a scene abstraction, the baseline;
 adds ownership, cancellation, partial-output and storage policies; and separates measured facts
 from spike hypotheses. Existing user decisions remain in §16; new recommendations are not
-silently treated as decisions. The design is to be ready before kickoff on 2026-10-26;
-implementation during the hackathon is optional and separately gated (§14).
+silently treated as decisions. Application integration and publication remain separately gated (§14).
 
 ---
 
@@ -39,7 +36,7 @@ tracks, checkpoints, resume and replay. The browser gets the part every site nee
 camera path, frame capture, encoding and muxing, the guard, and a file at the end.
 
 **For whom:**
-1. **MetaForge Studio** (hackathon, 2026-10-26 to 11-05): its Record button, in three shapes, up
+1. **Browser rendering applications:** a Record button, in three shapes, up
    to 4K, without the compositor pacing the export and without long 4K clips filling RAM.
 2. **The test site's demos** (Herd & Wolves, the film scenes): a Record setting, as D2.4 planned.
 3. **Any app on `null-graph`**: one entry point, `null-graph/film`.
@@ -49,13 +46,13 @@ camera path, frame capture, encoding and muxing, the guard, and a file at the en
 | # | Claim | Verified at | Consequence for this design |
 |---|---|---|---|
 | 1 | The engine runs headless or on an `OffscreenCanvas`, and adopts an existing `GPUDevice` without owning its lifecycle. | `src/core/NullGraph.ts:48–56`; `src/core/WebGPUContext.ts:38`, `:57`, `:65`, `:101–144`, `:261–263`, `:286–294` | `init(null, { device, width, height })` draws into `screenTexture` (`rgba8unorm`, `RENDER_ATTACHMENT \| COPY_SRC`). `init(offscreenCanvas, { device })` configures `getPreferredCanvasFormat()` with `alphaMode: 'premultiplied'`. Neither destroys `device` when `ownsDevice === false`. |
-| 2 | `NullGraph` has `isDestroyed` but no `destroy()` method yet; `depthTexture` (33.2 MB at 4K), `screenTexture` (33.2 MB at 4K) and `cameraUniformBuffer` live on `WebGPUContext`. | `src/core/NullGraph.ts:35`; `src/core/WebGPUContext.ts:49–57`, `:113`, `:286–313`; `metaforge/docs/null-graph-readiness.md:56–60` | Without teardown on the film engine, each 4K export leaks 33–66 MB of VRAM on the shared `device` until GC. §12 adds `engine.destroy()` (destroys engine-owned targets, never an adopted `device`). |
+| 2 | `NullGraph` has `isDestroyed` but no `destroy()` method yet; `depthTexture` (33.2 MB at 4K), `screenTexture` (33.2 MB at 4K) and `cameraUniformBuffer` live on `WebGPUContext`. | `src/core/NullGraph.ts:35`; `src/core/WebGPUContext.ts:49–57`, `:113`, `:286–313` | Without teardown on the film engine, each 4K export leaks 33–66 MB of VRAM on the shared `device` until GC. §12 adds `engine.destroy()` (destroys engine-owned targets, never an adopted `device`). |
 | 3 | `src/core` touches no DOM. Texture and font helpers use worker-available APIs. | `src/core/TextureManager.ts:48–62` (`fetch`, `createImageBitmap`); `src/extras/text/FontAtlas.ts:253` (`OffscreenCanvas`) | The film engine and `null-graph/film` can run on the main thread or in a Dedicated Worker. |
-| 4 | MetaForge's exporter (`~155` lines) proves the WebCodecs + `mediabunny` path on this machine, and isolates the two faults to fix. | `metaforge/src/engine/exporter.ts:62–141`; `metaforge/docs/null-graph-readiness.md:21–23`, `:41`, `:48–53` | Lockstep `t = f / fps`, H.264 → VP9 → AV1, `new Quality({ bitrate })`. Fault 1: it resizes and draws into the *visible* canvas (`viewport.enterExport`), competing with the compositor. Fault 2: `BufferTarget` holds the whole MP4 in RAM. |
+| 4 | An application prototype (`~155` lines) demonstrated the WebCodecs + `mediabunny` path on this machine, motivating target isolation and streaming storage. | Historical application inspection; original references archived in the notes repository | Lockstep `t = f / fps`, H.264 → VP9 → AV1, `new Quality({ bitrate })`. Fault 1: it resizes and draws into the *visible* canvas (`viewport.enterExport`), sharing the preview target (S1 later found no compositor pacing). Fault 2: `BufferTarget` holds the whole MP4 in RAM. |
 | 5 | `mediabunny@1.61.3` `VideoSampleSource.add` takes a `VideoSample` (timestamps in **seconds**), not a bare `VideoFrame` (timestamps in **µs**), and does **not** close the sample (`closeSample = false`). | `mediabunny` `media-source.js:1163–1168` vs `CanvasSource.add` at `:1204–1213`; `sample.js:177`, `:296–302`, `:363` | `createVideoSink` wraps frames in `VideoSample` and calls `sample.close()` in `finally` after `await source.add(sample)` so WebCodecs `VideoFrame` handles never leak. |
 | 6 | `mediabunny@1.61.3` `Mp4OutputFormat` supports `fastStart: 'reserve'` when every track declares `maximumPacketCount`, and `StreamTarget` supports `chunked: true` (16 MiB chunks, up to 2 retained chunks in its chunk cache). | `mediabunny` `isobmff-muxer.js:143–152`; `target.js:153–154`, `:198–199`, `:260–310` | Known packet-count bounds permit front-reserved MP4 metadata on seekable storage. The 32 MiB chunk cache is **not** a bound on total export memory; mux metadata, temporary copies, encoder resources and GPU allocations are additional. |
 | 7 | The pure planner and camera path in `tools/film/` have no Node imports; `FrameCapture` uses `Buffer` in one method; optional peer dependencies in `src/extras/` use structural types with no top-level import. | `tools/film/manifest.mjs:81`; `tools/film/camera.mjs:32`; `tools/film/capture.mjs:6`, `:41–44`; `src/extras/inference/OrtRuntime.ts:7–16` | `planFilm` and `cameraPath` move to `src/extras/film/` as the single source of truth. `mediabunny` is loaded via dynamic `await import('mediabunny')` so Node tools and `tsc` never require it when importing pure helpers. |
-| 8 | The Node guard uses 1,000/1,500 ms thresholds; Chrome on this machine defaults to the AMD GCN-5 iGPU unless configured for the GTX 1650. Windows' default TDR timeout concerns task completion/preemption, not a universal WebGPU submission duration. | `tools/film/guard.mjs:6–7`; `docs/work/gotchas.md:30–36`; `metaforge/docs/null-graph-readiness.md:77–81`; Microsoft TDR reference (§17) | Reuse conservative thresholds as best-effort policy, not a reset-prevention guarantee. Device loss also affects a preview sharing that device; the app must recover it. |
+| 8 | The Node guard uses 1,000/1,500 ms thresholds; Chrome on this machine defaults to the AMD GCN-5 iGPU unless configured for the GTX 1650. Windows' default TDR timeout concerns task completion/preemption, not a universal WebGPU submission duration. | `tools/film/guard.mjs:6–7`; `docs/work/gotchas.md:30–36`; Microsoft TDR reference (§17) | Reuse conservative thresholds as best-effort policy, not a reset-prevention guarantee. Device loss also affects a preview sharing that device; the app must recover it. |
 
 ### Non-goals
 
@@ -142,7 +139,7 @@ for j in 0 … J−1:
 
 - **Initial state is explicit:** initialization/placement defines the pre-warm-up state; it is
   not a filmed step. The runner then owns exactly W warm-up steps and s steps for every frame,
-  including frame 0. MetaForge's current reset includes placement and warm-up; the Node Kerr
+  including frame 0. The prototype application's reset includes placement and warm-up; the Node Kerr
   factory also runs a placement dispatch before runner steps. Adapters must preserve those
   semantics deliberately. Tests compare step counts, simulation time and first-frame bytes
   before claiming Node/browser equivalence.
@@ -155,14 +152,14 @@ for j in 0 … J−1:
 `cameraPath(keyframes)` moves into the library: orbit keyframes `{ t, target, distance, azimuth,
 polar, fov? }`, Catmull-Rom slopes, log distance, eased ends.
 - **`fov` compatibility:** Node film manifests omit `fov` (`tools/film/manifest.mjs:22`), whereas
-  MetaForge keyframes include `fov` in degrees (`metaforge/src/engine/camera-path.ts:16`).
+  the prototype application keyframes include `fov` in degrees (historical application inspection).
   `readCamera` and `cameraPath` accept optional `fov?: number` (finite degrees `> 0` and `< 180`),
   interpolating it with the same cubic Hermite when present and omitting it when absent so Node's U1
   and U4 tests pass unchanged.
 - A film may instead pass any `(t: number) => CameraView`, or omit `camera` so the scene's own view
   holds.
 
-**Aspect reframing** (MetaForge's `fitView`, `metaforge/src/engine/camera-path.ts:55`: for aspects
+**Aspect reframing** (shared framing helpers: for aspects
 narrower than `designAspect = 16/9`, keep `keepWidth = 0.55` of the 16:9 width by widening vertical
 `fov` up to `maxFov = 60°`, then pulling `distance` back; `containAspect` widens `fov` to fit a
 guide rectangle on a narrower preview canvas) moves in as `fitAspect(view, aspect, options?)` and
@@ -238,9 +235,9 @@ WebCodecs `VideoFrame` handles leak and stall the encoder after ~16 frames.
   intersected with container support and probed at the actual size, fps, quality/bitrate and
   hardware preference. Surface the chosen codec: VP9/AV1 in MP4 are not a promise of H.264-like
   playback compatibility. WebM defaults to `['vp9', 'av1']`. Runtime encoder failure remains possible.
-- **Bitrate:** MetaForge's measured rule, `Math.round(width × height × fps × 0.16)` (≈ 20 Mbit/s at
+- **Bitrate:** the prototype application's measured rule, `Math.round(width × height × fps × 0.16)` (≈ 20 Mbit/s at
   1080p60, 80 at 4K60), overridable. Passed as `new Quality({ bitrate })`, not a bare number
-  (MetaForge's gotcha: a number reads as a 0–1 quality level).
+  (the prototype application's gotcha: a number reads as a 0–1 quality level).
 - **Keyframes** every 2 s (`keyFrameInterval: 2`). **Even** width and height, refused otherwise (as
   in Node).
 - **Colour:** `alpha: 'discard'`, `latencyMode: 'quality'`. Declare input RGB colour space/range
@@ -344,7 +341,7 @@ type FilmFrame = {
 
 An optional `fromFilmScene(factory, options)` adapter maps Node-style `prepareSurface`, `view`,
 `draw` and `destroy` to this contract. Its browser `film.track()` records ignored declarations;
-this does not make Node imports/assets automatically browser-safe. MetaForge pins quality to 1
+this does not make Node imports/assets automatically browser-safe. The prototype application pins quality to 1
 in its adapter; the generic session never changes application quality or installs a seed policy.
 Registered partial-build cleanups run if construction fails; once construction succeeds their
 ownership transfers to the workload disposer, avoiding duplicate disposal.
@@ -381,7 +378,7 @@ browser/OS safety boundaries.
   calibration steps as W warm-up. Rebuild/restore must itself satisfy bounded-work requirements.
 - **While running (periodic vs per-submission fencing):**
   - When calibration measured `msPerFrame ≤ 150 ms`, the loop awaits `device.queue.onSubmittedWorkDone()`
-    every 8 frames (`metaforge/src/engine/exporter.ts:125`) so the GPU queue stays fed without
+    every 8 frames (the prototype loop) so the GPU queue stays fed without
     stalling on every frame.
   - **Why `> 150 ms` switches to per-submission fencing:** 8 frames at 200 ms/frame take 1,600 ms
     for the batch even though each operation is only 200 ms (inside the 1,500 ms policy stop).
@@ -506,7 +503,7 @@ const result = await recordFilm({
         codecs: ['avc'],                      // explicit opt-in list for VP9/AV1 fallback
         bitrate: undefined,                   // default: Math.round(w × h × fps × 0.16)
         target: 'auto',                       // 'memory' | 'opfs' | { file: FileSystemFileHandle } | 'auto'
-        name: 'metaforge-kerr-1080p.mp4',
+        name: 'kerr-1080p.mp4',
         memoryBudgetBytes: 256 * 1024 * 1024, // proposed fallback payload budget, Q3
     },
     hashes: false,                            // true forces the readback source
@@ -519,7 +516,7 @@ const result = await recordFilm({
 //           dispose(): Promise<void> }
 ```
 
-**Smaller pieces, exported for apps that want their own loop** (MetaForge's photo, the test site's
+**Smaller pieces, exported for apps that want their own loop** (the prototype application's photo, the test site's
 custom UI):
 
 | Export | Is |
@@ -583,30 +580,18 @@ that caused it, and the way out:
 | Encoder error | `film: video encoder failed at frame <j>: <message>.` |
 | Cancelled | `DOMException('Export cancelled', 'AbortError')` (not shown as a failure). |
 
-## 9. MetaForge adoption
+## 9. Application adoption
 
-MetaForge's `src/engine/exporter.ts` becomes a thin adapter:
+Applications should supply a thin `createWorkload` adapter that builds an isolated runtime on
+the film engine, copies configuration without mutating the preview, and disposes its own resources.
+Pause the preview while exporting and restore it in the application's `finally` block; report
+device loss rather than attempting to resume a lost device.
 
-| Today (MetaForge) | After |
-|---|---|
-| `viewport.enterExport(w, h)` resizes the visible canvas | `viewport.stop()` pauses the preview; the film draws into its own target and `viewport.start()` resumes in `finally` |
-| `CanvasSource(viewport.canvas)` | `recordFilm({ source: 'auto' })` (`VideoSampleSource` over the film engine's `OffscreenCanvas` or `FrameReadback`) |
-| `BufferTarget` | proposed `auto`: writable OPFS first; budgeted memory fallback only (§4.5) |
-| `calibrate(...)` | `calibrateFilm(...)` |
-| `runtime.reset()`, then steps on the live runtime | a fresh runtime adapter with explicit placement, exact restore and runner-owned warm-up |
-| `snapshot(...)` | `snapshot(...)` from `null-graph/film` (no resize of the live canvas) |
-| `fitView` / `containView` | imported from `null-graph/film` as `fitAspect` / `containAspect` (same math) |
-
-The studio's export dialog keeps its UI. It gains: the probe's reasons for missing sizes, the
-"Save to a file" option where `showSaveFilePicker` exists, and the storage check.
-
-**`SceneRuntime` changes:**
-1. Expose a `createWorkload` adapter that constructs `SceneRuntime` on the film engine passed by
-   `recordFilm`; the runtime remains an app detail, not a library baseline.
-2. Separate `seedReset()` (re-upload initial particle seed and run step 0 placement) from warm-up
-   stepping so `recordFilm` owns the `W` warm-up steps and calibration reset without running
-   warm-up twice. Document placement as initialization; restore RNG, time, frame counters and
-   temporal post state as well as particle bytes. Test 30/60 fps and W = 0 before adoption.
+Separate placement/reset from warm-up so the runner owns exactly W warm-up steps. Test the
+application's first-frame convention, clocks and frame counts at 30 and 60 fps, including W = 0.
+Use `fitAspect` and `containAspect` where appropriate, and select storage before frame 0.
+Packed-package integration must verify one shared core, cancellation, partial output, repeated
+teardown and preview restoration. Project-specific adapters and their plans live outside this repo.
 
 ## 10. Tests
 
@@ -675,7 +660,7 @@ swap channels, skip a step, omit `sample.close()`).
 
 ## 11. Dependencies and the build
 
-- **mediabunny** (MPL-2.0, pinned in MetaForge at `1.61.3`) becomes an **optional peer dependency**
+- **mediabunny** (MPL-2.0, pinned in the prototype application at `1.61.3`) becomes an **optional peer dependency**
   of `null-graph` (`peerDependencies` + `peerDependenciesMeta.mediabunny.optional = true`, and in
   `devDependencies` for tests), just as `onnxruntime-web` is.
 - **Dynamic import and structural types (no top-level `import from 'mediabunny'`):**
@@ -692,15 +677,15 @@ swap channels, skip a step, omit `sample.close()`).
     structural types and test emitted `.d.ts` files with a consumer lacking mediabunny. The ORT
     precedent is namespace injection, not dynamic loading; keep injection available here too.
 - **Why not a muxer of our own:** MP4 boxes, `fastStart: 'reserve'`, WebM, codec strings and
-  encoder backpressure are a project; mediabunny does them, and MetaForge has measured it on this
+  encoder backpressure are a project; mediabunny does them, and the prototype application has measured it on this
   machine.
 - **Why `VideoSampleSource` over `CanvasSource`:** `CanvasSource` wraps `VideoSampleSource` for a
   single canvas (`media-source.js:1180`). Using `VideoSampleSource` with `VideoSample` lets source A
   (`OffscreenCanvas`) and source B (`FrameReadback` → `VideoFrame`) share one sink implementation.
-- **Release:** proposed `null-graph@1.2.0` only after F-MF and package-isolation/lifecycle gates.
+- **Release:** proposed `null-graph@1.2.0` only after application validation and package-isolation/lifecycle gates.
   Run build, core/film tests, declaration consumer checks and `npm pack --dry-run`; test the packed
-  artifact in MetaForge before publishing. A date is not a release gate (Q8 decided as recommended;
-  publication remains gated on F-MF).
+  artifact in the prototype application before publishing. A date is not a release gate (Q8 decided as recommended;
+  publication remains gated on application validation).
 
 ## 12. Engine touchpoints
 
@@ -721,8 +706,8 @@ pixel estimate at 3840×2160, not measured VRAM. Snapshot and video use the same
 |---|---|
 | `src/core/NullGraph.ts`, `src/core/WebGPUContext.ts` | `destroy()` (frees engine-owned targets; respects `ownsDevice`) |
 | `src/extras/film/index.ts` | the public exports |
-| `src/extras/film/plan.ts` | `planFilm`, `readCamera`, `bitrateFor`, `predictBytes` (from `tools/film/manifest.mjs` + MetaForge) |
-| `src/extras/film/camera.ts` | `cameraPath` (from `tools/film/camera.mjs`, with optional `fov`), `fitAspect`, `containAspect` (from MetaForge) |
+| `src/extras/film/plan.ts` | `planFilm`, `readCamera`, `bitrateFor`, `predictBytes` (from `tools/film/manifest.mjs` + the prototype application) |
+| `src/extras/film/camera.ts` | `cameraPath` (from `tools/film/camera.mjs`, with optional `fov`), `fitAspect`, `containAspect` (from the prototype application) |
 | `src/extras/film/probe.ts` | non-destructive capability/configuration probe and explicit operational smoke checks |
 | `src/extras/film/session.ts` | lifecycle state machine, sample ownership, terminal operations, cleanup ledger |
 | `src/extras/film/storage.ts` | targets, export IDs, commit/abort, locks, explicit orphan cleanup and retention |
@@ -745,19 +730,18 @@ Failure-injection, cross-tab storage and package checks are release work, not po
 
 | Phase | Builds | Exit | Est. |
 |---|---|---|---|
-| **S1** (spike) | A throwaway page in `test/spikes/film-browser/`: Kerr at 1080p and 4K, 300 frames, four ways: canvas frames from the visible canvas (today's MetaForge), from an unattached main-thread `OffscreenCanvas`, from an `OffscreenCanvas` in a worker; readback frames (`FrameReadback` → `VideoFrame('RGBX')`). Each into `VideoSampleSource` (`sample.close()` in `finally`) → MP4 in memory. Also: OPFS `StreamTarget({ chunked: true })` + `Mp4OutputFormat({ fastStart: 'reserve' })` at 4K. | ms a frame for each way on both GPUs; whether the unattached canvas is paced; heap peak with memory against OPFS; `ffprobe` verifies `moov` before `mdat`. Decides Q1 and Q2 (§16). **Measured 2026-10-24: "Spike S1 results".** | ½ day |
+| **S1** (spike) | A throwaway page in `test/spikes/film-browser/`: Kerr at 1080p and 4K, 300 frames, four ways: canvas frames from the visible canvas (the original prototype path), from an unattached main-thread `OffscreenCanvas`, from an `OffscreenCanvas` in a worker; readback frames (`FrameReadback` → `VideoFrame('RGBX')`). Each into `VideoSampleSource` (`sample.close()` in `finally`) → MP4 in memory. Also: OPFS `StreamTarget({ chunked: true })` + `Mp4OutputFormat({ fastStart: 'reserve' })` at 4K. | ms a frame for each way on both GPUs; whether the unattached canvas is paced; heap peak with memory against OPFS; `ffprobe` verifies `moov` before `mdat`. Decides Q1 and Q2 (§16). **Measured 2026-10-24: "Spike S1 results".** | ½ day |
 | **F1** | ownership-aware engine teardown (§12), pure `plan.ts`/`camera.ts`/`png.ts`, `probe.ts`, session state skeleton; build/export declarations and optional peer; Node pure-helper migration | B1, B2, B5 and dependency isolation portion of B8; core/Node film tests pass. B3/B4 wait for F2. **Built 2026-10-25: "Phase F1 results".** | ½–1 day |
 | **F2** | session lifecycle, readback/sinks/guard/runner/report; memory/hash/none sinks, explicit task yields, deterministic reset and cancellation | B1–B8 applicable to memory; G1–G3, guard portion of G5, G6 and G9 on both GPUs. **Passed 2026-10-25: "Phase F2 results".** | 1–2 days |
 | **F3** | storage/locks/IDs, OPFS and picked-file commit/abort, orphan cleanup, budget/quota failures, opt-in partial finalization and PNG sink | G4, storage portion of G5, G7–G9; 60 s 4K OPFS film. **Passed 2026-10-25: "Phase F3 results".** | 1–2 days |
-| **F-MF** | MetaForge adapter against local build, packed artifact then proposed published release | three shapes × three sizes; frame counts/initial-state tests; repeated teardown and cancel/partial gates; preview resumes or reports recovery; package isolation passes | ½–1 day |
+| **Application validation** | Adapter against the local build and packed artifact; project-specific implementation outside this repository | three shapes × three sizes; frame counts/initial-state tests; repeated teardown and cancel/partial gates; preview resumes or reports recovery; package isolation passes | ½–1 day |
 | **F4** (if needed) | The worker: `worker.ts`, `recordFilmInWorker`, scene modules importable in a worker | the G tests pass in the worker; the UI's frame rate during export measured against F2 | 1 day |
 | **F5** (later) | The test site: a Record setting on the demo pages; Herd & Wolves as a film scene in the browser | a Herd & Wolves film from the site, read by eye against the Node film | ½ day |
 
-**For the hackathon:** finish/review the design before Monday 2026-10-26, 21:30 IST. As of
-2026-10-25, S1 and F1–F3 have passed their measured gates (results below); F-MF has not.
-The effort estimates above are planning estimates, not elapsed-time claims or delivery promises.
-MetaForge retains its existing exporter until the replacement passes F-MF. Library-first was
-decided in Q5; it does not make library publication a demo dependency.
+**Integration status (2026-10-25):** S1 and F1–F3 have passed their measured gates (results
+below); application validation has not. Effort estimates are planning estimates, not delivery
+promises. Applications retain their existing exporters until replacements pass integration.
+Library publication is not an application dependency.
 
 ## 15. Deferred
 
@@ -767,7 +751,7 @@ decided in Q5; it does not make library publication a demo dependency.
 - **Resume** after a closed tab (needs checkpoints: D2.5).
 - **Audio**, an end card, titles drawn on the GPU (the film-overlays design covers ffmpeg; a
   browser overlay pass is its own design).
-- **Motion blur** by sub-frame accumulation (MetaForge lists it as optional): N draws a frame at
+- **Motion blur** by sub-frame accumulation (the prototype application lists it as optional): N draws a frame at
   τ_j + k/(N·r), averaged in a compute pass before capture.
 - **PNG sequences zipped** for download.
 - **Firefox and Safari** checks: the module detects and declines what they lack; nobody has run G1–G9
@@ -781,15 +765,15 @@ decided in Q5; it does not make library publication a demo dependency.
 | Q2 | Worker in the first slice (F4), or main thread with a separate target? | **Main thread first.** The separate target already fixes the compositor problem; the worker costs a second device and scene modules. Build F4 only if F2 shows the UI stuttering. *(Decided 2026-10-24: main thread first.)* |
 | Q3 | Automatic target and memory budget. | **Prefer writable OPFS**, otherwise permit memory only within configurable predicted/runtime payload budget (proposed 256 MiB). No unlimited fallback and no resolution-only rule. This does not cap total export RAM. |
 | Q4 | mediabunny as an optional peer dependency of the library. | **Yes**, loaded via dynamic `await import('mediabunny')` with local structural types, as with `onnxruntime-web`. *(Decided 2026-10-24: yes.)* |
-| Q5 | Library first, then MetaForge (this order), or build in MetaForge and lift into the library afterwards? | **Library first** for F1–F2, since the pieces already exist in two places (Node tool, MetaForge) and a third copy would drift. If the hackathon days are tight, keep MetaForge's exporter and land the library after the submission. *(Decided 2026-10-25: library first; F1–F2 complete.)* |
-| Q6 | Should `fitAspect` and `containAspect` (MetaForge's vertical and square framing) live in the library? | **Yes**, small and general; the test site needs the same framing for Shorts. |
+| Q5 | Library first or application first? | **Library first** for F1–F2 to avoid duplicated shared helpers; applications keep their current exporters until integration passes. *(Decided 2026-10-25: library first; F1–F2 complete.)* |
+| Q6 | Should `fitAspect` and `containAspect` (the prototype application's vertical and square framing) live in the library? | **Yes**, small and general; the test site needs the same framing for Shorts. |
 | Q7 | Default container and codec order. | **MP4/H.264**; VP9/AV1 fallback only when the app opts in and exposes the selected codec/compatibility distinction. WebM when requested; intersect codecs with container support. |
-| Q8 | Release `null-graph@1.2.0` during the hackathon? | **Only after F-MF, lifecycle and packed-package gates pass**; never release solely to meet the calendar. |
+| Q8 | When to release `null-graph@1.2.0`? | **Only after application validation, lifecycle and packed-package gates pass**; never release solely to meet the calendar. |
 | Q10 (new, F2) | One fenced operation passes the 1.5 s stop with nothing to explain it: no page freeze (those are now excused, "Phase F2 results"). S1 saw the AMD iGPU stall for 0.4–2.0 s under light work in a real window. Stop at once, or measure once more first? | **Measure once more when the slow operation is an outlier**: the calibrated operation was under a quarter of the stop, and only this one is over it. Go on if the next fenced operation is under the stop; stop if it is over too. The cost: on a GPU that really did become that slow, one more operation of that size is submitted. *(Decided 2026-10-25: as recommended.)* |
 
 **Decided by the user, 2026-10-24:** Q2 as recommended (main thread first; F4 only if F2 shows
 the UI stuttering). Q4 as recommended (mediabunny an optional peer dependency). Q5 left for later.
-MetaForge is the hackathon entry. Q1 waits for S1; Q3 and Q6–Q8 are open.
+At that point Q1 waited for S1; Q3 and Q6–Q8 are open.
 
 **Decided by the user, 2026-10-25,** after S1 ("you can choose recommended and start with next"):
 - **Q1** as S1 recommends: an offscreen canvas for video, readback for exact bytes (hashes, PNG,
@@ -810,7 +794,7 @@ MetaForge is the hackathon entry. Q1 waits for S1; Q3 and Q6–Q8 are open.
 ## 17. Review evidence and remaining validation
 
 Draft 3 is a design review, not a new benchmark. Local implementation evidence is the core,
-Node tools and `D:/orion-realms/metaforge/node_modules/mediabunny/` at 1.61.3. External behavior
+Node tools and the locally installed mediabunny source at 1.61.3. External behavior
 should be checked against primary references during implementation:
 
 - WebGPU specification: canvas current-texture expiry, queue completion and device error scopes.
@@ -852,7 +836,7 @@ GTX 1650 (`--force_high_performance_gpu`), headless (`--headless=new`) and, for 
   kept MP4s are in `test/spikes/film-browser/out/` (git-ignored).
 
 The four ways:
-- **visible:** the engine on the page's `<canvas>` (MetaForge's exporter today),
+- **visible:** the engine on the page's `<canvas>` (the prototype application's exporter today),
   `new VideoFrame(canvas)`;
 - **offscreen:** an `OffscreenCanvas` nobody shows, on the main thread;
 - **worker:** the same in a dedicated worker, on the worker's own device;
@@ -873,7 +857,7 @@ The four ways:
   frame, 43 ms at 1080p and 118 ms at 4K, is the frame's GPU time. On the GTX 1650 the encoder
   sets the pace: a canvas way's `add` waits 7–8 ms at 1080p and about 20 ms at 4K.
 - **The visible canvas costs 2–15% more** than the offscreen one, most at 4K.
-- **MetaForge's loop shape (no task yield)** ran 1080p at 47.5 / 43.6 ms (visible / offscreen) on
+- **The prototype application's loop shape (no task yield)** ran 1080p at 47.5 / 43.6 ms (visible / offscreen) on
   AMD and 9.2 / 8.8 on the GTX 1650. The yield costs up to 10%.
 - **Canvas frames equal readback frames.** Frame 150 of every canvas way equals the readback's in
   RGB, byte for byte, on both GPUs, the worker's own device included.
@@ -890,14 +874,14 @@ A light scene (65,536 particles, 1080p), a task between frames, no encoder; mean
 | GTX 1650, headed | 1.5 | 1.6 | 1.6 | – | 4.0 |
 
 - **Nothing is paced to the display:** not the unattached canvas, and not the visible one either,
-  in headless or headed Chrome, on either GPU. The MetaForge slowness this design blamed on the
+  in headless or headed Chrome, on either GPU. The application slowness this design blamed on the
   compositor is the iGPU's GPU time.
 - **The iGPU stalls in a real window.** In headed Chrome on the AMD iGPU (which also drives the
   desktop), two of four pace runs had isolated stalls of 0.4 s and 2.0 s, wherever the frame was
   drawn. Their means read 15.6 and 27.9 ms. Cause not established.
 - **Queue completion is reported promptly:** `onSubmittedWorkDone` and a 4-byte `mapAsync` queued
   behind the same frame took the same time in every way and mode (AMD 7–12 ms, GTX 1650 3–4 ms).
-  The compositor wait in MetaForge's `viewport.ts` comment did not appear.
+  The compositor wait in the prototype application's `viewport.ts` comment did not appear.
 
 ### The main thread (Q2)
 
@@ -932,7 +916,7 @@ A light scene (65,536 particles, 1080p), a task between frames, no encoder; mean
   19.8. Hardware QP 34 / 30 / 26 cost 27.5 / 45.7 / 70.7 Mbit/s.
 - **Read by eye** (frame 150, 800 × 450 crops at 4K): the 8.3 Mbit/s default smears the particle
   grain into macroblocks. Software VBR, hardware CBR at 82 and QP 34 keep it. This is what
-  MetaForge's exporter (`CanvasSource`, no preference) records at 4K on this laptop, headed or not.
+  the prototype application's exporter (`CanvasSource`, no preference) records at 4K on this laptop, headed or not.
 - **The software encoder is not bitrate-bound on hard content:** JavaScript noise frames came out
   at 97 Mbit/s at 1080p and 388 at 4K, against 19.9 and 79.6.
 - **mediabunny's codec probe** (`getFirstEncodableVideoCodec`) takes `frameRate` but no hardware
@@ -1027,7 +1011,7 @@ Offscreen way, GTX 1650, hardware QP 34 (71 Mbit/s):
 ### Not run
 
 - Firefox and Safari; Chrome on other machines or GPUs; a display other than 60 Hz.
-- MetaForge's own scenes. The work is Kerr only, which leaves alpha at 1 after Tonemap; the pattern
+- the prototype application's own scenes. The work is Kerr only, which leaves alpha at 1 after Tonemap; the pattern
   covered alpha < 1.
 - The G tests themselves: device loss, quota, permission and lock cases; 60 s OPFS films; G2's
   per-codec tolerances.
@@ -1199,7 +1183,7 @@ suite forced.
 | §4.5, §6: `target: 'auto'` prefers OPFS | `auto` resolves to budgeted memory until F3, and the report says `memory`. OPFS and picked files refuse rather than pretend to stream. |
 | §4.7: every measured operation is judged, and stops at once | An operation measured across a page freeze is not judged, nor is a batch with a freeze in it taken for congestion (defect 6; §4.9 asks a frozen film to go on). When a fenced operation exceeds the stop without a freeze, it is measured once more if its calibrated operation was under a quarter of the stop (Q10). |
 | §4.9: the first terminal request wins | Still so, with one addition: `session.abandon(error)` interrupts a wait on an encoder that will never answer, even inside a `finish()` (defect 5). |
-| §6: `fromFilmScene` | Not built. The G tests adapt the Node Kerr scene by hand (`workloads.js`, a dozen lines). The adapter belongs to F-MF. |
+| §6: `fromFilmScene` | Not built. The G tests adapt the Node Kerr scene by hand (`workloads.js`, a dozen lines). The Node-style scene adapter is deferred to F5; application adapters remain application-owned. |
 
 ### Defects the G suite found
 
@@ -1304,7 +1288,7 @@ GPU asked for. The final run passed all 12 cases on both: 305 checks each, 610 i
   - The Node tool's scenes free their passes but keep their batch buffers until their engine goes. A
     scene without `reset()` therefore holds two copies of its GPU data while the film runs (Kerr: about
     32 MB more).
-- **Not run:** Firefox and Safari; other machines; MetaForge's own scenes (F-MF).
+- **Not run:** Firefox and Safari; other machines; the prototype application's own scenes (application validation).
 
 ---
 
@@ -1452,9 +1436,9 @@ Battery Trigger Met" (17:27:41) and slept. It resumed at 17:59:14, when the char
 - **4K films are small on this laptop:** the hardware path delivered 8.0–8.1 Mbit/s for Kerr at 4K
   against the 79.6 asked, in every run. That is S1's finding; rate control stays parked (Q9).
 - **Not run:** Firefox and Safari; a real `showSaveFilePicker` handle (G8 writes through an OPFS file's
-  handle, the same `FileSystemFileHandle` interface, and denies one through a proxy); MetaForge's scenes
-  (F-MF).
-- **Next:** F-MF, MetaForge's adapter (with `fromFilmScene`), or F4 if the UI needs the worker (§14).
+  handle, the same `FileSystemFileHandle` interface, and denies one through a proxy); the prototype application's scenes
+  (application validation).
+- **Next:** application validation, or F4 if the UI needs the worker (§14). `fromFilmScene` is deferred to F5.
 
 ### Follow-up review — 2026-10-25
 

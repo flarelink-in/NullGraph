@@ -84,6 +84,7 @@ depends on the imported features and the application's bundler.
 | `null-graph/text`        | GPU-culled SDF/MSDF labels, halos, depth modes, atlas generation/loading and labels following GPU-buffer positions                                                                  | [Text](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/text.md)                                                                                                                                 |
 | `null-graph/agents`      | GPU fixed-step sense → think → act simulation, spatial neighbour queries, WGSL rule policies, small dense-network inference, custom sensors/actions, inspection and instance output | [Agents](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agents.md) · [Spatial grid](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/agent-grid.md)                              |
 | `null-graph/inference`   | Networks trained elsewhere: reads a small dense network from an `.onnx` file for the agents' network brain, and runs other models through ONNX Runtime Web on GPU buffers           | [Inference](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/inference.md)                                                                                                                         |
+| `null-graph/film`        | Offline films in the browser on the viewer's GPU: a fixed-timeline runner on an engine and target of its own, WebCodecs encoding through mediabunny (an optional peer), streaming to OPFS or a picked file, exact PNG frames and snapshots, and a guard on every GPU submission| [Film](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/film.md)                                                                                                                                   |
 | `null-graph/cameras`     | Orbit, fly, follow and path controllers with DOM-independent state and optional input proxies                                                                                       | [Cameras](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/cameras.md)                                                                                                                           |
 | `null-graph/debug-ui`    | Debug views and telemetry, including grid and agent visualization                                                                                                                   | [Debug UI](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/debug-ui.md)                                                                                                                         |
 | `null-graph/profiler`    | WebGPU timestamp-query profiling on devices that support it                                                                                                                         | [Profiler](https://github.com/Vikas593-cloud/NullGraph/blob/master/docs/api/profiler.md)                                                                                                                         |
@@ -164,6 +165,12 @@ recorder for arbitrary browser applications. New scenes supply a small adapter; 
 works with declared GPU buffers rather than requiring an agent simulation.
 See the [film setup and commands](./tools/film/README.md) and
 [general-purpose scene authoring guide](./tools/film/SCENE-AUTHORING.md).
+
+In the browser, `null-graph/film` films an application's own workload on the viewer's GPU, with
+no server: frame j is drawn at film time j / fps however long it takes, on an engine and target of
+its own (the app's preview is paused, not borrowed), encoded through WebCodecs and streamed to OPFS
+or a file the user picked. It has no tracks, checkpoints or resume; those stay with the Node tools.
+See the [film guide](./docs/api/film.md).
 
 ## Requirements and boundaries
 
