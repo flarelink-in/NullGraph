@@ -196,6 +196,17 @@ volume bounds and let normal scheduling refresh progressively. Use public `volum
 Copy environment SH after bake submission so subsequent work consumes updated SH. Initial filling
 is not proof of multi-bounce convergence. These are integration rules, not a new GI starter here.
 
+### WGSL names
+
+Beyond its keywords, WGSL reserves more than a hundred words for future use, and several read like
+ordinary names: `move`, `filter`, `pass`, `type`, `target`, `meta`, `mod`, `set`, `get`, `self`,
+`use`, `match`, `module`, `common`, `smooth`, `shared`, `ref`, `final`. The shader compiler refuses
+each as an identifier: a variable, parameter, function or struct member, including a `CustomEffect`
+parameter, which becomes a member of its params struct. Check the WGSL specification's reserved
+words before naming anything in WGSL you write or generate. A local named after a built-in function
+(`let step = …`) does compile, but the name then means the variable, so a later `step(…)` call in
+its scope fails.
+
 ## 6. Evidence and boundaries
 
 Never label a compile-only check a rendering test. Never label a non-blank screenshot a proof
